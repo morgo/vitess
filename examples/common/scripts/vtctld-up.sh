@@ -21,7 +21,7 @@ source "$(dirname "${BASH_SOURCE[0]:-$0}")/../env.sh"
 cell=${CELL:-'test'}
 grpc_port=15999
 
-echo "Starting vtctld..."
+echo "Starting vtctld with FLAGS: $TOPOLOGY_FLAGS..."
 # shellcheck disable=SC2086
 #TODO: Remove underscore(_) flags in v25, replace them with dashed(-) notation
 vtctld \
