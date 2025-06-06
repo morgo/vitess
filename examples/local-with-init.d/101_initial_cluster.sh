@@ -14,10 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# this script all the vitess components required for a single shard deployment.
-# A mysql server must already be started for the topo!
+# Copy the example configuration file to /etc/vitess.yaml
+# You may need to adjust to use sudo cp here.
+cp ../common/config/vitess.yaml.101-example /etc/vitess.yaml
 
-source ../common/env.sh
+# Source the utility functions for this script.
+# This is required for wait_for_healthy_shard and fail functions.
+source ../init.d/utils.sh
 
 # This is done here as a means to support testing the experimental
 # custom sidecar database name work in a wide variety of scenarios
@@ -28,27 +31,12 @@ source ../common/env.sh
 # sidecar database name when it's truly needed.
 SIDECAR_DB_NAME=${SIDECAR_DB_NAME:-"_vt"}
 
-# Set topo implementation to mysql
-export TOPO="mysql"
-export TOPO_FLAGS="--topo-implementation mysql --topo-global-server-address localhost:3306/topo --topo-global-root /vitess/global"
+# Step 1. Start the topology server (topo) and vtctld.
+# This is the first step in bringing up the Vitess cluster.
+../init.d/topo start
+../init.d/vtctld start
 
-# Start a local MySQL instance for the topo server if it's not already running
-if ! mysql -u root -h 127.0.0.1 -P 3306 -e "SELECT 1" > /dev/null 2>&1; then
-  echo "Please start a mysql server first for the topo!"
-  exit 1
-fi
-
-mysql -e 'drop database if exists topo' # ensure a reset.
-
-# the up script usually adds a cell, so lets do that.
-echo "add zone1 CellInfo"
-command vtctldclient --server internal AddCellInfo \
-  --root "/vitess/zone1" \
-  "zone1" --topo-implementation mysql --topo-global-server-address localhost:3306/topo --topo-global-root /vitess/global
-
-
-# start vtctld
-CELL=zone1 ../common/scripts/vtctld-up.sh
+# Step 2. create our first keyspace for commerce.
 
 if vtctldclient GetKeyspace commerce > /dev/null 2>&1 ; then
 	# Keyspace already exists: we could be running this 101 example on an non-empty VTDATAROOT
@@ -61,28 +49,15 @@ else
 	vtctldclient CreateKeyspace --sidecar-db-name="${SIDECAR_DB_NAME}" --durability-policy=semi_sync commerce || fail "Failed to create and configure the commerce keyspace"
 fi
 
-# start mysqlctls for keyspace commerce
-# because MySQL takes time to start, we do this in parallel
-for i in 100 101 102; do
-	CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh &
-done
+# Step 3. Start all mysqlctls and tablets.
+../init.d/mysqlctl-vttablet start
 
-# without a sleep, we can have below echo happen before the echo of mysqlctl-up.sh
-sleep 2
-echo "Waiting for mysqlctls to start..."
-wait
-echo "mysqlctls are running!"
-
-# start vttablets for keyspace commerce
-for i in 100 101 102; do
-	CELL=zone1 KEYSPACE=commerce TABLET_UID=$i ../common/scripts/vttablet-up.sh
-done
-
-# start vtorc
-../common/scripts/vtorc-up.sh
+# Step 4. start vtorc. This will help pick a primary tablet
+../init.d/vtorc start
 
 # Wait for all the tablets to be up and registered in the topology server
 # and for a primary tablet to be elected in the shard and become healthy/serving.
+echo "Waiting for tablets to be healthy and serving in the commerce keyspace..."
 wait_for_healthy_shard commerce 0 || exit 1
 
 # create the schema
@@ -92,13 +67,12 @@ vtctldclient ApplySchema --sql-file create_commerce_schema.sql commerce || fail 
 vtctldclient ApplyVSchema --vschema-file vschema_commerce_initial.json commerce || fail "Failed to apply vschema for the commerce keyspace"
 
 # start vtgate
-CELL=zone1 ../common/scripts/vtgate-up.sh
+../init.d/vtgate start
 
 # start vtadmin
-if [[ -n ${SKIP_VTADMIN} ]]; then
-	echo -e "\nSkipping VTAdmin! If this is not what you want then please unset the SKIP_VTADMIN env variable in your shell."
-else
-	../common/scripts/vtadmin-up.sh
-fi
+../init.d/vtadmin start
 
-
+echo "Cluster is now running!"
+echo "Access vtgate at: http://localhost:15001/debug/status"
+echo "Access vtctld at: http://localhost:15000/debug/status"
+echo "Access vtadmin at: http://localhost:14200"

@@ -26,6 +26,7 @@ import (
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/stats"
+	"vitess.io/vitess/go/vt/config"
 	"vitess.io/vitess/go/vt/discovery"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/srvtopo"
@@ -72,8 +73,112 @@ var (
 	--mysql-auth-server-impl none`,
 		Args:    cobra.NoArgs,
 		Version: servenv.AppVersion.String(),
-		PreRunE: servenv.CobraPreRunE,
-		RunE:    run,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// Initialize config from vitess.yaml
+			if err := config.Init(); err != nil {
+				return err
+			}
+
+			// If topo implementation is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-implementation").Changed == false {
+				if impl := config.GetString("global", "topo-implementation", ""); impl != "" {
+					if err := cmd.Flags().Set("topo-implementation", impl); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If topo global-server-address is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-server-address").Changed == false {
+				if addr := config.GetString("global", "topo-global-server-address", ""); addr != "" {
+					if err := cmd.Flags().Set("topo-global-server-address", addr); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If topo global-root is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-root").Changed == false {
+				if root := config.GetString("global", "topo-global-root", ""); root != "" {
+					if err := cmd.Flags().Set("topo-global-root", root); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If cell is not set via command line, try to get it from config
+			if cell == "" {
+				if configCell := config.GetString("global", "cell", ""); configCell != "" {
+					cell = configCell
+				}
+			}
+
+			// If port is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("port").Changed == false {
+				if port := config.GetInt("vtgate", "web-port", 0); port > 0 {
+					if err := cmd.Flags().Set("port", fmt.Sprintf("%d", port)); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If grpc-port is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("grpc-port").Changed == false {
+				if port := config.GetInt("vtgate", "grpc-port", 0); port > 0 {
+					if err := cmd.Flags().Set("grpc-port", fmt.Sprintf("%d", port)); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If mysql-server-port is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("mysql-server-port").Changed == false {
+				if port := config.GetInt("vtgate", "mysql-server-port", 0); port > 0 {
+					if err := cmd.Flags().Set("mysql-server-port", fmt.Sprintf("%d", port)); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If tablet-types-to-wait is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("tablet-types-to-wait").Changed == false {
+				if tabletTypes := config.GetString("vtgate", "tablet-types-to-wait", ""); tabletTypes != "" {
+					if err := cmd.Flags().Set("tablet-types-to-wait", tabletTypes); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If cells_to_watch is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("cells_to_watch").Changed == false {
+				if cellsToWatch := config.GetString("vtgate", "cells_to_watch", ""); cellsToWatch != "" {
+					if err := cmd.Flags().Set("cells_to_watch", cellsToWatch); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If mysql_auth_server_impl is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("mysql_auth_server_impl").Changed == false {
+				if authImpl := config.GetString("vtgate", "mysql_auth_server_impl", ""); authImpl != "" {
+					if err := cmd.Flags().Set("mysql_auth_server_impl", authImpl); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If service_map is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("service_map").Changed == false {
+				if serviceMap := config.GetString("vtgate", "service_map", ""); serviceMap != "" {
+					if err := cmd.Flags().Set("service_map", serviceMap); err != nil {
+						return err
+					}
+				}
+			}
+
+			return servenv.CobraPreRunE(cmd, args)
+		},
+		RunE: run,
 	}
 
 	srvTopoCounts *stats.CountersWithSingleLabel
@@ -204,6 +309,9 @@ func init() {
 	servenv.RegisterGRPCServerFlags()
 	servenv.RegisterGRPCServerAuthFlags()
 	servenv.RegisterServiceMapFlag()
+
+	// Register configuration flags
+	config.RegisterFlags(Main.Flags())
 
 	servenv.MoveFlagsToCobraCommand(Main)
 

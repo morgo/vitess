@@ -24,6 +24,7 @@ import (
 	"vitess.io/vitess/go/acl"
 	vtcmd "vitess.io/vitess/go/cmd"
 	"vitess.io/vitess/go/mysql/collations"
+	"vitess.io/vitess/go/vt/config"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/servenv"
@@ -50,6 +51,36 @@ var (
 
 			if vtcmd.IsRunningAsRoot() {
 				return fmt.Errorf("mysqlctl cannot be run as root. Please run as a different user")
+			}
+
+			// Initialize config from vitess.yaml
+			if err := config.Init(); err != nil {
+				return err
+			}
+
+			// If tablet-uid is not set via command line, try to get it from config
+			if tabletUID == 41983 {
+				// Check if we're in a specific mysqlctl section
+				if len(args) > 0 && cmd.Name() == "mysqlctl" {
+					sectionName := fmt.Sprintf("mysqlctl-%s", args[0])
+					if uid := config.GetInt(sectionName, "tablet-uid", 0); uid > 0 {
+						tabletUID = uint32(uid)
+					}
+				}
+			}
+
+			// If mysql-port is not set via command line, try to get it from config
+			if mysqlPort == 3306 {
+				// Check if we're in a specific mysqlctl section
+				if len(args) > 0 && cmd.Name() == "mysqlctl" {
+					sectionName := fmt.Sprintf("mysqlctl-%s", args[0])
+					if port := config.GetInt(sectionName, "mysql-port", 0); port > 0 {
+						mysqlPort = port
+					} else {
+						// Default to tablet UID + 17000 if not specified
+						mysqlPort = 17000 + int(tabletUID)
+					}
+				}
 			}
 
 			return nil

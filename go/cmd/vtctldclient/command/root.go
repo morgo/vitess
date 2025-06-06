@@ -177,7 +177,7 @@ connect directly to the topo server(s).`, useInternalVtctld),
 	}
 )
 
-var errNoServer = errors.New("please specify --server <vtctld_host:vtctld_port> to specify the vtctld server to connect to")
+var errNoServer = errors.New("please specify --server <vtctld_host:vtctld_port> to specify the vtctld server to connect to, or set it in /etc/vitess.yaml under vtctldclient.server")
 
 const skipClientCreationKey = "skip_client_creation"
 
@@ -223,7 +223,7 @@ func getClientForCommand(cmd *cobra.Command) (vtctldclient.VtctldClient, error) 
 }
 
 func init() {
-	Root.PersistentFlags().StringVar(&server, "server", "", "server to use for the connection (required)")
+	Root.PersistentFlags().StringVar(&server, "server", "", "server to use for the connection (required if not specified in /etc/vitess.yaml under vtctldclient.server)")
 	Root.PersistentFlags().DurationVar(&actionTimeout, "action_timeout", time.Hour, "timeout to use for the command")
 	Root.PersistentFlags().BoolVar(&compactOutput, "compact", false, "use compact format for otherwise verbose outputs")
 	Root.PersistentFlags().StringVar(&topoOptions.implementation, "topo-implementation", topoOptions.implementation, "the topology implementation to use")

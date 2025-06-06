@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/acl"
+	"vitess.io/vitess/go/vt/config"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vtctld"
@@ -50,7 +51,41 @@ This is demonstrated in the example usage below.`,
 	--grpc-port 15999`,
 		Args:    cobra.NoArgs,
 		Version: servenv.AppVersion.String(),
-		PreRunE: servenv.CobraPreRunE,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// Initialize config from vitess.yaml
+			if err := config.Init(); err != nil {
+				return err
+			}
+			
+			// If topo implementation is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-implementation").Changed == false {
+				if impl := config.GetString("global", "topo-implementation", ""); impl != "" {
+					if err := cmd.Flags().Set("topo-implementation", impl); err != nil {
+						return err
+					}
+				}
+			}
+			
+			// If topo global-server-address is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-server-address").Changed == false {
+				if addr := config.GetString("global", "topo-global-server-address", ""); addr != "" {
+					if err := cmd.Flags().Set("topo-global-server-address", addr); err != nil {
+						return err
+					}
+				}
+			}
+			
+			// If topo global-root is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-root").Changed == false {
+				if root := config.GetString("global", "topo-global-root", ""); root != "" {
+					if err := cmd.Flags().Set("topo-global-root", root); err != nil {
+						return err
+					}
+				}
+			}
+			
+			return servenv.CobraPreRunE(cmd, args)
+		},
 		RunE:    run,
 	}
 )
@@ -93,6 +128,9 @@ func init() {
 	servenv.RegisterGRPCServerFlags()
 	servenv.RegisterGRPCServerAuthFlags()
 	servenv.RegisterServiceMapFlag()
+	
+	// Register configuration flags
+	config.RegisterFlags(Main.Flags())
 
 	servenv.MoveFlagsToCobraCommand(Main)
 

@@ -21,6 +21,7 @@ import (
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/viperutil/debug"
+	vtconfig "vitess.io/vitess/go/vt/config"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vtorc/config"
@@ -44,8 +45,46 @@ var (
 	--alsologtostderr`,
 		Args:    cobra.NoArgs,
 		Version: servenv.AppVersion.String(),
-		PreRunE: servenv.CobraPreRunE,
-		Run:     run,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := servenv.CobraPreRunE(cmd, args); err != nil {
+				return err
+			}
+
+			// Initialize config from vitess.yaml
+			if err := vtconfig.Init(); err != nil {
+				return err
+			}
+
+			// If topo implementation is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-implementation").Changed == false {
+				if impl := vtconfig.GetString("global", "topo-implementation", ""); impl != "" {
+					if err := cmd.Flags().Set("topo-implementation", impl); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If topo global-server-address is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-server-address").Changed == false {
+				if addr := vtconfig.GetString("global", "topo-global-server-address", ""); addr != "" {
+					if err := cmd.Flags().Set("topo-global-server-address", addr); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If topo global-root is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-root").Changed == false {
+				if root := vtconfig.GetString("global", "topo-global-root", ""); root != "" {
+					if err := cmd.Flags().Set("topo-global-root", root); err != nil {
+						return err
+					}
+				}
+			}
+
+			return nil
+		},
+		Run: run,
 	}
 )
 
@@ -86,6 +125,9 @@ func addStatusParts() {
 func init() {
 	servenv.RegisterDefaultFlags()
 	servenv.RegisterFlags()
+
+	// Register configuration flags
+	vtconfig.RegisterFlags(Main.Flags())
 
 	servenv.MoveFlagsToCobraCommand(Main)
 

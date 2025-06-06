@@ -32,6 +32,7 @@ import (
 	"vitess.io/vitess/go/cmd/vtctldclient/command"
 	"vitess.io/vitess/go/exit"
 	"vitess.io/vitess/go/trace"
+	"vitess.io/vitess/go/vt/config"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/servenv"
@@ -90,6 +91,7 @@ func init() {
 		fs.BoolVar(&detachedMode, "detach", detachedMode, "detached mode - run vtcl detached from the terminal")
 
 		acl.RegisterFlags(fs)
+		config.RegisterFlags(fs)
 	})
 }
 
@@ -119,6 +121,11 @@ func main() {
 	startMsg := fmt.Sprintf("USER=%v SUDO_USER=%v %v", os.Getenv("USER"), os.Getenv("SUDO_USER"), strings.Join(os.Args, " "))
 
 	logSyslog(startMsg)
+
+	// Initialize configuration from vitess.yaml
+	if err := config.Init(); err != nil {
+		log.Warningf("Failed to initialize configuration: %v", err)
+	}
 
 	closer := trace.StartTracing("vtctl")
 	defer trace.LogErrorsWhenClosing(closer)

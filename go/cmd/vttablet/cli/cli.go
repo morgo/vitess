@@ -28,6 +28,7 @@ import (
 	"vitess.io/vitess/go/mysql/collations"
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/binlog"
+	"vitess.io/vitess/go/vt/config"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/mysqlctl"
@@ -97,8 +98,57 @@ vttablet \
 	--service-map 'grpc-queryservice,grpc-tabletmanager,grpc-updatestream'` + "\n\n`$alias` needs to be of the form: `<cell>-id`, and the cell should match one of the local cells that was created in the topology. The id can be left padded with zeroes: `cell-100` and `cell-000000100` are synonymous.",
 		Args:    cobra.NoArgs,
 		Version: servenv.AppVersion.String(),
-		PreRunE: servenv.CobraPreRunE,
-		RunE:    run,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := servenv.CobraPreRunE(cmd, args); err != nil {
+				return err
+			}
+
+			// Initialize config from vitess.yaml
+			if err := config.Init(); err != nil {
+				return err
+			}
+
+			// If topo implementation is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-implementation").Changed == false {
+				if impl := config.GetString("global", "topo-implementation", ""); impl != "" {
+					if err := cmd.Flags().Set("topo-implementation", impl); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If topo global-server-address is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-server-address").Changed == false {
+				if addr := config.GetString("global", "topo-global-server-address", ""); addr != "" {
+					if err := cmd.Flags().Set("topo-global-server-address", addr); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If topo global-root is not set via command line, try to get it from config
+			if cmd.Flags().Lookup("topo-global-root").Changed == false {
+				if root := config.GetString("global", "topo-global-root", ""); root != "" {
+					if err := cmd.Flags().Set("topo-global-root", root); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If tablet-path is not set via command line, try to get it from config
+			if tabletPath == "" {
+				// Check if we're in a specific vttablet section
+				if tabletID := cmd.Flag("tablet-id").Value.String(); tabletID != "" {
+					sectionName := fmt.Sprintf("vttablet-%s", tabletID)
+					if path := config.GetString(sectionName, "tablet-path", ""); path != "" {
+						tabletPath = path
+					}
+				}
+			}
+
+			return nil
+		},
+		RunE: run,
 	}
 
 	srvTopoCounts *stats.CountersWithSingleLabel
@@ -189,21 +239,32 @@ func run(cmd *cobra.Command, args []string) error {
 func initConfig(tabletAlias *topodatapb.TabletAlias, collationEnv *collations.Environment) (*tabletenv.TabletConfig, *mysqlctl.Mycnf, error) {
 	tabletenv.Init()
 	// Load current config after tabletenv.Init, because it changes it.
-	config := tabletenv.NewCurrentConfig()
-	if err := config.Verify(); err != nil {
+	tabletCfg := tabletenv.NewCurrentConfig()
+	if err := tabletCfg.Verify(); err != nil {
 		return nil, nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	// First try loading from the tablet config file if specified
 	if tabletConfig != "" {
 		bytes, err := os.ReadFile(tabletConfig)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error reading config file %s: %w", tabletConfig, err)
 		}
-		if err := yaml2.Unmarshal(bytes, config); err != nil {
+		if err := yaml2.Unmarshal(bytes, tabletCfg); err != nil {
 			return nil, nil, fmt.Errorf("error parsing config file %s: %w", bytes, err)
 		}
 	}
-	gotBytes, _ := yaml2.Marshal(config)
+
+	// Then try loading from vitess.yaml if available
+	// Get the tablet ID from the alias
+	tabletID := fmt.Sprintf("%d", tabletAlias.Uid)
+	// Note: We're not setting tabletCfg.Init.* fields because they don't exist
+	// Instead, we'll use the values directly from the config file
+	// The keyspace, shard, and tablet-type values are set via command line flags
+	// and are already available in the tablet record
+	_ = tabletID // We're not using this yet, but keeping it for future use
+
+	gotBytes, _ := yaml2.Marshal(tabletCfg)
 	log.Infof("Loaded config file %s successfully:\n%s", tabletConfig, gotBytes)
 
 	var (
@@ -214,7 +275,7 @@ func initConfig(tabletAlias *topodatapb.TabletAlias, collationEnv *collations.En
 	// and use the socket from it. If connection parameters were specified,
 	// we assume that the mysql is not local, and we skip loading mycnf.
 	// This also means that backup and restore will not be allowed.
-	if !config.DB.HasGlobalSettings() {
+	if !tabletCfg.DB.HasGlobalSettings() {
 		var err error
 		if mycnf, err = mysqlctl.NewMycnfFromFlags(tabletAlias.Uid); err != nil {
 			return nil, nil, fmt.Errorf("mycnf read failed: %w", err)
@@ -228,11 +289,11 @@ func initConfig(tabletAlias *topodatapb.TabletAlias, collationEnv *collations.En
 	// If connection parameters were specified, socketFile will be empty.
 	// Otherwise, the socketFile (read from mycnf) will be used to initialize
 	// dbconfigs.
-	config.DB.InitWithSocket(socketFile, collationEnv)
-	for _, cfg := range config.ExternalConnections {
+	tabletCfg.DB.InitWithSocket(socketFile, collationEnv)
+	for _, cfg := range tabletCfg.ExternalConnections {
 		cfg.InitWithSocket("", collationEnv)
 	}
-	return config, mycnf, nil
+	return tabletCfg, mycnf, nil
 }
 
 func createTabletServer(ctx context.Context, env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.Server, tabletAlias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) (*tabletserver.TabletServer, error) {
@@ -275,4 +336,5 @@ func init() {
 	Main.Flags().DurationVar(&tableACLConfigReloadInterval, "table-acl-config-reload-interval", tableACLConfigReloadInterval, "Ticker to reload ACLs. Duration flag, format e.g.: 30s. Default: do not reload")
 	Main.Flags().StringVar(&tabletPath, "tablet-path", tabletPath, "tablet alias")
 	Main.Flags().StringVar(&tabletConfig, "tablet_config", tabletConfig, "YAML file config for tablet")
+	Main.Flags().String("tablet-id", "", "tablet ID for use with configuration file")
 }
