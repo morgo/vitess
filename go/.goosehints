@@ -1,5 +1,0 @@
-You are working on a branch that is adding virtual shards to Vitess.
-
-Historically in Vitess each vttablet + mysqlctl process has only managed one shard (contained in one MySQL schema). With virtual shards, a keyspace can be designated as a "virtual keyspace" which means that it is assigned to an existing physical keyspace.
-
-Virtual keyspaces are not health checked by vtgate, and the physical keyspace they belong to is designated in the topology service.

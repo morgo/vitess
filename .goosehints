@@ -1,10 +1,8 @@
-You are working on a branch which is adding virtual keyspaces to Vitess.
+You are working on a branch which is adding virtual shards to Vitess.
 
 Previously vitess could only handle one keyspace/shard per tablet, but in this branch there can be multiple.
 
-For the implementation, existing keyspaces are said to be "physical keyspaces", and a "virtual keyspace" can be added to any physical. Each virtual keyspace is a new schema that is created on the tablet.
-
-Virtual keyspaces do not have shards - the code needs to first lookup the physical keyspace and then find the tablet from there (primary, replica etc).
+In the current implementation it is more "virtual keyspaces" than "virtual shards", but this is currently being worked on. At the keyspace-level everything should be mostly unchanged, and only at the shard level there are new VIRTUAL tablets stored in the topo server which know how to resolve to other physical shards. Each actual tablet server has one MySQL database (aka schema) per shard.
 
 This affects a lot of components because the vttablet has a lot of strong dependencies/expectations on there only being one dbName with data. We need to fix and remove all of those.
 
