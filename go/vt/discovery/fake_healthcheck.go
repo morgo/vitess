@@ -90,6 +90,13 @@ func (fhc *FakeHealthCheck) GetHealthyTabletStats(target *querypb.Target) []*Tab
 	return result
 }
 
+// GetHealthyTabletStatsForVirtualKeyspace returns healthy tablets for a virtual keyspace
+func (fhc *FakeHealthCheck) GetHealthyTabletStatsForVirtualKeyspace(virtualKeyspace, physicalKeyspace string, target *querypb.Target) []*TabletHealth {
+	// For the fake health check, we'll just return the same as regular GetHealthyTabletStats
+	// since we don't have virtual keyspace logic in the fake implementation
+	return fhc.GetHealthyTabletStats(target)
+}
+
 // GetTabletHealthByAlias results the TabletHealth of the tablet that matches the given alias
 func (fhc *FakeHealthCheck) GetTabletHealthByAlias(alias *topodatapb.TabletAlias) (*TabletHealth, error) {
 	return fhc.GetTabletHealth("", alias)

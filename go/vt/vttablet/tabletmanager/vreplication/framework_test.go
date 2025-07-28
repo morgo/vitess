@@ -352,7 +352,7 @@ func (ftc *fakeTabletConn) VStreamRows(ctx context.Context, request *binlogdatap
 	vstreamOptions := &binlogdatapb.VStreamOptions{
 		ConfigOverrides: vttablet.GetVReplicationConfigDefaults(false).Map(),
 	}
-	return streamerEngine.StreamRows(ctx, request.Query, row, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	return streamerEngine.StreamRows(ctx, "vttest", request.Query, row, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		if vstreamRowsSendHook != nil {
 			vstreamRowsSendHook(ctx)
 		}
@@ -527,6 +527,11 @@ func (dbc *realDBClient) ExecuteFetchMulti(query string, maxrows int) ([]*sqltyp
 
 func (dbc *realDBClient) SupportsCapability(capability capabilities.FlavorCapability) (bool, error) {
 	return dbc.conn.SupportsCapability(capability)
+}
+
+// SetDBName sets the database name for virtual keyspace support
+func (dbc *realDBClient) SetDBName(dbName string) {
+	// No-op for real client - database is set during connection
 }
 
 func expectDeleteQueries(t *testing.T) {

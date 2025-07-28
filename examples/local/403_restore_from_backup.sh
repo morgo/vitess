@@ -18,8 +18,8 @@
 source ../common/env.sh  # Import necessary environment variables and functions from a common script
 
 # Set keyspace and shard details for the 'customer' keyspace
-KEYSPACE="customer"  # Define the keyspace to work with
-SHARDS=("-80" "80-")  # Define the shards within the keyspace to restore
+KEYSPACE="main"
+SHARDS=("0")
 
 # Restore all shards of the customer keyspace from backups
 for shard in "${SHARDS[@]}"; do  # Loop through each shard defined earlier

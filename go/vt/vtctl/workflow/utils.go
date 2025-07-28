@@ -57,10 +57,32 @@ import (
 const reverseSuffix = "_reverse"
 
 func getTablesInKeyspace(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, keyspace string) ([]string, error) {
-	shards, err := ts.GetServingShards(ctx, keyspace)
+	log.Infof("DEBUG: getTablesInKeyspace called with keyspace: %s", keyspace)
+
+	// Check if this is a virtual keyspace and get the appropriate schema name
+	ki, err := ts.GetKeyspace(ctx, keyspace)
 	if err != nil {
+		log.Errorf("DEBUG: Failed to get keyspace info for %s: %v", keyspace, err)
 		return nil, err
 	}
+	var targetKeyspace = keyspace
+	var schemaName string
+
+	if ki.IsVirtual {
+		// For virtual keyspaces, get shards from the physical keyspace
+		targetKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
+		schemaName = ki.VirtualKeyspaceInfo.SchemaName
+	}
+
+	log.Infof("DEBUG: Target keyspace: %s, Schema name: %s", targetKeyspace, schemaName)
+
+	shards, err := ts.GetServingShards(ctx, targetKeyspace)
+	if err != nil {
+		log.Errorf("DEBUG: Failed to get serving shards for %s: %v", targetKeyspace, err)
+		return nil, err
+	}
+	log.Infof("DEBUG: Found %d serving shards for keyspace %s", len(shards), targetKeyspace)
+
 	if len(shards) == 0 {
 		return nil, fmt.Errorf("keyspace %s has no shards", keyspace)
 	}
@@ -68,23 +90,35 @@ func getTablesInKeyspace(ctx context.Context, ts *topo.Server, tmc tmclient.Tabl
 	if primary == nil {
 		return nil, fmt.Errorf("shard does not have a primary: %v", shards[0].ShardName())
 	}
+	log.Infof("DEBUG: Using primary tablet: %v", primary)
+
 	allTables := []string{"/.*/"}
 
 	ti, err := ts.GetTablet(ctx, primary)
 	if err != nil {
+		log.Errorf("DEBUG: Failed to get tablet info for %v: %v", primary, err)
 		return nil, err
 	}
-	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
-	schema, err := tmc.GetSchema(ctx, ti.Tablet, req)
-	if err != nil {
-		return nil, err
-	}
-	log.Infof("got table schemas: %+v from source primary %v.", schema, primary)
 
+	log.Infof("DEBUG: Tablet info - Keyspace: %s, DbNameOverride: %s", ti.Tablet.Keyspace, schemaName)
 	var sourceTables []string
-	for _, td := range schema.TableDefinitions {
+
+	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, DbNameOverride: schemaName}
+	schemaResult, err := tmc.GetSchema(ctx, ti.Tablet, req)
+
+	if err != nil {
+		log.Errorf("DEBUG: GetSchema failed: %v", err)
+		return nil, err
+	}
+	log.Infof("DEBUG: GetSchema returned %d table definitions", len(schemaResult.TableDefinitions))
+
+	for _, td := range schemaResult.TableDefinitions {
 		sourceTables = append(sourceTables, td.Name)
 	}
+
+	log.Infof("DEBUG: Found tables in keyspace %s: %v", keyspace, sourceTables)
+	log.Infof("got table schemas from source primary %v.", primary)
+
 	return sourceTables, nil
 }
 
@@ -249,7 +283,7 @@ func stripAutoIncrement(ddl string, parser *sqlparser.Parser, replace func(colum
 	return sqlparser.String(newDDL), nil
 }
 
-func getSourceTableDDLs(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, shards []*topo.ShardInfo) (map[string]string, error) {
+func getSourceTableDDLs(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, sourceKeyspace string, shards []*topo.ShardInfo) (map[string]string, error) {
 	sourceDDLs := make(map[string]string)
 	allTables := []string{"/.*/"}
 
@@ -262,7 +296,18 @@ func getSourceTableDDLs(ctx context.Context, ts *topo.Server, tmc tmclient.Table
 	if err != nil {
 		return nil, err
 	}
-	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
+
+	// Check if this is a virtual keyspace and get the appropriate schema name
+	ki, err := ts.GetKeyspace(ctx, sourceKeyspace)
+	if err != nil {
+		return nil, err
+	}
+	var schemaName string
+	if ki.IsVirtual {
+		schemaName = ki.VirtualKeyspaceInfo.SchemaName
+	}
+
+	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, DbNameOverride: schemaName}
 	sourceSchema, err := tmc.GetSchema(ctx, ti.Tablet, req)
 	if err != nil {
 		return nil, err
@@ -357,10 +402,39 @@ func getMigrationID(targetKeyspace string, shardTablets []string) (int64, error)
 //
 // It returns ErrNoStreams if there are no targets found for the workflow.
 func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, targetKeyspace string, workflow string) (*TargetInfo, error) {
-	targetShards, err := ts.FindAllShardsInKeyspace(ctx, targetKeyspace, nil)
+	log.Infof("DEBUG BuildTargets: Called with targetKeyspace=%s, workflow=%s", targetKeyspace, workflow)
+
+	// Check if this is a virtual keyspace and get the physical keyspace for shard lookup
+	ki, err := ts.GetKeyspace(ctx, targetKeyspace)
 	if err != nil {
+		log.Errorf("DEBUG BuildTargets: Failed to get keyspace info for %s: %v", targetKeyspace, err)
 		return nil, err
 	}
+
+	var physicalKeyspace = targetKeyspace
+	var dbNameOverride = ""
+	if ki.IsVirtual {
+		// For virtual keyspaces, get shards from the physical keyspace
+		physicalKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
+		log.Infof("DEBUG BuildTargets: Virtual keyspace detected. targetKeyspace=%s, physicalKeyspace=%s", targetKeyspace, physicalKeyspace)
+		dbNameOverride = ki.VirtualKeyspaceInfo.SchemaName
+	} else {
+		log.Infof("DEBUG BuildTargets: Physical keyspace: %s", physicalKeyspace)
+	}
+
+	targetShards, err := ts.FindAllShardsInKeyspace(ctx, physicalKeyspace, nil)
+	if err != nil {
+		log.Errorf("DEBUG BuildTargets: Failed to find shards in keyspace %s: %v", physicalKeyspace, err)
+		return nil, err
+	}
+
+	log.Infof("DEBUG BuildTargets: Found %d shards in keyspace %s: %v", len(targetShards), physicalKeyspace, func() []string {
+		var shardNames []string
+		for name := range targetShards {
+			shardNames = append(shardNames, name)
+		}
+		return shardNames
+	}())
 
 	var (
 		frozen          bool
@@ -379,22 +453,37 @@ func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManag
 	for targetShardName, targetShard := range targetShards {
 		if targetShard.PrimaryAlias == nil {
 			// This can happen if bad inputs are given.
-			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "shard %v/%v doesn't have a primary set", targetKeyspace, targetShard)
+			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "shard %v/%v doesn't have a primary set", physicalKeyspace, targetShard)
 		}
 
 		primary, err := ts.GetTablet(ctx, targetShard.PrimaryAlias)
 		if err != nil {
 			return nil, err
 		}
+		if dbNameOverride == "" {
+			dbNameOverride = primary.DbName()
+		}
+
+		log.Infof("DEBUG BuildTargets: Checking shard %s, primary tablet %s, dbName %s for workflow %s", targetShardName, primary.Alias, dbNameOverride, workflow)
 
 		wf, err := tmc.ReadVReplicationWorkflow(ctx, primary.Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
-			Workflow: workflow,
+			Workflow:       workflow,
+			DbNameOverride: dbNameOverride,
 		})
 		if err != nil {
+			log.Errorf("DEBUG BuildTargets: Error reading workflow %s from tablet %s: %v", workflow, primary.Alias, err)
 			return nil, err
 		}
 
+		log.Infof("DEBUG BuildTargets: ReadVReplicationWorkflow returned: wf=%v, streams=%d", wf != nil, func() int {
+			if wf == nil {
+				return 0
+			}
+			return len(wf.Streams)
+		}())
+
 		if wf == nil || len(wf.Streams) < 1 {
+			log.Infof("DEBUG BuildTargets: No streams found for workflow %s on shard %s", workflow, targetShardName)
 			continue
 		}
 
@@ -426,7 +515,7 @@ func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManag
 	}
 
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("%w in keyspace %s for %s", ErrNoStreams, targetKeyspace, workflow)
+		return nil, fmt.Errorf("%w in keyspace %s for %s", ErrNoStreams, physicalKeyspace, workflow)
 	}
 
 	return &TargetInfo{
@@ -568,6 +657,7 @@ func doValidateWorkflowHasCompleted(ctx context.Context, ts *trafficSwitcher) er
 			defer wg.Done()
 			res, err := ts.ws.tmc.ReadVReplicationWorkflow(ctx, target.GetPrimary().Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
 				Workflow: ts.WorkflowName(),
+				//DbNameOverride: "TODO",
 			})
 			if err != nil {
 				rec.RecordError(err)
@@ -657,26 +747,36 @@ func areTabletsAvailableToStreamFrom(ctx context.Context, req *vtctldatapb.Workf
 		cells = strings.Split(strings.TrimSpace(ts.optCells), ",")
 	}
 
+	// For Virtual Keyspaces, we need to check for tablets in the physical keyspace
+	physicalKeyspace := keyspace
+	ki, err := ts.ws.ts.GetKeyspace(ctx, keyspace)
+	if err != nil {
+		return err
+	}
+	if ki.IsVirtual {
+		physicalKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
+	}
+
 	var wg sync.WaitGroup
 	allErrors := &concurrency.AllErrorRecorder{}
 	for _, shard := range shards {
 		wg.Add(1)
-		go func(cells []string, keyspace string, shard *topo.ShardInfo) {
+		go func(cells []string, physicalKeyspace string, shard *topo.ShardInfo) {
 			defer wg.Done()
 			if cells == nil {
 				cells = append(cells, shard.PrimaryAlias.Cell)
 			}
-			tp, err := discovery.NewTabletPicker(ctx, ts.ws.ts, cells, shard.PrimaryAlias.Cell, keyspace, shard.ShardName(), tabletTypesStr, discovery.TabletPickerOptions{})
+			tp, err := discovery.NewTabletPicker(ctx, ts.ws.ts, cells, shard.PrimaryAlias.Cell, physicalKeyspace, shard.ShardName(), tabletTypesStr, discovery.TabletPickerOptions{})
 			if err != nil {
 				allErrors.RecordError(err)
 				return
 			}
 			tablets := tp.GetMatchingTablets(ctx)
 			if len(tablets) == 0 {
-				allErrors.RecordError(fmt.Errorf("no tablet found to source data in keyspace %s, shard %s", keyspace, shard.ShardName()))
+				allErrors.RecordError(fmt.Errorf("no tablet found to source data in keyspace %s, shard %s", physicalKeyspace, shard.ShardName()))
 				return
 			}
-		}(cells, keyspace, shard)
+		}(cells, physicalKeyspace, shard)
 	}
 
 	wg.Wait()

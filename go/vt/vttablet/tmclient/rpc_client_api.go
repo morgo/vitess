@@ -292,6 +292,9 @@ type TabletManagerClient interface {
 	CheckThrottler(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.CheckThrottlerRequest) (*tabletmanagerdatapb.CheckThrottlerResponse, error)
 	GetThrottlerStatus(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.GetThrottlerStatusRequest) (*tabletmanagerdatapb.GetThrottlerStatusResponse, error)
 
+	// AddVirtualKeyspace adds a virtual keyspace to the tablet
+	AddVirtualKeyspace(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error)
+
 	//
 	// Management methods
 	//

@@ -1,0 +1,15 @@
+You are working on a branch which is adding virtual keyspaces to Vitess.
+
+Previously vitess could only handle one keyspace/shard per tablet, but in this branch there can be multiple.
+
+For the implementation, existing keyspaces are said to be "physical keyspaces", and a "virtual keyspace" can be added to any physical. Each virtual keyspace is a new schema that is created on the tablet.
+
+This affects a lot of components because the vttablet has a lot of strong dependencies/expectations on there only being one dbName with data. We need to fix and remove all of those.
+
+If you want to run the tests, you first need to run make in this root directory and set the environment variable VTROOT. i.e.
+
+```
+export VTROOT=~/go/src/github.com/morgo/vitess/
+cd $VTROOT
+make
+```

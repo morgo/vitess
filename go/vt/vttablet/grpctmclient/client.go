@@ -484,6 +484,7 @@ func (client *Client) ApplySchema(ctx context.Context, tablet *topodatapb.Tablet
 		return nil, err
 	}
 	defer closer.Close()
+	log.Infof("DEBUG Applying schema change xx : %s on db: %s", change.SQL, change.DbNameOverride)
 	response, err := c.ApplySchema(ctx, &tabletmanagerdatapb.ApplySchemaRequest{
 		Sql:                     change.SQL,
 		Force:                   change.Force,
@@ -492,6 +493,7 @@ func (client *Client) ApplySchema(ctx context.Context, tablet *topodatapb.Tablet
 		AfterSchema:             change.AfterSchema,
 		SqlMode:                 change.SQLMode,
 		DisableForeignKeyChecks: change.DisableForeignKeyChecks,
+		DbNameOverride:          change.DbNameOverride,
 	})
 	if err != nil {
 		return nil, err
@@ -1405,6 +1407,20 @@ func (client *Client) RestoreFromBackup(ctx context.Context, tablet *topodatapb.
 		stream: stream,
 		closer: closer,
 	}, nil
+}
+
+// AddVirtualKeyspace is part of the tmclient.TabletManagerClient interface.
+func (client *Client) AddVirtualKeyspace(ctx context.Context, tablet *topodatapb.Tablet, req *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error) {
+	c, closer, err := client.dialer.dial(ctx, tablet)
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+	response, err := c.AddVirtualKeyspace(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
 // Close is part of the tmclient.TabletManagerClient interface.

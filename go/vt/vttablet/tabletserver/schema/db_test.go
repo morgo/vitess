@@ -223,7 +223,7 @@ func TestGetMismatchedTableNames(t *testing.T) {
 
 	testCases := []struct {
 		name               string
-		tables             map[string]*Table
+		tables             map[string]map[string]*Table
 		dbData             *sqltypes.Result
 		dbError            string
 		isServingPrimary   bool
@@ -232,11 +232,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 	}{
 		{
 			name: "TableCreateTimeDiffers",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -245,11 +247,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t1"},
 		}, {
 			name: "TableGotDeleted",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -259,15 +263,18 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t2"},
 		}, {
 			name: "TableGotCreated",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
-				}, "t2": {
-					Name:       sqlparser.NewIdentifierCS("t2"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
+					"t2": {
+						Name:       sqlparser.NewIdentifierCS("t2"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -276,12 +283,14 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t2"},
 		}, {
 			name: "DualGetsIgnored",
-			tables: map[string]*Table{
-				"dual": NewTable("dual", NoType),
-				"t2": {
-					Name:       sqlparser.NewIdentifierCS("t2"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"dual": NewTable("dual", NoType),
+					"t2": {
+						Name:       sqlparser.NewIdentifierCS("t2"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -290,17 +299,19 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{},
 		}, {
 			name: "AllProblems",
-			tables: map[string]*Table{
-				"dual": NewTable("dual", NoType),
-				"t2": {
-					Name:       sqlparser.NewIdentifierCS("t2"),
-					Type:       NoType,
-					CreateTime: 31234,
-				},
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"dual": NewTable("dual", NoType),
+					"t2": {
+						Name:       sqlparser.NewIdentifierCS("t2"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -310,11 +321,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t1", "t2", "t3"},
 		}, {
 			name: "NotServingPrimary",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -323,11 +336,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{},
 		}, {
 			name: "ErrorInQuery",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbError:          "some error in MySQL",

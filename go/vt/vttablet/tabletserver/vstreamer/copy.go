@@ -37,7 +37,7 @@ func (uvs *uvstreamer) copy(ctx context.Context) error {
 	for len(uvs.tablesToCopy) > 0 {
 		tableName := uvs.tablesToCopy[0]
 		log.V(2).Infof("Copystate not empty starting catchupAndCopy on table %s", tableName)
-		if err := uvs.catchupAndCopy(ctx, tableName); err != nil {
+		if err := uvs.catchupAndCopy(ctx, uvs.cp.DBName(), tableName); err != nil {
 			uvs.vse.errorCounts.Add("Copy", 1)
 			return err
 		}
@@ -47,8 +47,8 @@ func (uvs *uvstreamer) copy(ctx context.Context) error {
 }
 
 // first does a catchup for tables already fully or partially copied (upto last pk)
-func (uvs *uvstreamer) catchupAndCopy(ctx context.Context, tableName string) error {
-	log.Infof("catchupAndCopy for %s", tableName)
+func (uvs *uvstreamer) catchupAndCopy(ctx context.Context, dbName string, tableName string) error {
+	log.Infof("catchupAndCopy for %s.%s", dbName, tableName)
 	if !uvs.pos.IsZero() {
 		if err := uvs.catchup(ctx); err != nil {
 			log.Infof("catchupAndCopy: catchup returned %v", err)
@@ -56,9 +56,9 @@ func (uvs *uvstreamer) catchupAndCopy(ctx context.Context, tableName string) err
 			return err
 		}
 	}
-	log.Infof("catchupAndCopy: before copyTable %s", tableName)
+	log.Infof("catchupAndCopy: before copyTable %s.%s", dbName, tableName)
 	uvs.fields = nil
-	return uvs.copyTable(ctx, tableName)
+	return uvs.copyTable(ctx, dbName, tableName)
 }
 
 // catchup on events for tables already fully or partially copied (upto last pk) until replication lag is small
@@ -202,7 +202,7 @@ func getQRFromLastPK(fields []*querypb.Field, lastPK []sqltypes.Value) *querypb.
 }
 
 // gets batch of rows to copy. size of batch is determined by max packetsize
-func (uvs *uvstreamer) copyTable(ctx context.Context, tableName string) error {
+func (uvs *uvstreamer) copyTable(ctx context.Context, dbName string, tableName string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
@@ -216,7 +216,7 @@ func (uvs *uvstreamer) copyTable(ctx context.Context, tableName string) error {
 	log.Infof("Starting copyTable for %s, Filter: %s, LastPK: %v", tableName, filter, lastPK)
 	uvs.sendTestEvent(fmt.Sprintf("Copy Start %s", tableName))
 
-	err := uvs.vse.StreamRows(ctx, filter, lastPK, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	err := uvs.vse.StreamRows(ctx, dbName, filter, lastPK, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		select {
 		case <-ctx.Done():
 			log.Infof("Returning io.EOF in StreamRows")

@@ -310,9 +310,11 @@ func GetColumnsList(dbName, tableName string, exec func(string, int, bool) (*sql
 	query := fmt.Sprintf(GetColumnNamesQuery, dbName2, sqltypes.EncodeStringSQL(sanitizedTableName))
 	qr, err := exec(query, -1, true)
 	if err != nil {
+		log.Infof("DEBUGZ: fetchColumns GetColumnsList error for table %s.%s using query %s: %v", dbName, tableName, query, err)
 		return "", err
 	}
 	if qr == nil || len(qr.Rows) == 0 {
+		log.Infof("DEBUGZ: fetchColumns GetColumnsList empty result for table %s.%s using query %s", dbName, tableName, query)
 		err := &EmptyColumnsErr{dbName: dbName, tableName: tableName, query: query}
 		log.Error(err.Error())
 		return "", err
@@ -340,17 +342,17 @@ func GetColumns(dbName, table string, exec func(string, int, bool) (*sqltypes.Re
 	if selectColumns == "" {
 		selectColumns = "*"
 	}
-	tableSpec, err := sqlescape.EnsureEscaped(table)
+	// required right now, can't handle edge cases.
+	if dbName == "" {
+		return nil, nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "no database name provided for GetColumns")
+	}
+	// The table name is already escaped (weirdly.)
+	// don't want to double escape.
+	table, err = sqlescape.EnsureEscaped(table)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, vterrors.Wrapf(err, "in GetColumns()")
 	}
-	if dbName != "" {
-		dbName, err := sqlescape.EnsureEscaped(dbName)
-		if err != nil {
-			return nil, nil, err
-		}
-		tableSpec = fmt.Sprintf("%s.%s", dbName, tableSpec)
-	}
+	tableSpec := fmt.Sprintf("%s.%s", sqlescape.EscapeID(dbName), table)
 	query := fmt.Sprintf(GetFieldsQuery, selectColumns, tableSpec)
 	qr, err := exec(query, 0, true)
 	if err != nil {
@@ -490,9 +492,15 @@ func (mysqld *Mysqld) PreflightSchemaChange(ctx context.Context, dbName string, 
 
 // ApplySchemaChange will apply the schema change to the given database.
 func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, change *tmutils.SchemaChange) (*tabletmanagerdatapb.SchemaChangeResult, error) {
+	// Use DbNameOverride if provided, otherwise use the default dbName
+	targetDbName := dbName
+	if change.DbNameOverride != "" {
+		targetDbName = change.DbNameOverride
+	}
+
 	// check current schema matches
 	req := &tabletmanagerdatapb.GetSchemaRequest{IncludeViews: true}
-	beforeSchema, err := mysqld.GetSchema(ctx, dbName, req)
+	beforeSchema, err := mysqld.GetSchema(ctx, targetDbName, req)
 	if err != nil {
 		return nil, err
 	}
@@ -541,7 +549,7 @@ func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, chan
 	}
 
 	// add a 'use XXX' in front of the SQL
-	sql = fmt.Sprintf("USE %s;\n%s", sqlescape.EscapeID(dbName), sql)
+	sql = fmt.Sprintf("USE %s;\n%s", sqlescape.EscapeID(targetDbName), sql)
 
 	// execute the schema change using an external mysql process
 	// (to benefit from the extra commands in mysql cli)
@@ -550,7 +558,7 @@ func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, chan
 	}
 
 	// get AfterSchema
-	afterSchema, err := mysqld.GetSchema(ctx, dbName, req)
+	afterSchema, err := mysqld.GetSchema(ctx, targetDbName, req)
 	if err != nil {
 		return nil, err
 	}

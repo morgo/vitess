@@ -25,6 +25,7 @@ import (
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/callinfo"
 	"vitess.io/vitess/go/vt/hook"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
 	"vitess.io/vitess/go/vt/servenv"
@@ -169,7 +170,7 @@ func (s *server) PreflightSchema(ctx context.Context, request *tabletmanagerdata
 	defer s.tm.HandleRPCPanic(ctx, "PreflightSchema", request, response, true /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
 	response = &tabletmanagerdatapb.PreflightSchemaResponse{}
-	results, err := s.tm.PreflightSchema(ctx, request.Changes)
+	results, err := s.tm.PreflightSchema(ctx, "", request.Changes)
 	if err == nil {
 		response.ChangeResults = results
 	}
@@ -180,6 +181,7 @@ func (s *server) ApplySchema(ctx context.Context, request *tabletmanagerdatapb.A
 	defer s.tm.HandleRPCPanic(ctx, "ApplySchema", request, response, true /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
 	response = &tabletmanagerdatapb.ApplySchemaResponse{}
+	log.Infof("DEBUG Applying schema change: %s - now with DBoverride %s", request.Sql, request.DbNameOverride)
 	scr, err := s.tm.ApplySchema(ctx, &tmutils.SchemaChange{
 		SQL:                     request.Sql,
 		Force:                   request.Force,
@@ -188,6 +190,7 @@ func (s *server) ApplySchema(ctx context.Context, request *tabletmanagerdatapb.A
 		AfterSchema:             request.AfterSchema,
 		SQLMode:                 request.SqlMode,
 		DisableForeignKeyChecks: request.DisableForeignKeyChecks,
+		DbNameOverride:          request.DbNameOverride,
 	})
 	if err == nil {
 		response.BeforeSchema = scr.BeforeSchema
@@ -713,6 +716,13 @@ func (s *server) GetThrottlerStatus(ctx context.Context, request *tabletmanagerd
 	defer s.tm.HandleRPCPanic(ctx, "GetThrottlerStatus", request, response, false /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
 	response, err = s.tm.GetThrottlerStatus(ctx, request)
+	return response, err
+}
+
+func (s *server) AddVirtualKeyspace(ctx context.Context, request *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (response *tabletmanagerdatapb.AddVirtualKeyspaceResponse, err error) {
+	defer s.tm.HandleRPCPanic(ctx, "AddVirtualKeyspace", request, response, true /*verbose*/, &err)
+	ctx = callinfo.GRPCCallInfo(ctx)
+	response, err = s.tm.AddVirtualKeyspace(ctx, request)
 	return response, err
 }
 

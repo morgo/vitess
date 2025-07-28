@@ -468,7 +468,13 @@ func (ts *trafficSwitcher) deleteKeyspaceRoutingRules(ctx context.Context) error
 
 func (ts *trafficSwitcher) dropSourceDeniedTables(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
-		if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.SourceKeyspaceName(), source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+		// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+		resolution, err := ts.ws.resolveKeyspaceForOperation(ctx, ts.SourceKeyspaceName(), ShardOperation)
+		if err != nil {
+			return vterrors.Wrapf(err, "failed to resolve source keyspace for shard operation")
+		}
+
+		if _, err := ts.TopoServer().UpdateShardFields(ctx, resolution.ResolvedKeyspace, source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
 			return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, true, ts.Tables())
 		}); err != nil {
 			return err
@@ -492,7 +498,13 @@ func (ts *trafficSwitcher) dropSourceDeniedTables(ctx context.Context) error {
 
 func (ts *trafficSwitcher) dropTargetDeniedTables(ctx context.Context) error {
 	return ts.ForAllTargets(func(target *MigrationTarget) error {
-		if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.TargetKeyspaceName(), target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+		// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+		resolution, err := ts.ws.resolveKeyspaceForOperation(ctx, ts.TargetKeyspaceName(), ShardOperation)
+		if err != nil {
+			return vterrors.Wrapf(err, "failed to resolve target keyspace for shard operation")
+		}
+
+		if _, err := ts.TopoServer().UpdateShardFields(ctx, resolution.ResolvedKeyspace, target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
 			return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, true, ts.Tables())
 		}); err != nil {
 			return err
@@ -540,7 +552,14 @@ func (ts *trafficSwitcher) dropParticipatingTablesFromKeyspace(ctx context.Conte
 func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType TableRemovalType) error {
 	err := ts.ForAllSources(func(source *MigrationSource) error {
 		for _, tableName := range ts.Tables() {
-			primaryDbName, err := sqlescape.EnsureEscaped(source.GetPrimary().DbName())
+			// Get the correct database name for virtual keyspaces
+			dbName := source.GetPrimary().DbName()
+			virtualDbName := ts.ws.getDbNameOverride(ctx, ts.SourceKeyspaceName())
+			if virtualDbName != "" {
+				dbName = virtualDbName
+			}
+
+			primaryDbName, err := sqlescape.EnsureEscaped(dbName)
 			if err != nil {
 				return err
 			}
@@ -552,14 +571,14 @@ func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType T
 			query := fmt.Sprintf("drop table %s.%s", primaryDbName, tableNameEscaped)
 			if removalType == DropTable {
 				ts.Logger().Infof("%s: Dropping table %s.%s\n",
-					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), source.GetPrimary().DbName(), tableName)
+					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), dbName, tableName)
 			} else {
 				renameName, err := sqlescape.EnsureEscaped(getRenameFileName(tableName))
 				if err != nil {
 					return err
 				}
 				ts.Logger().Infof("%s: Renaming table %s.%s to %s.%s\n",
-					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), source.GetPrimary().DbName(), tableName, source.GetPrimary().DbName(), renameName)
+					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), dbName, tableName, dbName, renameName)
 				query = fmt.Sprintf("rename table %s.%s TO %s.%s", primaryDbName, tableNameEscaped, primaryDbName, renameName)
 			}
 			_, err = ts.ws.tmc.ExecuteFetchAsDba(ctx, source.GetPrimary().Tablet, false, &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
@@ -576,7 +595,7 @@ func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType T
 					return err
 				}
 			}
-			ts.Logger().Infof("%s: Removed table %s.%s\n", topoproto.TabletAliasString(source.GetPrimary().GetAlias()), source.GetPrimary().DbName(), tableName)
+			ts.Logger().Infof("%s: Removed table %s.%s\n", topoproto.TabletAliasString(source.GetPrimary().GetAlias()), dbName, tableName)
 
 		}
 		return nil
@@ -684,8 +703,15 @@ func (ts *trafficSwitcher) switchTableReads(ctx context.Context, cells []string,
 
 func (ts *trafficSwitcher) startReverseVReplication(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		virtualDbName := ts.ws.getDbNameOverride(ctx, ts.SourceKeyspaceName())
+		if virtualDbName != "" {
+			dbName = virtualDbName
+		}
+
 		query := fmt.Sprintf("update _vt.vreplication set state='Running', message='' where db_name=%s and workflow=%s",
-			encodeString(source.GetPrimary().DbName()), encodeString(ts.ReverseWorkflowName()))
+			encodeString(dbName), encodeString(ts.ReverseWorkflowName()))
 		_, err := ts.VReplicationExec(ctx, source.GetPrimary().GetAlias(), query)
 		return err
 	})
@@ -699,6 +725,14 @@ func (ts *trafficSwitcher) createJournals(ctx context.Context, sourceWorkflows [
 		}
 		participants := make([]*binlogdatapb.KeyspaceShard, 0)
 		participantMap := make(map[string]bool)
+
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		virtualDbName := ts.ws.getDbNameOverride(ctx, ts.SourceKeyspaceName())
+		if virtualDbName != "" {
+			dbName = virtualDbName
+		}
+
 		journal := &binlogdatapb.Journal{
 			Id:              ts.id,
 			MigrationType:   ts.MigrationType(),
@@ -733,7 +767,7 @@ func (ts *trafficSwitcher) createJournals(ctx context.Context, sourceWorkflows [
 		statement := fmt.Sprintf("insert into _vt.resharding_journal "+
 			"(id, db_name, val) "+
 			"values (%v, %v, %v)",
-			ts.id, encodeString(source.GetPrimary().DbName()), encodeString(journal.String()))
+			ts.id, encodeString(dbName), encodeString(journal.String()))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, source.GetPrimary().Tablet, statement); err != nil {
 			return err
 		}
@@ -742,7 +776,13 @@ func (ts *trafficSwitcher) createJournals(ctx context.Context, sourceWorkflows [
 }
 
 func (ts *trafficSwitcher) changeShardsAccess(ctx context.Context, keyspace string, shards []*topo.ShardInfo, access accessType) error {
-	if err := ts.TopoServer().UpdateDisableQueryService(ctx, keyspace, shards, topodatapb.TabletType_PRIMARY, nil, access == disallowWrites /* disable */); err != nil {
+	// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+	resolution, err := ts.ws.resolveKeyspaceForOperation(ctx, keyspace, ShardOperation)
+	if err != nil {
+		return vterrors.Wrapf(err, "failed to resolve keyspace for shard operation")
+	}
+
+	if err := ts.TopoServer().UpdateDisableQueryService(ctx, resolution.ResolvedKeyspace, shards, topodatapb.TabletType_PRIMARY, nil, access == disallowWrites /* disable */); err != nil {
 		return err
 	}
 	return ts.ws.refreshPrimaryTablets(ctx, shards, ts.force)
@@ -813,7 +853,13 @@ func (ts *trafficSwitcher) changeShardRouting(ctx context.Context) error {
 		return err2
 	}
 	err := ts.ForAllSources(func(source *MigrationSource) error {
-		_, err := ts.TopoServer().UpdateShardFields(ctx, ts.SourceKeyspaceName(), source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+		// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+		resolution, err := ts.ws.resolveKeyspaceForOperation(ctx, ts.SourceKeyspaceName(), ShardOperation)
+		if err != nil {
+			return vterrors.Wrapf(err, "failed to resolve source keyspace for shard operation")
+		}
+
+		_, err = ts.TopoServer().UpdateShardFields(ctx, resolution.ResolvedKeyspace, source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
 			si.IsPrimaryServing = false
 			return nil
 		})
@@ -823,7 +869,13 @@ func (ts *trafficSwitcher) changeShardRouting(ctx context.Context) error {
 		return err
 	}
 	err = ts.ForAllTargets(func(target *MigrationTarget) error {
-		_, err := ts.TopoServer().UpdateShardFields(ctx, ts.TargetKeyspaceName(), target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+		// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+		resolution, err := ts.ws.resolveKeyspaceForOperation(ctx, ts.TargetKeyspaceName(), ShardOperation)
+		if err != nil {
+			return vterrors.Wrapf(err, "failed to resolve target keyspace for shard operation")
+		}
+
+		_, err = ts.TopoServer().UpdateShardFields(ctx, resolution.ResolvedKeyspace, target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
 			si.IsPrimaryServing = true
 			return nil
 		})
@@ -863,7 +915,14 @@ func (ts *trafficSwitcher) getReverseVReplicationUpdateQuery(targetCell string, 
 
 func (ts *trafficSwitcher) deleteReverseVReplication(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
-		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(source.GetPrimary().DbName()), encodeString(ts.reverseWorkflow))
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		virtualDbName := ts.ws.getDbNameOverride(ctx, ts.SourceKeyspaceName())
+		if virtualDbName != "" {
+			dbName = virtualDbName
+		}
+
+		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(dbName), encodeString(ts.reverseWorkflow))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, source.GetPrimary().Tablet, query); err != nil {
 			// vreplication.exec returns no error on delete if the rows do not exist.
 			return err
@@ -1089,7 +1148,15 @@ func (ts *trafficSwitcher) switchDeniedTables(ctx context.Context, backward bool
 	egrp, ectx := errgroup.WithContext(ctx)
 	egrp.Go(func() error {
 		return ts.ForAllSources(func(source *MigrationSource) error {
-			if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.SourceKeyspaceName(), source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+			// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+			keyspaceName := ts.SourceKeyspaceName()
+			if sourceKsInfo, err := ts.TopoServer().GetKeyspace(ectx, keyspaceName); err == nil {
+				if sourceKsInfo.IsVirtual && sourceKsInfo.VirtualKeyspaceInfo != nil {
+					keyspaceName = sourceKsInfo.VirtualKeyspaceInfo.PhysicalKeyspace
+				}
+			}
+
+			if _, err := ts.TopoServer().UpdateShardFields(ectx, keyspaceName, source.GetShard().ShardName(), func(si *topo.ShardInfo) error {
 				return si.UpdateDeniedTables(ectx, topodatapb.TabletType_PRIMARY, nil, rmsource, ts.Tables())
 			}); err != nil {
 				return err
@@ -1112,8 +1179,16 @@ func (ts *trafficSwitcher) switchDeniedTables(ctx context.Context, backward bool
 	})
 	egrp.Go(func() error {
 		return ts.ForAllTargets(func(target *MigrationTarget) error {
-			if _, err := ts.TopoServer().UpdateShardFields(ectx, ts.TargetKeyspaceName(), target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
-				return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, rmtarget, ts.Tables())
+			// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+			keyspaceName := ts.TargetKeyspaceName()
+			if targetKsInfo, err := ts.TopoServer().GetKeyspace(ectx, keyspaceName); err == nil {
+				if targetKsInfo.IsVirtual && targetKsInfo.VirtualKeyspaceInfo != nil {
+					keyspaceName = targetKsInfo.VirtualKeyspaceInfo.PhysicalKeyspace
+				}
+			}
+
+			if _, err := ts.TopoServer().UpdateShardFields(ectx, keyspaceName, target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+				return si.UpdateDeniedTables(ectx, topodatapb.TabletType_PRIMARY, nil, rmtarget, ts.Tables())
 			}); err != nil {
 				return err
 			}
@@ -1215,9 +1290,16 @@ func (ts *trafficSwitcher) freezeTargetVReplication(ctx context.Context) error {
 	// Mark target streams as frozen before deleting. If SwitchWrites gets
 	// re-invoked after a freeze, it will skip all the previous steps
 	err := ts.ForAllTargets(func(target *MigrationTarget) error {
-		ts.Logger().Infof("Marking target streams frozen for workflow %s db_name %s", ts.WorkflowName(), target.GetPrimary().DbName())
+		// Get the correct database name for virtual keyspaces
+		dbName := target.GetPrimary().DbName()
+		virtualDbName := ts.ws.getDbNameOverride(ctx, ts.TargetKeyspaceName())
+		if virtualDbName != "" {
+			dbName = virtualDbName
+		}
+
+		ts.Logger().Infof("Marking target streams frozen for workflow %s db_name %s", ts.WorkflowName(), dbName)
 		query := fmt.Sprintf("update _vt.vreplication set message = %s where db_name=%s and workflow=%s", encodeString(Frozen),
-			encodeString(target.GetPrimary().DbName()), encodeString(ts.WorkflowName()))
+			encodeString(dbName), encodeString(ts.WorkflowName()))
 		_, err := ts.TabletManagerClient().VReplicationExec(ctx, target.GetPrimary().Tablet, query)
 		return err
 	})
@@ -1229,8 +1311,15 @@ func (ts *trafficSwitcher) freezeTargetVReplication(ctx context.Context) error {
 
 func (ts *trafficSwitcher) dropTargetVReplicationStreams(ctx context.Context) error {
 	return ts.ForAllTargets(func(target *MigrationTarget) error {
-		ts.Logger().Infof("Deleting target streams and related data for workflow %s db_name %s", ts.WorkflowName(), target.GetPrimary().DbName())
-		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(target.GetPrimary().DbName()), encodeString(ts.WorkflowName()))
+		// Get the correct database name for virtual keyspaces
+		dbName := target.GetPrimary().DbName()
+		virtualDbName := ts.ws.getDbNameOverride(ctx, ts.TargetKeyspaceName())
+		if virtualDbName != "" {
+			dbName = virtualDbName
+		}
+
+		ts.Logger().Infof("Deleting target streams and related data for workflow %s db_name %s", ts.WorkflowName(), dbName)
+		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(dbName), encodeString(ts.WorkflowName()))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, target.GetPrimary().Tablet, query); err != nil {
 			// vreplication.exec returns no error on delete if the rows do not exist.
 			return err
@@ -1243,8 +1332,15 @@ func (ts *trafficSwitcher) dropTargetVReplicationStreams(ctx context.Context) er
 
 func (ts *trafficSwitcher) dropSourceReverseVReplicationStreams(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
-		ts.Logger().Infof("Deleting reverse streams and related data for workflow %s db_name %s", ts.WorkflowName(), source.GetPrimary().DbName())
-		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(source.GetPrimary().DbName()), encodeString(ReverseWorkflowName(ts.WorkflowName())))
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		virtualDbName := ts.ws.getDbNameOverride(ctx, ts.SourceKeyspaceName())
+		if virtualDbName != "" {
+			dbName = virtualDbName
+		}
+
+		ts.Logger().Infof("Deleting reverse streams and related data for workflow %s db_name %s", ts.WorkflowName(), dbName)
+		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(dbName), encodeString(ReverseWorkflowName(ts.WorkflowName())))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, source.GetPrimary().Tablet, query); err != nil {
 			// vreplication.exec returns no error on delete if the rows do not exist.
 			return err
@@ -1261,7 +1357,14 @@ func (ts *trafficSwitcher) removeTargetTables(ctx context.Context) error {
 		err := ts.ForAllTargets(func(target *MigrationTarget) error {
 			ts.Logger().Infof("ForAllTargets: %+v", target)
 			for _, tableName := range ts.Tables() {
-				primaryDbName, err := sqlescape.EnsureEscaped(target.GetPrimary().DbName())
+				// Get the correct database name for virtual keyspaces
+				dbName := target.GetPrimary().DbName()
+				virtualDbName := ts.ws.getDbNameOverride(ctx, ts.TargetKeyspaceName())
+				if virtualDbName != "" {
+					dbName = virtualDbName
+				}
+
+				primaryDbName, err := sqlescape.EnsureEscaped(dbName)
 				if err != nil {
 					return err
 				}
@@ -1271,7 +1374,7 @@ func (ts *trafficSwitcher) removeTargetTables(ctx context.Context) error {
 				}
 				query := fmt.Sprintf("drop table %s.%s", primaryDbName, tableName)
 				ts.Logger().Infof("%s: Dropping table %s.%s\n",
-					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), target.GetPrimary().DbName(), tableName)
+					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), dbName, tableName)
 				res, err := ts.ws.tmc.ExecuteFetchAsDba(ctx, target.GetPrimary().Tablet, false, &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
 					Query:                   []byte(query),
 					MaxRows:                 1,
@@ -1289,7 +1392,7 @@ func (ts *trafficSwitcher) removeTargetTables(ctx context.Context) error {
 					}
 				}
 				ts.Logger().Infof("%s: Removed table %s.%s\n",
-					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), target.GetPrimary().DbName(), tableName)
+					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), dbName, tableName)
 
 			}
 			return nil
@@ -1469,30 +1572,45 @@ func (ts *trafficSwitcher) checkJournals(ctx context.Context) (journalsExist boo
 // source shard's primary tablet using a non-pooled connection as the DBA user. The connection
 // is closed when the LOCK TABLES statement returns, so we immediately release the LOCKs.
 func (ts *trafficSwitcher) executeLockTablesOnSource(ctx context.Context) error {
-	ts.Logger().Infof("Locking (and then immediately unlocking) the following tables on source keyspace %v: %v", ts.SourceKeyspaceName(), ts.Tables())
+	ts.Logger().Infof("!!Locking (and then immediately unlocking) the following tables on source keyspace %v: %v", ts.SourceKeyspaceName(), ts.Tables())
 	if len(ts.Tables()) == 0 {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no tables found in the source keyspace %v associated with the %s workflow", ts.SourceKeyspaceName(), ts.WorkflowName())
 	}
-
-	sb := strings.Builder{}
-	sb.WriteString("LOCK TABLES ")
-	for _, tableName := range ts.Tables() {
-		sb.WriteString(fmt.Sprintf("%s READ,", sqlescape.EscapeID(tableName)))
-	}
-	// trim extra trailing comma
-	lockStmt := sb.String()[:sb.Len()-1]
 
 	return ts.ForAllSources(func(source *MigrationSource) error {
 		primary := source.GetPrimary()
 		if primary == nil {
 			return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no primary found for source shard %s", source.GetShard())
 		}
+
+		// Get the correct database name for virtual keyspaces
+		dbName := primary.DbName()
+		virtualDbName := ts.ws.getDbNameOverride(ctx, ts.SourceKeyspaceName())
+		if virtualDbName != "" {
+			dbName = virtualDbName
+		}
+
+		// Build the LOCK TABLES statement without database prefixes
+		// LOCK TABLES statements should use simple table names, not fully qualified names
+		sb := strings.Builder{}
+		sb.WriteString("LOCK TABLES ")
+		for _, tableName := range ts.Tables() {
+			tableNameEscaped, err := sqlescape.EnsureEscaped(tableName)
+			if err != nil {
+				return err
+			}
+			sb.WriteString(fmt.Sprintf("%s.%s READ,", dbName, tableNameEscaped))
+		}
+		// trim extra trailing comma
+		lockStmt := sb.String()[:sb.Len()-1]
+
 		tablet := primary.Tablet
 		_, err := ts.ws.tmc.ExecuteFetchAsDba(ctx, tablet, true, &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
 			Query:          []byte(lockStmt),
 			MaxRows:        uint64(1),
 			DisableBinlogs: false,
 			ReloadSchema:   true,
+			DbName:         dbName,
 		})
 		if err != nil {
 			ts.Logger().Errorf("Error executing %s on source tablet %v: %v", lockStmt, tablet, err)

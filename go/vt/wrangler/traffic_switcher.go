@@ -143,11 +143,16 @@ func (ts *trafficSwitcher) VReplicationExec(ctx context.Context, alias *topodata
 	return ts.wr.VReplicationExec(ctx, alias, query)
 }
 
-func (ts *trafficSwitcher) ExternalTopo() *topo.Server                     { return ts.externalTopo }
-func (ts *trafficSwitcher) MigrationType() binlogdatapb.MigrationType      { return ts.migrationType }
-func (ts *trafficSwitcher) IsPartialMigration() bool                       { return ts.isPartialMigration }
-func (ts *trafficSwitcher) ReverseWorkflowName() string                    { return ts.reverseWorkflow }
-func (ts *trafficSwitcher) SourceKeyspaceName() string                     { return ts.sourceKSSchema.Keyspace.Name }
+func (ts *trafficSwitcher) ExternalTopo() *topo.Server                { return ts.externalTopo }
+func (ts *trafficSwitcher) MigrationType() binlogdatapb.MigrationType { return ts.migrationType }
+func (ts *trafficSwitcher) IsPartialMigration() bool                  { return ts.isPartialMigration }
+func (ts *trafficSwitcher) ReverseWorkflowName() string               { return ts.reverseWorkflow }
+func (ts *trafficSwitcher) SourceKeyspaceName() string {
+	if ts.sourceKSSchema != nil && ts.sourceKSSchema.Keyspace != nil {
+		return ts.sourceKSSchema.Keyspace.Name
+	}
+	return ts.sourceKeyspace
+}
 func (ts *trafficSwitcher) SourceKeyspaceSchema() *vindexes.KeyspaceSchema { return ts.sourceKSSchema }
 func (ts *trafficSwitcher) Sources() map[string]*workflow.MigrationSource  { return ts.sources }
 func (ts *trafficSwitcher) Tables() []string                               { return ts.tables }
@@ -213,6 +218,7 @@ func (ts *trafficSwitcher) ForAllUIDs(f func(target *workflow.MigrationTarget, u
 /* end: implementation of workflow.ITrafficSwitcher */
 
 func (wr *Wrangler) getWorkflowState(ctx context.Context, targetKeyspace, workflowName string) (*trafficSwitcher, *workflow.State, error) {
+	log.Infof("DEBUG: getWorkflowState")
 	ts, err := wr.buildTrafficSwitcher(ctx, targetKeyspace, workflowName)
 
 	if ts == nil || err != nil {
@@ -865,6 +871,7 @@ func (wr *Wrangler) getShardSubset(ctx context.Context, keyspace string, shardSu
 	if wr.WorkflowParams != nil && len(wr.WorkflowParams.ShardSubset) > 0 {
 		shardSubset = wr.WorkflowParams.ShardSubset
 	}
+	log.Infof("DEBUG: traffic get shardnames for keyspace %s with shardSubset %+v", keyspace, shardSubset)
 	allShards, err := wr.ts.GetShardNames(ctx, keyspace)
 	if err != nil {
 		return nil, err
@@ -895,6 +902,7 @@ func (wr *Wrangler) getShardSubset(ctx context.Context, keyspace string, shardSu
 }
 
 func (wr *Wrangler) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workflowName string) (*trafficSwitcher, error) {
+	log.Infof("DEBUG: buildTrafficSwitcher")
 	shardSubset, err := wr.getShardSubset(ctx, targetKeyspace, nil)
 	if err != nil {
 		return nil, err
@@ -920,6 +928,7 @@ func (wr *Wrangler) buildTrafficSwitcher(ctx context.Context, targetKeyspace, wo
 		workflowType:    tgtInfo.WorkflowType,
 		workflowSubType: tgtInfo.WorkflowSubType,
 	}
+	log.Infof("DEBUG: traffic switcher created: %#v", ts)
 	log.Infof("Migration ID for workflow %s: %d", workflowName, ts.id)
 	sourceTopo := wr.ts
 
@@ -1265,7 +1274,7 @@ func (ts *trafficSwitcher) changeTableSourceWrites(ctx context.Context, access a
 // source shard's primary tablet using a non-pooled connection as the DBA user. The connection
 // is closed when the LOCK TABLES statement returns, so we immediately release the LOCKs.
 func (ts *trafficSwitcher) executeLockTablesOnSource(ctx context.Context) error {
-	ts.Logger().Infof("Locking (and then immediately unlocking) the following tables on source keyspace %v: %v", ts.SourceKeyspaceName(), ts.Tables())
+	ts.Logger().Infof("@@Locking (and then immediately unlocking) the following tables on source keyspace %v: %v", ts.SourceKeyspaceName(), ts.Tables())
 	if len(ts.Tables()) == 0 {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no tables found in the source keyspace %v associated with the %s workflow", ts.SourceKeyspaceName(), ts.WorkflowName())
 	}

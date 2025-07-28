@@ -31,7 +31,6 @@ import (
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/constants/sidecar"
 	"vitess.io/vitess/go/mysql"
-	"vitess.io/vitess/go/mysql/collations/charset"
 	"vitess.io/vitess/go/mysql/replication"
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/sqltypes"
@@ -60,7 +59,7 @@ const maxTableCount = 10000
 const maxPartitionsPerTable = 8192
 const maxIndexesPerTable = 64
 
-type notifier func(full map[string]*Table, created, altered, dropped []*Table, udfsChanged bool)
+type notifier func(full map[string]map[string]*Table, created, altered, dropped []*Table, udfsChanged bool)
 
 // Engine stores the schema info and performs operations that
 // keep itself up-to-date.
@@ -69,9 +68,14 @@ type Engine struct {
 	cp  dbconfigs.Connector
 
 	// mu protects the following fields.
-	mu         sync.Mutex
-	isOpen     bool
-	tables     map[string]*Table
+	mu     sync.Mutex
+	isOpen bool
+
+	physicalDBName string // physicalDBName is the name of the physical database this engine is connected to.
+
+	// tables is a map of the schemas
+	// which has the table name as the key.
+	tables     map[string]map[string]*Table
 	lastChange int64
 	// the position at which the schema was last loaded. it is only used in conjunction with ReloadAt
 	reloadAtPos replication.Position
@@ -122,6 +126,7 @@ func NewEngine(env tabletenv.Env) *Engine {
 		ticks:           timer.NewTimer(reloadTime),
 		throttledLogger: logutil.NewThrottledLogger("schema-tracker", 1*time.Minute),
 	}
+	se.physicalDBName = env.Config().DB.DBName
 	se.schemaCopy = env.Config().SignalWhenSchemaChange
 	_ = env.Exporter().NewGaugeDurationFunc("SchemaReloadTime", "vttablet keeps table schemas in its own memory and periodically refreshes it from MySQL. This config controls the reload time.", se.ticks.Interval)
 	se.tableFileSizeGauge = env.Exporter().NewGaugesWithSingleLabel("TableFileSize", "tracks table file size", "Table")
@@ -142,7 +147,6 @@ func NewEngine(env tabletenv.Env) *Engine {
 			w.Write([]byte(err.Error()))
 			return
 		}
-
 		schemazHandler(se.GetSchema(), w, r)
 	})
 	se.historian = newHistorian(env.Config().TrackSchemaVersions, env.Config().SchemaVersionMaxAgeSeconds, se.conns)
@@ -244,6 +248,26 @@ func (se *Engine) EnsureConnectionAndDB(tabletType topodatapb.TabletType, servin
 	return nil
 }
 
+// initTables initializes the tables map, which contains a map
+// for each of the schemas. For historical purposes,
+// there is always a "dual" table in each schema.
+func (se *Engine) initTables(ctx context.Context) error {
+	se.tables = make(map[string]map[string]*Table)
+
+	// For test environments, we just create a default database
+	if se.env.Config().DB.DBName == "" {
+		se.tables[""] = make(map[string]*Table)
+		se.tables[""]["dual"] = NewTable("dual", NoType)
+		return nil
+	}
+
+	// Create a map for the default database
+	dbName := se.env.Config().DB.DBName
+	se.tables[dbName] = make(map[string]*Table)
+	se.tables[dbName]["dual"] = NewTable("dual", NoType)
+	return nil
+}
+
 // Open initializes the Engine. Calling Open on an already
 // open engine is a no-op.
 func (se *Engine) Open() error {
@@ -267,8 +291,9 @@ func (se *Engine) Open() error {
 		}
 	}()
 
-	se.tables = map[string]*Table{
-		"dual": NewTable("dual", NoType),
+	// initTables
+	if err := se.initTables(ctx); err != nil {
+		return err
 	}
 	se.notifiers = make(map[string]notifier)
 
@@ -329,7 +354,7 @@ func (se *Engine) closeLocked() {
 	se.historian.Close()
 	se.conns.Close()
 
-	se.tables = make(map[string]*Table)
+	se.tables = make(map[string]map[string]*Table)
 	se.lastChange = 0
 	se.notifiers = make(map[string]notifier)
 	se.isOpen = false
@@ -347,9 +372,11 @@ func (se *Engine) MakeNonPrimary() {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	se.isServingPrimary = false
-	for _, t := range se.tables {
-		if t.SequenceInfo != nil {
-			t.SequenceInfo.Reset()
+	for _, m := range se.tables {
+		for _, t := range m {
+			if t.SequenceInfo != nil {
+				t.SequenceInfo.Reset()
+			}
 		}
 	}
 }
@@ -458,6 +485,9 @@ func populateInnoDBStats(ctx context.Context, conn *connpool.Conn) (map[string]*
 }
 
 // reload reloads the schema. It can also be used to initialize it.
+// It loads all tables across all schemas except:
+//
+//	_vt, mysql, information_schema, performance_schema, sys.
 func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	start := time.Now()
 	defer func() {
@@ -504,7 +534,8 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		return vterrors.Wrapf(err, "in Engine.reload(), reading tables")
 	}
 
-	// On the primary tablet, we also check the data we have stored in our schema tables to see what all needs reloading.
+	// On the primary tablet, we also check the data we have stored
+	// in our schema tables to see what all needs reloading.
 	shouldUseDatabase := se.isServingPrimary && se.schemaCopy
 
 	// changedViews are the views that have changed. We can't use the same createTime logic for views because, MySQL
@@ -532,22 +563,31 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	}
 
 	rec := concurrency.AllErrorRecorder{}
+
+	// TODO: we need to do special handling of the dual database,
+	// since it exists in every schema.
 	// curTables keeps track of tables in the new snapshot so we can detect what was dropped.
-	curTables := map[string]bool{"dual": true}
+	// We need to include the "dual" table since it's a virtual table that doesn't exist in the database
+	// but is created by initTables for historical purposes.
+	curTables := make(map[string]bool, len(tableData.Rows)+1)
+	curTables["dual"] = true // Always preserve the dual table
 	// changedTables keeps track of tables that have changed so we can reload their pk info.
 	changedTables := make(map[string]*Table)
 	// created and altered contain the names of created and altered tables for broadcast.
 	var created, altered []*Table
-	databaseName := se.cp.DBName()
 	for _, row := range tableData.Rows {
-		tableName := row[0].ToString()
+		// tableName is now encoded as schema.table.
+		schemaName := row[0].ToString()
+		tableName := row[1].ToString()
 		var innodbTable *Table
 		if innodbTablesStats != nil {
-			innodbTableName := fmt.Sprintf("%s/%s", charset.TablenameToFilename(databaseName), charset.TablenameToFilename(tableName))
+			// The innodb table name is created by converting schema.table to schema/table.
+			// This is because the innodb table sizes query returns the table name in the form of `schema/table`.
+			innodbTableName := fmt.Sprintf("%s/%s", schemaName, tableName)
 			innodbTable = innodbTablesStats[innodbTableName]
 		}
 		curTables[tableName] = true
-		createTime, _ := row[2].ToCastInt64()
+		createTime, _ := row[3].ToCastInt64()
 		var fileSize, allocatedSize uint64
 
 		// For 5.7 flavor, includeStats is ignored, so we don't get the additional columns
@@ -580,7 +620,11 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		//   4. A view's definition has changed. We can't use the same createTime logic for views because, MySQL
 		//	    doesn't update the create_time field for views when they are altered. This is annoying, but something we have to work around.
 		//      We check this by consulting the changedViews map.
-		tbl, isInTablesMap := se.tables[tableName]
+		var tbl *Table
+		var isInTablesMap bool
+		if _, ok := se.tables[schemaName]; ok {
+			tbl, isInTablesMap = se.tables[schemaName][tableName]
+		}
 		_, isInChangedViewMap := changedViews[tableName]
 		_, isInMismatchTableMap := mismatchTables[tableName]
 		if isInTablesMap && createTime == tbl.CreateTime && createTime < se.lastChange && !isInChangedViewMap && !isInMismatchTableMap {
@@ -595,8 +639,8 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		}
 
 		log.V(2).Infof("Reading schema for table: %s", tableName)
-		tableType := row[1].String()
-		table, err := LoadTable(conn, se.cp.DBName(), tableName, tableType, row[3].ToString(), se.env.Environment().CollationEnv())
+		tableType := row[2].String()
+		table, err := LoadTable(conn, schemaName, tableName, tableType, row[4].ToString(), se.env.Environment().CollationEnv())
 		if err != nil {
 			// Non recoverable error:
 			rec.RecordError(vterrors.Wrapf(err, "in Engine.reload(), reading table %s", tableName))
@@ -624,7 +668,22 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	dropped := se.getDroppedTables(curTables, changedViews, mismatchTables)
 
 	// Populate PK Columns for changed tables.
-	if err := se.populatePrimaryKeys(ctx, conn.Conn, changedTables); err != nil {
+	// Convert changedTables to the new format expected by populatePrimaryKeys
+	changedTablesForPK := make(map[string]map[string]*Table)
+	for tableName, table := range changedTables {
+		// Find the schema name for this table
+		for _, row := range tableData.Rows {
+			if row[1].ToString() == tableName {
+				schemaName := row[0].ToString()
+				if _, ok := changedTablesForPK[schemaName]; !ok {
+					changedTablesForPK[schemaName] = make(map[string]*Table)
+				}
+				changedTablesForPK[schemaName][tableName] = table
+				break
+			}
+		}
+	}
+	if err := se.populatePrimaryKeys(ctx, conn.Conn, changedTablesForPK); err != nil {
 		return err
 	}
 
@@ -639,8 +698,23 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	}
 
 	// Update se.tables
-	for k, t := range changedTables {
-		se.tables[k] = t
+	for tableName, t := range changedTables {
+		// Find the schema name for this table
+		var actualSchemaName string
+		for _, row := range tableData.Rows {
+			if row[1].ToString() == tableName {
+				actualSchemaName = row[0].ToString()
+				break
+			}
+		}
+		if actualSchemaName == "" {
+			log.Errorf("Could not find schema name for table %s", tableName)
+			continue
+		}
+		if _, ok := se.tables[actualSchemaName]; !ok {
+			se.tables[actualSchemaName] = make(map[string]*Table)
+		}
+		se.tables[actualSchemaName][t.Name.String()] = t
 	}
 	se.lastChange = curTime
 	if len(created) > 0 || len(altered) > 0 || len(dropped) > 0 {
@@ -653,14 +727,21 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 func (se *Engine) getDroppedTables(curTables map[string]bool, changedViews map[string]any, mismatchTables map[string]any) []*Table {
 	// Compute and handle dropped tables.
 	dropped := make(map[string]*Table)
-	for tableName, table := range se.tables {
-		if !curTables[tableName] {
-			dropped[tableName] = table
-			delete(se.tables, tableName)
-			// We can't actually delete the label from the stats, but we can set it to 0.
-			// Many monitoring tools will drop zero-valued metrics.
-			se.tableFileSizeGauge.Reset(tableName)
-			se.tableAllocatedSizeGauge.Reset(tableName)
+	for schemaName, schemaMap := range se.tables {
+		for tableName, table := range schemaMap {
+			if !curTables[tableName] {
+				// Special handling for the "dual" table - it's a virtual table that doesn't exist in the database
+				// but is created by initTables for historical purposes. We should never drop it.
+				if tableName == "dual" {
+					continue
+				}
+				dropped[tableName] = table
+				delete(se.tables[schemaName], tableName)
+				// We can't actually delete the label from the stats, but we can set it to 0.
+				// Many monitoring tools will drop zero-valued metrics.
+				se.tableFileSizeGauge.Reset(tableName)
+				se.tableAllocatedSizeGauge.Reset(tableName)
+			}
 		}
 	}
 
@@ -863,18 +944,21 @@ func (se *Engine) mysqlTime(ctx context.Context, conn *connpool.Conn) (int64, er
 }
 
 // populatePrimaryKeys populates the PKColumns for the specified tables.
-func (se *Engine) populatePrimaryKeys(ctx context.Context, conn *connpool.Conn, tables map[string]*Table) error {
+// tables uses the new structure, which is schema.table name.
+func (se *Engine) populatePrimaryKeys(ctx context.Context, conn *connpool.Conn, tables map[string]map[string]*Table) error {
 	pkData, err := conn.Exec(ctx, mysql.BaseShowPrimary, maxTableCount, false)
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_UNKNOWN, "could not get table primary key info: %v", err)
 	}
 	for _, row := range pkData.Rows {
-		tableName := row[0].ToString()
-		table, ok := tables[tableName]
+		dbName := row[0].ToString()
+		tableName := row[1].ToString()
+
+		table, ok := tables[dbName][tableName]
 		if !ok {
 			continue
 		}
-		colName := row[1].ToString()
+		colName := row[2].ToString()
 		index := table.FindColumn(sqlparser.NewIdentifierCI(colName))
 		if index < 0 {
 			return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "column %v is listed as primary key, but not present in table %v", colName, tableName)
@@ -898,8 +982,8 @@ func (se *Engine) RegisterVersionEvent() error {
 // in the cache, it will reload the cache from the database in case the table was created
 // after the last schema reload or the cache has not yet been initialized. This function
 // makes the schema cache a read-through cache for VReplication purposes.
-func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.IdentifierCS, gtid string) (*binlogdatapb.MinimalTable, error) {
-	mt, err := se.historian.GetTableForPos(tableName, gtid)
+func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName sqlparser.IdentifierCS, gtid string) (*binlogdatapb.MinimalTable, error) {
+	mt, err := se.historian.GetTableForPos(dbName, tableName, gtid)
 	if err != nil {
 		log.Infof("GetTableForPos returned error: %s", err.Error())
 		return nil, err
@@ -911,7 +995,28 @@ func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.Identi
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	tableNameStr := tableName.String()
-	if st, ok := se.tables[tableNameStr]; ok && tableNameStr != "dual" { // No need to refresh dual
+
+	// First try to find the table in the provided dbName
+	var st *Table
+	var ok bool
+	if dbName != "" {
+		if schemaMap, ok := se.tables[dbName]; ok {
+			if st, ok = schemaMap[tableNameStr]; ok {
+				// Found it
+			}
+		}
+	}
+
+	// If not found, search across all databases for this table name
+	if !ok {
+		for _, schemaMap := range se.tables {
+			if st, ok = schemaMap[tableNameStr]; ok {
+				break
+			}
+		}
+	}
+
+	if ok && tableNameStr != "dual" { // No need to refresh dual
 		// Test Engines (NewEngineForTests()) don't have a conns pool and are not
 		// supposed to talk to the database, so don't update the cache entry in that
 		// case.
@@ -927,15 +1032,36 @@ func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.Identi
 		defer conn.Recycle()
 		cst := *st       // Make a copy
 		cst.Fields = nil // We're going to refresh the columns/fields
-		if err := fetchColumns(&cst, conn, se.cp.DBName(), tableNameStr); err != nil {
+
+		// Use the provided dbName or find the schema name from our search
+		refreshDbName := dbName
+		if refreshDbName == "" {
+			// Find which schema this table belongs to
+			for schemaName, schemaMap := range se.tables {
+				if _, ok := schemaMap[tableNameStr]; ok {
+					refreshDbName = schemaName
+					break
+				}
+			}
+		}
+
+		if err := fetchColumns(&cst, conn, refreshDbName, tableNameStr); err != nil {
 			return nil, err
 		}
 		// Update the PK columns for the table as well as they may have changed.
 		cst.PKColumns = nil // We're going to repopulate the PK columns
-		if err := se.populatePrimaryKeys(ctx, conn.Conn, map[string]*Table{tableNameStr: &cst}); err != nil {
+		pkTablesMap := make(map[string]map[string]*Table)
+		pkTablesMap[refreshDbName] = make(map[string]*Table)
+		pkTablesMap[refreshDbName][tableNameStr] = &cst
+		if err := se.populatePrimaryKeys(ctx, conn.Conn, pkTablesMap); err != nil {
 			return nil, err
 		}
-		se.tables[tableNameStr] = &cst
+
+		// Update the cache with the refreshed table
+		if _, ok := se.tables[refreshDbName]; !ok {
+			se.tables[refreshDbName] = make(map[string]*Table)
+		}
+		se.tables[refreshDbName][tableNameStr] = &cst
 		return newMinimalTable(&cst), nil
 	}
 	// It's expected that internal tables are not found within VReplication workflows.
@@ -960,13 +1086,24 @@ func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.Identi
 		if err := se.reload(ctx, false); err != nil {
 			return nil, err
 		}
-		if st, ok := se.tables[tableNameStr]; ok {
-			return newMinimalTable(st), nil
+		// Try again after reload
+		if dbName != "" {
+			if schemaMap, ok := se.tables[dbName]; ok {
+				if st, ok := schemaMap[tableNameStr]; ok {
+					return newMinimalTable(st), nil
+				}
+			}
+		}
+		// Search across all databases again
+		for _, schemaMap := range se.tables {
+			if st, ok := schemaMap[tableNameStr]; ok {
+				return newMinimalTable(st), nil
+			}
 		}
 	}
 
-	log.Infof("table %v not found in vttablet schema, current tables: %v", tableNameStr, se.tables)
-	return nil, fmt.Errorf("table %v not found in vttablet schema", tableNameStr)
+	log.Infof("DEBUGZ: table %v.%v not found in vttablet schema, current tables: %v", dbName, tableNameStr, se.tables)
+	return nil, fmt.Errorf("table %v.%v not found in vttablet schema", dbName, tableNameStr)
 }
 
 // RegisterNotifier registers the function for schema change notification.
@@ -983,8 +1120,10 @@ func (se *Engine) RegisterNotifier(name string, f notifier, runNotifier bool) {
 
 	se.notifiers[name] = f
 	var created []*Table
-	for _, table := range se.tables {
-		created = append(created, table)
+	for _, schemaMap := range se.tables {
+		for _, table := range schemaMap {
+			created = append(created, table)
+		}
 	}
 	if runNotifier {
 		s := maps.Clone(se.tables)
@@ -1030,15 +1169,28 @@ func (se *Engine) BroadcastForTesting(created, altered, dropped []*Table, udfsCh
 }
 
 // GetTable returns the info for a table.
-func (se *Engine) GetTable(tableName sqlparser.IdentifierCS) *Table {
+// For Virtual Keyspaces, it tries to find the table with qualified name first,
+// then falls back to unqualified name for backward compatibility.
+func (se *Engine) GetTable(dbName string, tableName sqlparser.IdentifierCS) *Table {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	return se.tables[tableName.String()]
+
+	tableNameStr := tableName.String()
+
+	// First try to find with the exact name in the specified database
+	if dbName != "" {
+		if schemaMap, ok := se.tables[dbName]; ok {
+			if table, ok := schemaMap[tableNameStr]; ok {
+				return table
+			}
+		}
+	}
+	return nil
 }
 
 // GetSchema returns the current schema. The Tables are a
 // shared data structure and must be treated as read-only.
-func (se *Engine) GetSchema() map[string]*Table {
+func (se *Engine) GetSchema() map[string]map[string]*Table {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	tables := maps.Clone(se.tables)
@@ -1050,10 +1202,12 @@ func (se *Engine) MarshalMinimalSchema() ([]byte, error) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	dbSchema := &binlogdatapb.MinimalSchema{
-		Tables: make([]*binlogdatapb.MinimalTable, 0, len(se.tables)),
+		Tables: make([]*binlogdatapb.MinimalTable, 0),
 	}
-	for _, table := range se.tables {
-		dbSchema.Tables = append(dbSchema.Tables, newMinimalTable(table))
+	for _, schemaMap := range se.tables {
+		for _, table := range schemaMap {
+			dbSchema.Tables = append(dbSchema.Tables, newMinimalTable(table))
+		}
 	}
 	return dbSchema.MarshalVT()
 }
@@ -1112,7 +1266,7 @@ func (se *Engine) handleHTTPSchema(response http.ResponseWriter) {
 func NewEngineForTests() *Engine {
 	se := &Engine{
 		isOpen:    true,
-		tables:    make(map[string]*Table),
+		tables:    make(map[string]map[string]*Table),
 		historian: newHistorian(false, 0, nil),
 		env:       tabletenv.NewEnv(vtenv.NewTestEnv(), tabletenv.NewDefaultConfig(), "SchemaEngineForTests"),
 		notifiers: make(map[string]notifier),
@@ -1121,10 +1275,13 @@ func NewEngineForTests() *Engine {
 }
 
 // SetTableForTests puts a Table in the map directly.
-func (se *Engine) SetTableForTests(table *Table) {
+func (se *Engine) SetTableForTests(dbName string, table *Table) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	se.tables[table.Name.String()] = table
+	if _, ok := se.tables[dbName]; !ok {
+		se.tables[dbName] = make(map[string]*Table)
+	}
+	se.tables[dbName][table.Name.String()] = table
 }
 
 func (se *Engine) GetDBConnector() dbconfigs.Connector {
@@ -1143,11 +1300,15 @@ func extractNamesFromTablesList(tables []*Table) []string {
 	return tableNames
 }
 
-func (se *Engine) ResetSequences(tables []string) error {
+func (se *Engine) ResetSequences(dbName string, tables []string) error {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	for _, tableName := range tables {
-		if table, ok := se.tables[tableName]; ok {
+		// check if the dbName exists in se.tables first.
+		if _, ok := se.tables[dbName]; !ok {
+			return vterrors.Errorf(vtrpcpb.Code_NOT_FOUND, "database %v not found in schema cache", dbName)
+		}
+		if table, ok := se.tables[dbName][tableName]; ok {
 			if table.SequenceInfo != nil {
 				log.Infof("Resetting sequence info for table %s: %+v", tableName, table.SequenceInfo)
 				table.SequenceInfo.Reset()

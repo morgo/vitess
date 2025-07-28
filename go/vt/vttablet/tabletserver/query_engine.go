@@ -130,7 +130,7 @@ type SettingsCacheKey = theine.StringKey
 type SettingsCache = theine.Store[SettingsCacheKey, *smartconnpool.Setting]
 
 type currentSchema struct {
-	tables map[string]*schema.Table
+	tables map[string]map[string]*schema.Table
 	epoch  uint32
 }
 
@@ -224,7 +224,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	qe.settings = theine.NewStore[SettingsCacheKey, *smartconnpool.Setting](settingsCacheMemory, false)
 
 	qe.schema.Store(&currentSchema{
-		tables: make(map[string]*schema.Table),
+		tables: make(map[string]map[string]*schema.Table),
 		epoch:  0,
 	})
 
@@ -379,7 +379,16 @@ func (qe *QueryEngine) getPlan(curSchema *currentSchema, sql string, noRowsLimit
 	if err != nil {
 		return nil, err
 	}
-	splan, err := planbuilder.Build(qe.env.Environment(), statement, curSchema.tables, qe.env.Config().DB.DBName, noRowsLimit)
+
+	// Flatten the schema map for the planbuilder
+	flatTables := make(map[string]*schema.Table)
+	for _, schemaMap := range curSchema.tables {
+		for tableName, table := range schemaMap {
+			flatTables[tableName] = table
+		}
+	}
+
+	splan, err := planbuilder.Build(qe.env.Environment(), statement, flatTables, qe.env.Config().DB.DBName, noRowsLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +432,15 @@ func (qe *QueryEngine) getStreamPlan(curSchema *currentSchema, sql string) (*Tab
 		return nil, err
 	}
 
-	splan, err := planbuilder.BuildStreaming(statement, curSchema.tables)
+	// Flatten the schema map for the planbuilder
+	flatTables := make(map[string]*schema.Table)
+	for _, schemaMap := range curSchema.tables {
+		for tableName, table := range schemaMap {
+			flatTables[tableName] = table
+		}
+	}
+
+	splan, err := planbuilder.BuildStreaming(statement, flatTables)
 
 	if err != nil {
 		return nil, err
@@ -479,7 +496,15 @@ func (qe *QueryEngine) getPlanCacheKey(sql string, noRowsLimit bool) string {
 
 // GetMessageStreamPlan builds a plan for Message streaming.
 func (qe *QueryEngine) GetMessageStreamPlan(name string) (*TabletPlan, error) {
-	splan, err := planbuilder.BuildMessageStreaming(name, qe.schema.Load().tables)
+	// Flatten the schema map for the planbuilder
+	flatTables := make(map[string]*schema.Table)
+	for _, schemaMap := range qe.schema.Load().tables {
+		for tableName, table := range schemaMap {
+			flatTables[tableName] = table
+		}
+	}
+
+	splan, err := planbuilder.BuildMessageStreaming(name, flatTables)
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +572,7 @@ func (qe *QueryEngine) IsMySQLReachable() error {
 	return nil
 }
 
-func (qe *QueryEngine) schemaChanged(tables map[string]*schema.Table, created, altered, dropped []*schema.Table, _ bool) {
+func (qe *QueryEngine) schemaChanged(tables map[string]map[string]*schema.Table, created, altered, dropped []*schema.Table, _ bool) {
 	qe.schemaMu.Lock()
 	defer qe.schemaMu.Unlock()
 

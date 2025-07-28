@@ -154,7 +154,15 @@ create table test_partitioned (
 
 	time.Sleep(10 * time.Millisecond)
 	se := tablet.tsv.SchemaEngine()
-	tables := se.GetSchema()
+	schemaMap := se.GetSchema()
+
+	// Find the database name (should be "ks_sharded" based on the tablet configuration)
+	var tables map[string]*schema.Table
+	for _, dbTables := range schemaMap {
+		tables = dbTables
+		break
+	}
+	require.NotNil(t, tables, "no tables found in schema")
 
 	t1 := tables["t1"]
 	require.NotNil(t, t1, "table t1 wasn't parsed properly")

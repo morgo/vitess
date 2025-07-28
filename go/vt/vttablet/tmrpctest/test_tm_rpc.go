@@ -677,7 +677,7 @@ var testSchemaChangeResult = []*tabletmanagerdatapb.SchemaChangeResult{
 	},
 }
 
-func (fra *fakeRPCTM) PreflightSchema(ctx context.Context, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error) {
+func (fra *fakeRPCTM) PreflightSchema(ctx context.Context, schema string, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error) {
 	if fra.panics {
 		panic(fmt.Errorf("test-triggered panic"))
 	}
@@ -1490,6 +1490,13 @@ func (fra *fakeRPCTM) GetThrottlerStatus(ctx context.Context, req *tabletmanager
 
 	// TODO implement me
 	panic("implement me")
+}
+
+func (fra *fakeRPCTM) AddVirtualKeyspace(ctx context.Context, req *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error) {
+	if fra.panics {
+		panic(fmt.Errorf("test-triggered panic"))
+	}
+	return &tabletmanagerdatapb.AddVirtualKeyspaceResponse{}, nil
 }
 
 func tmRPCTestRestoreFromBackup(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet, req *tabletmanagerdatapb.RestoreFromBackupRequest) {

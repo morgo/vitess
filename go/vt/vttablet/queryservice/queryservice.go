@@ -125,6 +125,7 @@ type QueryService interface {
 	Release(ctx context.Context, target *querypb.Target, transactionID, reservedID int64) error
 
 	// GetSchema returns the table definition for the specified tables.
+	// TODO: this needs work for virtual keyspaces.
 	GetSchema(ctx context.Context, target *querypb.Target, tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error
 
 	// Close must be called for releasing resources.

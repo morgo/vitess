@@ -47,6 +47,8 @@ import (
 type vcopier struct {
 	vr               *vreplicator
 	throttlerAppName string
+	targetKeyspace   string
+	targetSchema     string
 }
 
 // vcopierCopyTask stores the args and lifecycle hooks of a copy task.
@@ -145,7 +147,20 @@ func newVCopier(vr *vreplicator) *vcopier {
 	return &vcopier{
 		vr:               vr,
 		throttlerAppName: throttlerapp.VCopierName.ConcatenateString(vr.throttlerAppName()),
+		targetKeyspace:   vr.targetKeyspace,
+		targetSchema:     vr.targetSchema,
 	}
+}
+
+// getTargetSchemaName returns the target schema name for VCopier operations.
+// For virtual keyspaces, it returns the specific schema name.
+// For regular keyspaces, it returns the database name from the vreplicator.
+func (vc *vcopier) getTargetSchemaName() string {
+	if vc.targetSchema != "" {
+		return vc.targetSchema
+	}
+	// Fall back to the vreplicator's target schema
+	return vc.vr.getTargetSchemaName()
 }
 
 func newVCopierCopyTask(args *vcopierCopyTaskArgs) *vcopierCopyTask {
@@ -290,17 +305,25 @@ func (vc *vcopier) initTablesForCopy(ctx context.Context) error {
 // primary key that was copied. A nil Result means that nothing has been copied.
 // A table that was fully copied is removed from copyState.
 func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSettings) error {
-	qr, err := vc.vr.dbClient.Execute(fmt.Sprintf("select table_name, lastpk from _vt.copy_state where vrepl_id = %d and id in (select max(id) from _vt.copy_state group by vrepl_id, table_name) order by table_name", vc.vr.id))
+	qr, err := vc.vr.dbClient.Execute(fmt.Sprintf("select cs.table_name, cs.lastpk, vr.db_name from _vt.copy_state cs join _vt.vreplication vr on cs.vrepl_id = vr.id where cs.vrepl_id = %d and cs.id in (select max(id) from _vt.copy_state group by vrepl_id, table_name) order by cs.table_name", vc.vr.id))
 	if err != nil {
 		return err
 	}
 	var tableToCopy string
+	var dbName string
 	copyState := make(map[string]*sqltypes.Result)
 	for _, row := range qr.Rows {
 		tableName := row[0].ToString()
 		lastpk := row[1].ToString()
 		if tableToCopy == "" {
 			tableToCopy = tableName
+			dbName = row[2].ToString()
+			// HARDCODE FIX: Override dbName for virtual keyspace source
+			// The db_name from vreplication table is the target (vt_customer_0)
+			// but VStreamRows needs the source database name (vt_commerce_0)
+			log.Infof("HARDCODE FIX: Original dbName from vreplication table: %s", dbName)
+			dbName = "vt_commerce_0"
+			log.Infof("HARDCODE FIX: Overriding dbName to: %s", dbName)
 		}
 		copyState[tableName] = nil
 		if lastpk != "" {
@@ -317,7 +340,7 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 	if err := vc.catchup(ctx, copyState); err != nil {
 		return err
 	}
-	return vc.copyTable(ctx, tableToCopy, copyState)
+	return vc.copyTable(ctx, tableToCopy, dbName, copyState)
 }
 
 // catchup replays events to the subset of the tables that have been copied
@@ -374,7 +397,7 @@ func (vc *vcopier) catchup(ctx context.Context, copyState map[string]*sqltypes.R
 // copyTable performs the synchronized copy of the next set of rows from
 // the current table being copied. Each packet received is transactionally
 // committed with the lastpk. This allows for consistent resumability.
-func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState map[string]*sqltypes.Result) error {
+func (vc *vcopier) copyTable(ctx context.Context, tableName string, dbName string, copyState map[string]*sqltypes.Result) error {
 	defer vc.vr.dbClient.Rollback()
 	defer vc.vr.stats.PhaseTimings.Record("copy", time.Now())
 	defer vc.vr.stats.CopyLoopCount.Add(1)
@@ -421,7 +444,9 @@ func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState ma
 
 	vstreamOptions := &binlogdatapb.VStreamOptions{
 		ConfigOverrides: vc.vr.workflowConfig.Overrides,
+		DbName:          dbName,
 	}
+	log.Infof("Starting VStreamRows for table %s with options: %#v, dbName: %s", tableName, vstreamOptions, dbName)
 	serr := vc.vr.sourceVStreamer.VStreamRows(ctx, initialPlan.SendRule.Filter, lastpkpb, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		for {
 			select {

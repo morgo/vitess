@@ -806,11 +806,15 @@ func newTestStateManager() *stateManager {
 	cfg := tabletenv.NewDefaultConfig()
 	parser := sqlparser.NewTestParser()
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "StateManagerTest")
+
+	// Create a schema engine for tests that doesn't require a database connection
+	se := schema.NewEngineForTests()
+
 	sm := &stateManager{
 		statelessql:       NewQueryList("stateless", parser),
 		statefulql:        NewQueryList("stateful", parser),
 		olapql:            NewQueryList("olap", parser),
-		hs:                newHealthStreamer(env, &topodatapb.TabletAlias{}, schema.NewEngine(env)),
+		hs:                newHealthStreamer(env, &topodatapb.TabletAlias{}, se),
 		se:                &testSchemaEngine{},
 		rt:                &testReplTracker{lag: 1 * time.Second},
 		vstreamer:         &testSubcomponent{},

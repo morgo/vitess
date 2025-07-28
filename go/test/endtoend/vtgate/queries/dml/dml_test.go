@@ -553,13 +553,13 @@ func TestDeleteWithLargeRowsAsInput(t *testing.T) {
 	}
 
 	// Should succeed in OLTP mode
-	_ = mcmp.Exec(`delete t1 from t1 join t2 on t1.col = t2.col where t1.id > 40`)
-	// assert.EqualValues(t, 100, qr.RowsAffected)
+	qr := mcmp.Exec(`delete t1 from t1 join t2 on t1.col = t2.col where t1.id > 40`)
+	assert.EqualValues(t, 100, qr.RowsAffected)
 
 	// Switch workload to OLAP
 	utils.Exec(t, mcmp.VtConn, `set workload = olap`)
 
 	// Should also succeed in OLAP mode
-	_ = mcmp.Exec(`delete t1 from t1 join t2 on t1.col = t2.col`)
-	// assert.EqualValues(t, 0, qr.RowsAffected) // All rows should have been deleted in the first run
+	qr = mcmp.Exec(`delete t1 from t1 join t2 on t1.col = t2.col`)
+	assert.EqualValues(t, 0, qr.RowsAffected) // All rows should have been deleted in the first run
 }

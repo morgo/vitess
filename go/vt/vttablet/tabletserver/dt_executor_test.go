@@ -727,6 +727,8 @@ func newTestTxExecutor(t *testing.T, ctx context.Context) (txe *DTExecutor, tsv 
 	db.AddQuery("delete from _vt.redo_state where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("delete from _vt.redo_statement where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("update test_table set `name` = 2 where pk = 1 limit 10001", &sqltypes.Result{})
+	db.AddQuery("update test_table set name = 2 where pk = 1", &sqltypes.Result{})
+	db.AddQuery("update test_table set `name` = 2 where pk = 1", &sqltypes.Result{})
 	db.AddRejectedQuery("bogus", sqlerror.NewSQLError(sqlerror.ERUnknownError, sqlerror.SSUnknownSQLState, "bogus query"))
 	return &DTExecutor{
 			ctx:      ctx,
@@ -749,6 +751,7 @@ func newShortAgeExecutor(t *testing.T, ctx context.Context) (txe *DTExecutor, ts
 	db.AddQuery("delete from _vt.redo_state where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("delete from _vt.redo_statement where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("update test_table set `name` = 2 where pk = 1 limit 10001", &sqltypes.Result{})
+	db.AddQuery("update test_table set name = 2 where pk = 1", &sqltypes.Result{})
 	return &DTExecutor{
 		ctx:      ctx,
 		logStats: logStats,

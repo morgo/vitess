@@ -101,7 +101,18 @@ type Engine struct {
 	mysqld                  mysqlctl.MysqlDaemon
 	dbClientFactoryFiltered func() binlogplayer.DBClient
 	dbClientFactoryDba      func() binlogplayer.DBClient
-	dbName                  string
+
+	// Multi-schema support for virtual keyspaces
+	// dbName is kept for backward compatibility
+	dbName           string
+	schemaMap        map[string]string // keyspace -> schema_name mapping
+	physicalKeyspace string
+
+	// Schema-aware database client factories
+	schemaClientFactories map[string]struct {
+		filtered func() binlogplayer.DBClient
+		dba      func() binlogplayer.DBClient
+	}
 
 	journaler map[string]*journalEvent
 	ec        *externalConnector
@@ -141,24 +152,314 @@ func NewEngine(env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.
 		journaler:       make(map[string]*journalEvent),
 		ec:              newExternalConnector(env, config.ExternalConnections),
 		throttlerClient: throttle.NewBackgroundClient(lagThrottler, throttlerapp.VReplicationName, base.UndefinedScope),
+		schemaMap:       make(map[string]string),
+		schemaClientFactories: make(map[string]struct {
+			filtered func() binlogplayer.DBClient
+			dba      func() binlogplayer.DBClient
+		}),
 	}
 
 	return vre
 }
 
 // InitDBConfig should be invoked after the db name is computed.
+// This method now supports both single-schema (backward compatibility) and multi-schema modes.
 func (vre *Engine) InitDBConfig(dbcfgs *dbconfigs.DBConfigs) {
 	// If we're already initialized, it's a test engine. Ignore the call.
 	if vre.dbClientFactoryFiltered != nil && vre.dbClientFactoryDba != nil {
 		return
 	}
 	vre.dbClientFactoryFiltered = func() binlogplayer.DBClient {
-		return binlogplayer.NewDBClient(dbcfgs.FilteredWithDB(), vre.env.Parser())
+		return binlogplayer.NewDBClient(dbcfgs.FilteredWithoutDB(), vre.env.Parser())
 	}
 	vre.dbClientFactoryDba = func() binlogplayer.DBClient {
-		return binlogplayer.NewDBClient(dbcfgs.DbaWithDB(), vre.env.Parser())
+		return binlogplayer.NewDBClient(dbcfgs.DbaWithoutDB(), vre.env.Parser())
 	}
 	vre.dbName = dbcfgs.DBName
+
+	// Initialize schema mapping for backward compatibility
+	// For now, we assume the physical keyspace name can be derived from the dbName
+	// This will be enhanced when we have proper keyspace context
+	if vre.physicalKeyspace == "" {
+		vre.physicalKeyspace = dbcfgs.DBName // Temporary assumption
+	}
+	if vre.schemaMap == nil {
+		vre.schemaMap = make(map[string]string)
+	}
+	vre.schemaMap[vre.physicalKeyspace] = dbcfgs.DBName
+}
+
+// InitDBConfigWithKeyspace initializes the engine with explicit keyspace information.
+// This is the new method that will be used for multi-schema support.
+func (vre *Engine) InitDBConfigWithKeyspace(physicalKeyspace string) error {
+	if vre.dbName == "" {
+		return fmt.Errorf("dbName must be set before calling InitDBConfigWithKeyspace")
+	}
+	vre.physicalKeyspace = physicalKeyspace
+	if vre.schemaMap == nil {
+		vre.schemaMap = make(map[string]string)
+	}
+	vre.schemaMap[physicalKeyspace] = vre.dbName
+	return nil
+}
+
+// AddVirtualKeyspace adds a virtual keyspace to the engine's schema mapping.
+func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, schemaName string) error {
+	vre.mu.Lock()
+	defer vre.mu.Unlock()
+
+	if vre.schemaMap == nil {
+		vre.schemaMap = make(map[string]string)
+	}
+
+	// Check if virtual keyspace already exists
+	if _, exists := vre.schemaMap[virtualKeyspace]; exists {
+		return fmt.Errorf("virtual keyspace %s already exists", virtualKeyspace)
+	}
+
+	// Add the mapping
+	vre.schemaMap[virtualKeyspace] = schemaName
+
+	// Create schema-specific client factories if needed
+	if vre.schemaClientFactories == nil {
+		vre.schemaClientFactories = make(map[string]struct {
+			filtered func() binlogplayer.DBClient
+			dba      func() binlogplayer.DBClient
+		})
+	}
+
+	// For now, we'll use the same connection config but different schema
+	// This will be enhanced to support per-schema configurations
+	vre.schemaClientFactories[virtualKeyspace] = struct {
+		filtered func() binlogplayer.DBClient
+		dba      func() binlogplayer.DBClient
+	}{
+		filtered: func() binlogplayer.DBClient {
+			client := vre.dbClientFactoryFiltered()
+			// Set the client to use the specific schema for this virtual keyspace
+			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
+				schemaClient.SetDBName(schemaName)
+			}
+			return client
+		},
+		dba: func() binlogplayer.DBClient {
+			client := vre.dbClientFactoryDba()
+			// Set the client to use the specific schema for this virtual keyspace
+			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
+				schemaClient.SetDBName(schemaName)
+			}
+			return client
+		},
+	}
+
+	log.Infof("Added virtual keyspace %s with schema %s to VReplication engine", virtualKeyspace, schemaName)
+	return nil
+}
+
+// RemoveVirtualKeyspace removes a virtual keyspace from the engine's schema mapping.
+func (vre *Engine) RemoveVirtualKeyspace(virtualKeyspace string) error {
+	vre.mu.Lock()
+	defer vre.mu.Unlock()
+
+	// Check if it's the physical keyspace
+	if virtualKeyspace == vre.physicalKeyspace {
+		return fmt.Errorf("cannot remove physical keyspace %s", virtualKeyspace)
+	}
+
+	// Check if virtual keyspace exists
+	if _, exists := vre.schemaMap[virtualKeyspace]; !exists {
+		return fmt.Errorf("virtual keyspace %s does not exist", virtualKeyspace)
+	}
+
+	// Remove the mapping
+	delete(vre.schemaMap, virtualKeyspace)
+
+	// Remove schema-specific client factories
+	if vre.schemaClientFactories != nil {
+		delete(vre.schemaClientFactories, virtualKeyspace)
+	}
+
+	// Stop any controllers associated with this virtual keyspace
+	vre.stopControllersForVirtualKeyspace(virtualKeyspace)
+
+	log.Infof("Removed virtual keyspace %s from VReplication engine", virtualKeyspace)
+	return nil
+}
+
+// stopControllersForVirtualKeyspace stops all controllers that are targeting the specified virtual keyspace
+func (vre *Engine) stopControllersForVirtualKeyspace(virtualKeyspace string) {
+	var controllersToStop []int32
+
+	// Find controllers targeting this virtual keyspace
+	for id, ct := range vre.controllers {
+		if ct.targetKeyspace == virtualKeyspace {
+			controllersToStop = append(controllersToStop, id)
+		}
+	}
+
+	// Stop the controllers
+	for _, id := range controllersToStop {
+		if ct := vre.controllers[id]; ct != nil {
+			log.Infof("Stopping controller %d for virtual keyspace %s", id, virtualKeyspace)
+			ct.Stop()
+			delete(vre.controllers, id)
+		}
+	}
+}
+
+// OnVirtualKeyspaceCreated is called when a new virtual keyspace is created.
+// This method integrates with the virtual keyspace lifecycle to automatically
+// register the new keyspace and optionally create replication streams.
+func (vre *Engine) OnVirtualKeyspaceCreated(ctx context.Context, virtualKeyspace, physicalKeyspace, schemaName string) error {
+	log.Infof("Virtual keyspace created: %s (physical: %s, schema: %s)", virtualKeyspace, physicalKeyspace, schemaName)
+
+	// Add the virtual keyspace to our schema mapping
+	if err := vre.AddVirtualKeyspace(virtualKeyspace, schemaName); err != nil {
+		return fmt.Errorf("failed to add virtual keyspace %s: %v", virtualKeyspace, err)
+	}
+
+	// TODO: Implement stream auto-creation logic
+	// This would involve:
+	// 1. Finding existing streams for the physical keyspace
+	// 2. Creating corresponding streams for the virtual keyspace
+	// 3. Inheriting configuration from physical keyspace streams
+	// 4. Handling initial data synchronization
+
+	return nil
+}
+
+// OnVirtualKeyspaceDeleted is called when a virtual keyspace is deleted.
+// This method integrates with the virtual keyspace lifecycle to automatically
+// clean up associated replication streams and schema mappings.
+func (vre *Engine) OnVirtualKeyspaceDeleted(ctx context.Context, virtualKeyspace string) error {
+	log.Infof("Virtual keyspace deleted: %s", virtualKeyspace)
+
+	// Remove the virtual keyspace from our schema mapping
+	// This will also stop associated controllers
+	if err := vre.RemoveVirtualKeyspace(virtualKeyspace); err != nil {
+		// Log the error but don't fail - the keyspace might not have been registered
+		log.Warningf("Failed to remove virtual keyspace %s: %v", virtualKeyspace, err)
+	}
+
+	// TODO: Implement stream cleanup logic
+	// This would involve:
+	// 1. Finding all streams targeting the virtual keyspace
+	// 2. Stopping and deleting the streams
+	// 3. Cleaning up associated metadata (copy_state, etc.)
+
+	return nil
+}
+
+// CreateVirtualKeyspaceStreams creates replication streams for a new virtual keyspace
+// by inheriting configuration from the physical keyspace streams.
+func (vre *Engine) CreateVirtualKeyspaceStreams(ctx context.Context, virtualKeyspace, physicalKeyspace string) error {
+	vre.mu.Lock()
+	defer vre.mu.Unlock()
+
+	if !vre.isOpen {
+		return fmt.Errorf("vreplication engine is not open")
+	}
+
+	// Find streams for the physical keyspace
+	var physicalStreams []int32
+	for id, ct := range vre.controllers {
+		if ct.targetKeyspace == physicalKeyspace {
+			physicalStreams = append(physicalStreams, id)
+		}
+	}
+
+	if len(physicalStreams) == 0 {
+		log.Infof("No streams found for physical keyspace %s, skipping stream creation for virtual keyspace %s", physicalKeyspace, virtualKeyspace)
+		return nil
+	}
+
+	// TODO: Implement stream creation logic
+	// This would involve:
+	// 1. Reading configuration from physical keyspace streams
+	// 2. Creating new vreplication entries for the virtual keyspace
+	// 3. Starting new controllers for the virtual keyspace streams
+	// 4. Handling initial synchronization
+
+	log.Infof("Would create %d streams for virtual keyspace %s based on physical keyspace %s", len(physicalStreams), virtualKeyspace, physicalKeyspace)
+	return nil
+}
+
+// GetVirtualKeyspaceStreams returns all stream IDs that are targeting the specified virtual keyspace
+func (vre *Engine) GetVirtualKeyspaceStreams(virtualKeyspace string) []int32 {
+	vre.mu.Lock()
+	defer vre.mu.Unlock()
+
+	var streams []int32
+	for id, ct := range vre.controllers {
+		if ct.targetKeyspace == virtualKeyspace {
+			streams = append(streams, id)
+		}
+	}
+
+	return streams
+}
+
+// GetSchemaForKeyspace returns the schema name for a given keyspace.
+func (vre *Engine) GetSchemaForKeyspace(keyspace string) (string, error) {
+
+	if vre.schemaMap == nil {
+		// Fallback to legacy behavior
+		if keyspace == vre.physicalKeyspace || keyspace == "" {
+			return vre.dbName, nil
+		}
+		return "", fmt.Errorf("keyspace %s not found", keyspace)
+	}
+
+	schema, exists := vre.schemaMap[keyspace]
+	if !exists {
+		return "", fmt.Errorf("keyspace %s not found", keyspace)
+	}
+
+	return schema, nil
+}
+
+// GetKeyspaceForSchema returns the keyspace name for a given schema.
+// This is the reverse lookup of GetSchemaForKeyspace.
+func (vre *Engine) GetKeyspaceForSchema(schema string) (string, error) {
+	if vre.schemaMap == nil {
+		// Fallback to legacy behavior
+		if schema == vre.dbName {
+			return vre.physicalKeyspace, nil
+		}
+		return "", fmt.Errorf("schema %s not found", schema)
+	}
+
+	// Search through the schema map for the reverse mapping
+	for keyspace, mappedSchema := range vre.schemaMap {
+		if mappedSchema == schema {
+			return keyspace, nil
+		}
+	}
+
+	return "", fmt.Errorf("schema %s not found", schema)
+}
+
+// ListManagedSchemas returns a list of all schemas managed by this engine.
+func (vre *Engine) ListManagedSchemas() []string {
+	vre.mu.Lock()
+	defer vre.mu.Unlock()
+
+	if vre.schemaMap == nil {
+		// Fallback to legacy behavior
+		return []string{vre.dbName}
+	}
+
+	schemas := make([]string, 0, len(vre.schemaMap))
+	for _, schema := range vre.schemaMap {
+		schemas = append(schemas, schema)
+	}
+
+	return schemas
+}
+
+// GetPhysicalKeyspace returns the physical keyspace name.
+func (vre *Engine) GetPhysicalKeyspace() string {
+	return vre.physicalKeyspace // called under a mutex already!
 }
 
 // NewTestEngine creates a new Engine for testing.
@@ -175,6 +476,11 @@ func NewTestEngine(ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaemon, db
 		dbName:                  dbname,
 		journaler:               make(map[string]*journalEvent),
 		ec:                      newExternalConnector(env, externalConfig),
+		schemaMap:               make(map[string]string),
+		schemaClientFactories: make(map[string]struct {
+			filtered func() binlogplayer.DBClient
+			dba      func() binlogplayer.DBClient
+		}),
 	}
 	return vre
 }
@@ -195,6 +501,11 @@ func NewSimpleTestEngine(ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaem
 		journaler:               make(map[string]*journalEvent),
 		ec:                      newExternalConnector(env, externalConfig),
 		shortcircuit:            true,
+		schemaMap:               make(map[string]string),
+		schemaClientFactories: make(map[string]struct {
+			filtered func() binlogplayer.DBClient
+			dba      func() binlogplayer.DBClient
+		}),
 	}
 	return vre
 }
@@ -364,7 +675,9 @@ func (vre *Engine) Exec(query string) (*sqltypes.Result, error) {
 // update _vt.vreplication set state='Stopped', message='testing stop' where id=1
 // Example delete: delete from _vt.vreplication where id=1
 // Example select: select * from _vt.vreplication
+// TODO:This call is failing!
 func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error) {
+	log.Infof("DEBUG: VReplication Engine: acquiring lock")
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 	if !vre.isOpen {
@@ -375,11 +688,14 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 	}
 	defer vre.updateStats()
 
+	log.Infof("DEBUG: VReplication Engine: building controller plan")
 	plan, err := buildControllerPlan(query, vre.env.Parser())
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("DEBUG: VReplication Engine: controller plan query: %#v", plan.query)
 
+	log.Infof("DEBUG: VReplication Engine: getting DB client")
 	dbClient := vre.getDBClient(runAsAdmin)
 	if err := dbClient.Connect(); err != nil {
 		return nil, err
@@ -395,8 +711,10 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 
 	stats := binlogplayer.NewStats()
 	defer stats.Stop()
+	log.Infof("DEBUG: VReplication Engine: plan.opcode: %s", plan.opcode)
 	switch plan.opcode {
 	case insertQuery:
+		log.Infof("DEBUG: VReplication Engine: insert path calling executeFetch")
 		qr, err := dbClient.ExecuteFetch(plan.query, 1)
 		if err != nil {
 			return nil, err
@@ -416,30 +734,38 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 		// auto_increment_increment step is. In a multi-primary
 		// environment, like a Galera cluster, for example,
 		// we will often encounter auto_increment steps > 1.
+		log.Infof("DEBUG: VReplication Engine: insert path calling getAutoIncrementStep")
 		autoIncrementStep, err := vre.getAutoIncrementStep(dbClient)
 		if err != nil {
 			return nil, err
 		}
 		firstID := int32(qr.InsertID)
 		lastID := firstID + int32(autoIncrementStep)*(int32(plan.numInserts)-1)
+		log.Infof("DEBUG: VReplication Engine: insert path starting for loop")
 		for id := firstID; id <= lastID; id += int32(autoIncrementStep) {
 			if ct := vre.controllers[id]; ct != nil {
 				// Unreachable. Just a failsafe.
+				log.Infof("DEBUG: VReplication Engine: for loop in unreachable code")
 				ct.Stop()
 				delete(vre.controllers, id)
 			}
+			log.Infof("DEBUG: VReplication Engine: for loop calling readRow")
 			params, err := readRow(dbClient, id)
 			if err != nil {
 				return nil, err
 			}
+			log.Infof("DEBUG: VReplication Engine: for loop calling newController")
 			ct, err := newController(vre.ctx, params, vre.dbClientFactoryFiltered, vre.mysqld, vre.ts, vre.cell, nil, vre, plan.tabletPickerOptions)
 			if err != nil {
 				return nil, err
 			}
 			vre.controllers[id] = ct
+			log.Infof("DEBUG: VReplication Engine: for loop calling newVDBClient")
 			vdbc := newVDBClient(dbClient, stats, ct.WorkflowConfig.RelayLogMaxSize)
+			log.Infof("DEBUG: VReplication Engine: for loop calling insertLogWithParams")
 			insertLogWithParams(vdbc, LogStreamCreate, id, params)
 		}
+		log.Infof("DEBUG: VReplication Engine: insert path returning")
 		return qr, nil
 	case updateQuery:
 		ids, bv, err := vre.fetchIDs(dbClient, plan.selector)
@@ -533,6 +859,7 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 		// Selects and resharding journal queries are passed through.
 		return dbClient.ExecuteFetch(plan.query, maxRows)
 	}
+	log.Infof("DEBUG: VReplication Engine: panic")
 	panic("unreachable")
 }
 
@@ -855,19 +1182,41 @@ func (vre *Engine) readAllRows(ctx context.Context) ([]map[string]string, error)
 		return nil, err
 	}
 	defer dbClient.Close()
-	qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(vre.dbName)), maxRows)
-	if err != nil {
-		return nil, err
-	}
-	maps := make([]map[string]string, len(qr.Rows))
-	for i := range qr.Rows {
-		mrow, err := rowToMap(qr, i)
+
+	// For multi-schema support, we need to read rows for all managed schemas
+	if len(vre.schemaMap) > 1 {
+		// Multi-schema mode: read rows for all managed schemas
+		var allMaps []map[string]string
+		for _, schema := range vre.schemaMap {
+			qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(schema)), maxRows)
+			if err != nil {
+				return nil, err
+			}
+			for i := range qr.Rows {
+				mrow, err := rowToMap(qr, i)
+				if err != nil {
+					return nil, err
+				}
+				allMaps = append(allMaps, mrow)
+			}
+		}
+		return allMaps, nil
+	} else {
+		// Legacy single-schema mode: use the original logic
+		qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(vre.dbName)), maxRows)
 		if err != nil {
 			return nil, err
 		}
-		maps[i] = mrow
+		maps := make([]map[string]string, len(qr.Rows))
+		for i := range qr.Rows {
+			mrow, err := rowToMap(qr, i)
+			if err != nil {
+				return nil, err
+			}
+			maps[i] = mrow
+		}
+		return maps, nil
 	}
-	return maps, nil
 }
 
 func (vre *Engine) getAutoIncrementStep(dbClient binlogplayer.DBClient) (uint16, error) {

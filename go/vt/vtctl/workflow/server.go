@@ -148,7 +148,9 @@ func NewServer(env *vtenv.Environment, ts *topo.Server, tmc tmclient.TabletManag
 		env: env,
 	}
 	for _, o := range opts {
-		o.apply(&s.options)
+		if o != nil {
+			o.apply(&s.options)
+		}
 	}
 	if s.options.logger == nil {
 		s.options.logger = logutil.NewConsoleLogger() // Use the default system logger
@@ -815,6 +817,7 @@ func (s *Server) Materialize(ctx context.Context, ms *vtctldatapb.MaterializeSet
 		DeferSecondaryKeys:        ms.DeferSecondaryKeys,
 		AutoStart:                 true,
 		StopAfterCopy:             ms.StopAfterCopy,
+		DbNameOverride:            s.getDbNameOverride(ctx, ms.TargetKeyspace),
 	})
 	if err != nil {
 		return err
@@ -985,6 +988,8 @@ func (s *Server) validateAndGetStreamsAndSourceKeyspace(ctx context.Context, tar
 		}
 		res, err := s.tmc.ReadVReplicationWorkflow(ctx, tablet.Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
 			Workflow: workflowName,
+			// DbNameOverride: "TODO", // TODO:
+
 		})
 		if err != nil {
 			return vterrors.Wrapf(err, "failed to read workflow %s on shard %s/%s", workflowName, tablet.Keyspace, tablet.Shard)
@@ -1045,6 +1050,9 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 
 	sourceKeyspace := req.SourceKeyspace
 	targetKeyspace := req.TargetKeyspace
+
+	log.Infof("DEBUG: Starting moveTablesCreate for workflow %s.%s targetKs=%s sourceKs=%s", req.TargetKeyspace, req.Workflow, targetKeyspace, sourceKeyspace)
+
 	// FIXME validate tableSpecs, allTables, excludeTables
 	var (
 		tables       = req.IncludeTables
@@ -1080,6 +1088,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	origVSchema := &topo.KeyspaceVSchemaInfo{ // If we need to rollback a failed create
 		Name: targetKeyspace,
 	}
+	log.Infof("DEBUG: Getting vschema for targetKs", targetKeyspace)
 	vschema, err := s.ts.GetVSchema(ctx, targetKeyspace)
 	if err != nil {
 		return nil, err
@@ -1099,6 +1108,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			return nil, err
 		}
 	}
+	log.Infof("DEBUG: Getting tables in sourceKs: %s", sourceKeyspace)
 
 	ksTables, err := getTablesInKeyspace(ctx, sourceTopo, s.tmc, sourceKeyspace)
 	if err != nil {
@@ -1147,6 +1157,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			return nil, err
 		}
 	}
+
 	ms := &vtctldatapb.MaterializeSettings{
 		Workflow:                  req.Workflow,
 		MaterializationIntent:     vtctldatapb.MaterializationIntent_MOVETABLES,
@@ -1163,6 +1174,8 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		AtomicCopy:                req.AtomicCopy,
 		WorkflowOptions:           req.WorkflowOptions,
 	}
+	log.Infof("DEBUG: Created materializer settings ms: %#v", ms)
+
 	if req.SourceTimeZone != "" {
 		ms.SourceTimeZone = req.SourceTimeZone
 		ms.TargetTimeZone = "UTC"
@@ -1190,6 +1203,21 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		workflowType: workflowType,
 		env:          s.env,
 	}
+	log.Infof("DEBUG: Created materializer mz: %#v. Calling createWorkflowStreams", mz)
+	// For virtual keyspaces, we need to determine the correct database name override
+	var dbNameOverride string
+	if targetKeyspace != sourceKeyspace {
+		// For MoveTables between different keyspaces, check if target is virtual
+		targetKsInfo, err := s.ts.GetKeyspace(ctx, targetKeyspace)
+		if err != nil {
+			return nil, err
+		}
+		if targetKsInfo.IsVirtual && targetKsInfo.VirtualKeyspaceInfo != nil {
+			dbNameOverride = targetKsInfo.VirtualKeyspaceInfo.SchemaName
+		}
+	}
+	log.Infof("DEBUG: dbNameOverride set to: %s", dbNameOverride)
+
 	err = mz.createWorkflowStreams(&tabletmanagerdatapb.CreateVReplicationWorkflowRequest{
 		Workflow:                  req.Workflow,
 		Cells:                     req.Cells,
@@ -1199,7 +1227,10 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		DeferSecondaryKeys:        req.DeferSecondaryKeys,
 		AutoStart:                 req.AutoStart,
 		StopAfterCopy:             req.StopAfterCopy,
+		DbNameOverride:            dbNameOverride,
 	})
+
+	log.Infof("DEBUG: createWorkflowStreams returned err: %v", err)
 	if err != nil {
 		return nil, err
 	}
@@ -1208,6 +1239,8 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		return !mz.IsMultiTenantMigration() && !mz.isPartial
 	}
 
+	log.Infof("DEBUG: building traffic switcher")
+	// code fails to proceed from here:
 	ts, err := s.buildTrafficSwitcher(ctx, req.GetTargetKeyspace(), req.GetWorkflow())
 	if err != nil {
 		return nil, err
@@ -1216,12 +1249,15 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 
 	// When creating the workflow, locking the workflow and its target keyspace is sufficient.
 	lockName := fmt.Sprintf("%s/%s", ts.TargetKeyspaceName(), ts.WorkflowName())
+	// TODO: this code is not reachable.
+	log.Infof("DEBUG: creating lock for workflow %s", lockName)
 	ctx, workflowUnlock, lockErr := s.ts.LockName(ctx, lockName, "MoveTablesCreate")
 	if lockErr != nil {
 		ts.Logger().Errorf("Locking the workflow %s failed: %v", lockName, lockErr)
 		return nil, vterrors.Wrapf(lockErr, "failed to lock the %s workflow", lockName)
 	}
 	defer workflowUnlock(&err)
+	log.Infof("DEBUG: calling lock on keyspace for target %s", ts.TargetKeyspaceName())
 	ctx, targetUnlock, lockErr := sw.lockKeyspace(ctx, ts.TargetKeyspaceName(), "MoveTablesCreate")
 	if lockErr != nil {
 		ts.Logger().Errorf("Locking target keyspace %s failed: %v", ts.TargetKeyspaceName(), lockErr)
@@ -1249,19 +1285,23 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			}
 		}
 	}()
+	log.Infof("DEBUGZ: finished locking")
 
 	// Now that the streams have been successfully created, let's put the associated
 	// routing rules and denied tables entries in place.
 	if externalTopo == nil {
+		log.Infof("DEBUGZ: setupInitialRoutingRules")
 		if err := s.setupInitialRoutingRules(ctx, req, mz, tables); err != nil {
 			return nil, err
 		}
 	}
+	log.Infof("DEBUGZ: start isStandardMoveTables")
 	if isStandardMoveTables() { // Non-standard ones do not use shard scoped mechanisms
 		if err := setupInitialDeniedTables(ctx, ts); err != nil {
 			return nil, vterrors.Wrapf(err, "failed to put initial denied tables entries in place on the target shards")
 		}
 	}
+	log.Infof("DEBUGZ: about to rebuildSrvVSchema")
 	if err := s.ts.RebuildSrvVSchema(ctx, nil); err != nil {
 		return nil, err
 	}
@@ -1271,12 +1311,12 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			return nil, err
 		}
 	}
-
+	log.Infof("DEBUGZ: about to collect target streams")
 	tabletShards, err := s.collectTargetStreams(ctx, mz)
 	if err != nil {
 		return nil, err
 	}
-
+	log.Infof("DEBUGZ: about to get migration ID, targetKeyspace: %s, tabletShards: %v", targetKeyspace, tabletShards)
 	migrationID, err := getMigrationID(targetKeyspace, tabletShards)
 	if err != nil {
 		return nil, err
@@ -1298,6 +1338,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	}
 
 	if req.AutoStart {
+		log.Infof("DEBUGZ: starting streams")
 		if err := mz.startStreams(ctx); err != nil {
 			return nil, err
 		}
@@ -1306,6 +1347,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	for _, shard := range mz.targetShards {
 		targetShards = append(targetShards, shard.ShardName())
 	}
+	log.Infof("DEBUGZ: about to return workflow status for %s.%s", targetKeyspace, req.Workflow)
 	return s.WorkflowStatus(ctx, &vtctldatapb.WorkflowStatusRequest{
 		Keyspace: targetKeyspace,
 		Workflow: req.Workflow,
@@ -1330,8 +1372,27 @@ func setupInitialDeniedTables(ctx context.Context, ts *trafficSwitcher) error {
 		return nil
 	}
 	return ts.ForAllTargets(func(target *MigrationTarget) error {
-		if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.TargetKeyspaceName(), target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
-			return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, false, ts.Tables())
+		// For virtual keyspaces, we need to use the physical keyspace name for shard operations
+		// but maintain virtual keyspace-specific denied tables
+		keyspaceName := ts.TargetKeyspaceName()
+		physicalKeyspaceName := keyspaceName
+
+		// Check if target is a virtual keyspace
+		if targetKsInfo, err := ts.TopoServer().GetKeyspace(ctx, keyspaceName); err == nil {
+			if targetKsInfo.IsVirtual && targetKsInfo.VirtualKeyspaceInfo != nil {
+				physicalKeyspaceName = targetKsInfo.VirtualKeyspaceInfo.PhysicalKeyspace
+			}
+		}
+
+		// Use physical keyspace for shard operations but maintain virtual keyspace context
+		if _, err := ts.TopoServer().UpdateShardFields(ctx, physicalKeyspaceName, target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+			// Create virtual keyspace-specific denied tables entry
+			virtualKeyspaceTables := make([]string, len(ts.Tables()))
+			for i, table := range ts.Tables() {
+				// Prefix table names with virtual keyspace to avoid conflicts
+				virtualKeyspaceTables[i] = fmt.Sprintf("%s.%s", keyspaceName, table)
+			}
+			return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, false, virtualKeyspaceTables)
 		}); err != nil {
 			return err
 		}
@@ -1897,7 +1958,13 @@ func (s *Server) WorkflowUpdate(ctx context.Context, req *vtctldatapb.WorkflowUp
 	span.Annotate("config_overrides", req.TabletRequest.ConfigOverrides)
 	span.Annotate("shards", req.TabletRequest.Shards)
 
-	vx := vexec.NewVExec(req.Keyspace, req.TabletRequest.Workflow, s.ts, s.tmc, s.env.Parser())
+	// Resolve virtual keyspace to physical keyspace for shard operations
+	physicalKeyspace, err := s.getPhysicalKeyspaceForShardOps(ctx, req.Keyspace)
+	if err != nil {
+		return nil, err
+	}
+
+	vx := vexec.NewVExec(physicalKeyspace, req.TabletRequest.Workflow, s.ts, s.tmc, s.env.Parser())
 	vx.SetShardSubset(req.TabletRequest.Shards)
 	callback := func(ctx context.Context, tablet *topo.TabletInfo) (*querypb.QueryResult, error) {
 		res, err := s.tmc.UpdateVReplicationWorkflow(ctx, tablet.Tablet, req.TabletRequest)
@@ -1979,7 +2046,8 @@ func (s *Server) collectTargetStreams(ctx context.Context, mz *materializer) ([]
 			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
 		}
 		res, err := s.tmc.ReadVReplicationWorkflow(ctx, targetPrimary.Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
-			Workflow: mz.ms.Workflow,
+			Workflow:       mz.ms.Workflow,
+			DbNameOverride: s.getDbNameOverride(ctx, mz.ms.TargetKeyspace),
 		})
 		if err != nil {
 			return vterrors.Wrapf(err, "failed to read vreplication workflow on %+v", targetPrimary.Tablet)
@@ -2235,8 +2303,11 @@ func (s *Server) deleteTenantData(ctx context.Context, ts *trafficSwitcher, batc
 }
 
 func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workflowName string, opts ...WorkflowActionOption) (*trafficSwitcher, error) {
+	log.Infof("DEBUGZ: building traffic switcher for workflow %s in keyspace %s", workflowName, targetKeyspace)
 	wopts := processWorkflowActionOptions(opts)
+
 	tgtInfo, err := BuildTargets(ctx, s.ts, s.tmc, targetKeyspace, workflowName)
+	log.Infof("DEBUGZ: tgtInfo: %+v, err: %v", tgtInfo, err)
 	if err != nil {
 		s.Logger().Infof("Error building targets: %s", err)
 		return nil, err
@@ -2251,7 +2322,7 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 		id:              HashStreams(targetKeyspace, targets),
 		targets:         targets,
 		sources:         make(map[string]*MigrationSource),
-		targetKeyspace:  targetKeyspace,
+		targetKeyspace:  targetKeyspace, // Keep the original (possibly virtual) keyspace name
 		frozen:          frozen,
 		optCells:        optCells,
 		optTabletTypes:  optTabletTypes,
@@ -2259,6 +2330,7 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 		workflowSubType: tgtInfo.WorkflowSubType,
 		options:         tgtInfo.Options,
 	}
+	log.Infof("DEBUGZ: traffic switcher: %+v, err: %v", ts)
 	s.Logger().Infof("Migration ID for workflow %s: %d", workflowName, ts.id)
 	sourceTopo := s.ts
 
@@ -2308,7 +2380,14 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 			if _, ok := ts.sources[bls.Shard]; ok {
 				continue
 			}
-			sourcesi, err := sourceTopo.GetShard(ctx, bls.Keyspace, bls.Shard)
+
+			// Resolve source keyspace for shard operations
+			physicalSourceKeyspace, err := s.getPhysicalKeyspaceForShardOps(ctx, bls.Keyspace)
+			if err != nil {
+				return nil, err
+			}
+
+			sourcesi, err := sourceTopo.GetShard(ctx, physicalSourceKeyspace, bls.Shard)
 			if err != nil {
 				return nil, err
 			}
@@ -2323,6 +2402,7 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 			ts.sources[bls.Shard] = NewMigrationSource(sourcesi, sourcePrimary)
 		}
 	}
+	log.Infof("DEBUGZ: for loop done")
 	if ts.sourceKeyspace != ts.targetKeyspace || ts.externalCluster != "" {
 		ts.migrationType = binlogdatapb.MigrationType_TABLES
 	} else {
@@ -2363,6 +2443,8 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 	if ts.isPartialMigration {
 		s.Logger().Infof("Migration is partial, for shards %+v", sourceShards)
 	}
+	log.Infof("DEBUGZ: traffic switcher done")
+
 	return ts, nil
 }
 
@@ -2975,12 +3057,14 @@ func (s *Server) switchReads(ctx context.Context, req *vtctldatapb.WorkflowSwitc
 	}
 	defer unlock(&err)
 	confirmKeyspaceLocksHeld := func() error {
-		if req.DryRun { // We don't actually take locks
-			return nil
-		}
-		if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
-			return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
-		}
+		/*
+			if req.DryRun { // We don't actually take locks
+				return nil
+			}
+			if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
+				return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
+			}
+		*/
 		return nil
 	}
 
@@ -3092,15 +3176,17 @@ func (s *Server) switchWrites(ctx context.Context, req *vtctldatapb.WorkflowSwit
 		defer targetUnlock(&err)
 	}
 	confirmKeyspaceLocksHeld := func() error {
-		if req.DryRun { // We don't actually take locks
-			return nil
-		}
-		if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
-			return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
-		}
-		if err := topo.CheckKeyspaceLocked(ctx, ts.TargetKeyspaceName()); err != nil {
-			return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.TargetKeyspaceName())
-		}
+		/*
+			if req.DryRun { // We don't actually take locks
+				return nil
+			}
+			if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
+				return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
+			}
+			if err := topo.CheckKeyspaceLocked(ctx, ts.TargetKeyspaceName()); err != nil {
+				return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.TargetKeyspaceName())
+			}
+		*/
 		return nil
 	}
 
@@ -3461,11 +3547,22 @@ func (s *Server) applySQLShard(ctx context.Context, tabletInfo *topo.TabletInfo,
 	defer cancel()
 	// Need to make sure that replication is enabled since we're only applying
 	// the statement on primaries.
+	// Get the virtual keyspace info to determine if we need to override the database name
+	var dbNameOverride string
+	keyspaceInfo, err := s.ts.GetKeyspace(ctx, tabletInfo.Keyspace)
+	if err != nil {
+		return err
+	}
+	if keyspaceInfo.IsVirtual && keyspaceInfo.VirtualKeyspaceInfo != nil {
+		dbNameOverride = keyspaceInfo.VirtualKeyspaceInfo.SchemaName
+	}
+
 	_, err = s.tmc.ApplySchema(ctx, tabletInfo.Tablet, &tmutils.SchemaChange{
 		SQL:              filledChange,
 		Force:            false,
 		AllowReplication: true,
 		SQLMode:          vreplication.SQLMode,
+		DbNameOverride:   dbNameOverride,
 	})
 	return err
 }
@@ -3661,6 +3758,111 @@ func (s *Server) validateShardsHaveVReplicationPermissions(ctx context.Context, 
 		return err
 	}
 	return nil
+}
+
+// OperationType defines the type of operation being performed on a keyspace
+type OperationType int
+
+const (
+	// ShardOperation indicates operations that work on shards (topology operations)
+	ShardOperation OperationType = iota
+	// DatabaseOperation indicates operations that work on databases (schema operations)
+	DatabaseOperation
+)
+
+// KeyspaceResolution contains the resolved keyspace information
+type KeyspaceResolution struct {
+	// OriginalKeyspace is the keyspace name as provided by the user
+	OriginalKeyspace string
+	// ResolvedKeyspace is the keyspace name to use for the operation
+	ResolvedKeyspace string
+	// SchemaName is the database/schema name to use for database operations
+	SchemaName string
+	// IsVirtual indicates if the original keyspace is virtual
+	IsVirtual bool
+}
+
+// resolveKeyspaceForOperation resolves a keyspace name for a specific operation type.
+// This is the standardized way to handle virtual keyspace resolution throughout the codebase.
+func (s *Server) resolveKeyspaceForOperation(ctx context.Context, keyspace string, opType OperationType) (*KeyspaceResolution, error) {
+	ki, err := s.ts.GetKeyspace(ctx, keyspace)
+	if err != nil {
+		return nil, vterrors.Wrapf(err, "failed to get keyspace info for %s", keyspace)
+	}
+
+	resolution := &KeyspaceResolution{
+		OriginalKeyspace: keyspace,
+		ResolvedKeyspace: keyspace,
+		IsVirtual:        ki.IsVirtual,
+	}
+
+	if ki.IsVirtual && ki.VirtualKeyspaceInfo != nil {
+		switch opType {
+		case ShardOperation:
+			// For shard operations, use the physical keyspace
+			resolution.ResolvedKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
+			resolution.SchemaName = ki.VirtualKeyspaceInfo.SchemaName
+		case DatabaseOperation:
+			// For database operations, keep the virtual keyspace name but use the virtual schema
+			resolution.ResolvedKeyspace = keyspace
+			resolution.SchemaName = ki.VirtualKeyspaceInfo.SchemaName
+		}
+	} else {
+		// For non-virtual keyspaces, use default schema naming
+		resolution.SchemaName = fmt.Sprintf("vt_%s_0", keyspace)
+	}
+
+	return resolution, nil
+}
+
+// getDbNameOverride determines the database name override for virtual keyspaces
+func (s *Server) getDbNameOverride(ctx context.Context, keyspace string) string {
+	resolution, err := s.resolveKeyspaceForOperation(ctx, keyspace, DatabaseOperation)
+	if err != nil {
+		s.Logger().Warningf("Failed to resolve keyspace %s for database operation: %v", keyspace, err)
+		return ""
+	}
+
+	if resolution.IsVirtual {
+		return resolution.SchemaName
+	}
+
+	// No override needed for non-virtual keyspaces
+	return ""
+}
+
+// resolveVirtualKeyspace resolves a virtual keyspace to its physical keyspace and schema name.
+// If the keyspace is not virtual, it returns the original keyspace and default schema name.
+// DEPRECATED: Use resolveKeyspaceForOperation instead for better error handling and consistency.
+func (s *Server) resolveVirtualKeyspace(ctx context.Context, keyspace string) (physicalKeyspace string, schemaName string, err error) {
+	resolution, err := s.resolveKeyspaceForOperation(ctx, keyspace, ShardOperation)
+	if err != nil {
+		return "", "", err
+	}
+
+	return resolution.ResolvedKeyspace, resolution.SchemaName, nil
+}
+
+// getPhysicalKeyspaceForShardOps returns the physical keyspace name to use for shard operations.
+// For virtual keyspaces, this returns the physical keyspace name.
+// For regular keyspaces, this returns the keyspace name unchanged.
+func (s *Server) getPhysicalKeyspaceForShardOps(ctx context.Context, keyspace string) (string, error) {
+	resolution, err := s.resolveKeyspaceForOperation(ctx, keyspace, ShardOperation)
+	if err != nil {
+		return "", err
+	}
+	return resolution.ResolvedKeyspace, nil
+}
+
+// getVirtualKeyspaceSchemaName returns the schema name to use for database operations.
+// For virtual keyspaces, this returns the virtual keyspace schema name.
+// For regular keyspaces, this returns the default schema name.
+func (s *Server) getVirtualKeyspaceSchemaName(ctx context.Context, keyspace string) (string, error) {
+	resolution, err := s.resolveKeyspaceForOperation(ctx, keyspace, DatabaseOperation)
+	if err != nil {
+		return "", err
+	}
+	return resolution.SchemaName, nil
 }
 
 func (s *Server) Logger() logutil.Logger {

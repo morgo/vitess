@@ -1161,6 +1161,11 @@ func (qre *QueryExecutor) execDBConn(conn *connpool.Conn, sql string, wantfields
 	}
 	defer qre.tsv.statelessql.Remove(qd)
 
+	// Handle schema switching for virtual keyspaces
+	if err := qre.ensureSchemaContext(ctx, conn); err != nil {
+		return nil, err
+	}
+
 	if err := qre.resetLastInsertIDIfNeeded(ctx, conn); err != nil {
 		return nil, err
 	}
@@ -1188,6 +1193,11 @@ func (qre *QueryExecutor) execStatefulConn(conn *StatefulConnection, sql string,
 		return nil, err
 	}
 	defer qre.tsv.statefulql.Remove(qd)
+
+	// Handle schema switching for virtual keyspaces
+	if err := qre.ensureSchemaContext(ctx, conn.UnderlyingDBConn().Conn); err != nil {
+		return nil, err
+	}
 
 	if err := qre.resetLastInsertIDIfNeeded(ctx, conn.UnderlyingDBConn().Conn); err != nil {
 		return nil, err
@@ -1260,6 +1270,11 @@ func (qre *QueryExecutor) execStreamSQL(conn *connpool.PooledConn, isTransaction
 	// This change will ensure that long-running streaming stateful queries get gracefully shutdown during ServingTypeChange
 	// once their grace period is over.
 	qd := NewQueryDetail(qre.logStats.Ctx, conn.Conn)
+
+	// Handle schema switching for virtual keyspaces
+	if err := qre.ensureSchemaContext(ctx, conn.Conn); err != nil {
+		return err
+	}
 
 	if err := qre.resetLastInsertIDIfNeeded(ctx, conn.Conn); err != nil {
 		return err
@@ -1404,4 +1419,30 @@ func (qre *QueryExecutor) getUDFs(callback func(schemaRes *querypb.GetSchemaResp
 			Udfs: udfs,
 		})
 	})
+}
+
+// ensureSchemaContext ensures that the connection is using the correct schema
+// for virtual keyspaces. If the target has a schema_name specified, it will
+// switch to that schema before executing the query.
+func (qre *QueryExecutor) ensureSchemaContext(ctx context.Context, conn *connpool.Conn) error {
+	// Get the target from the log stats if available
+	target := qre.logStats.Target
+	if target == nil {
+		// Fallback to tablet server target
+		target = qre.tsv.sm.Target()
+	}
+
+	// Check if we need to switch schema for virtual keyspaces
+	if target != nil && target.SchemaName != "" {
+		// Only switch schema if it's different from the current database
+		if target.SchemaName != qre.tsv.config.DB.DBName {
+			useSQL := fmt.Sprintf("USE `%s`", target.SchemaName)
+			_, err := conn.Exec(ctx, useSQL, 1, false)
+			if err != nil {
+				return vterrors.Wrapf(err, "failed to switch to schema %s for virtual keyspace", target.SchemaName)
+			}
+		}
+	}
+
+	return nil
 }

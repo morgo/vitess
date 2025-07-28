@@ -200,9 +200,23 @@ type FindAllShardsInKeyspaceOptions struct {
 //
 // If opt is non-nil, it is used to configure the method's behavior. Otherwise,
 // the default options are used.
+//
+// It understands virtual keyspaces and will return the shards from the
+// physical keyspace if the keyspace is virtual.
 func (ts *Server) FindAllShardsInKeyspace(ctx context.Context, keyspace string, opt *FindAllShardsInKeyspaceOptions) (map[string]*ShardInfo, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	// Check if this is a virtual keyspace and redirect to physical keyspace if needed
+	ki, err := ts.GetKeyspace(ctx, keyspace)
+	if err != nil {
+		return nil, vterrors.Wrapf(err, "failed to get keyspace info for '%v'", keyspace)
+	}
+	var physicalKeyspace = keyspace
+	if ki.IsVirtual {
+		// For virtual keyspaces, get shards from the physical keyspace
+		// but the actual keyspace name is the virtual keyspace name.
+		physicalKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
 	}
 
 	// Apply any necessary defaults.
@@ -216,9 +230,9 @@ func (ts *Server) FindAllShardsInKeyspace(ctx context.Context, keyspace string, 
 	// Unescape the keyspace name as this can e.g. come from the VSchema where
 	// a keyspace/database name will need to be SQL escaped if it has special
 	// characters such as a dash.
-	keyspace, err := sqlescape.UnescapeID(keyspace)
+	physicalKeyspace, err = sqlescape.UnescapeID(physicalKeyspace)
 	if err != nil {
-		return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s) invalid keyspace name", keyspace)
+		return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s) invalid keyspace name", physicalKeyspace)
 	}
 
 	// First try to get all shards using List if we can.
@@ -238,15 +252,15 @@ func (ts *Server) FindAllShardsInKeyspace(ctx context.Context, keyspace string, 
 			// Validate the extracted shard name.
 			if _, _, err := ValidateShardName(shardName); err != nil {
 				return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s): unexpected shard key/path %q contains invalid shard name/range %q",
-					keyspace, shardKey, shardName)
+					physicalKeyspace, shardKey, shardName)
 			}
 			shard := &topodatapb.Shard{}
 			if err := shard.UnmarshalVT(entry.Value); err != nil {
 				return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s): invalid data found for shard %q in %q",
-					keyspace, shardName, shardKey)
+					physicalKeyspace, shardName, shardKey)
 			}
 			result[shardName] = &ShardInfo{
-				keyspace:  keyspace,
+				keyspace:  keyspace, // use the actual keyspace name, not the physical keyspace
 				shardName: shardName,
 				version:   entry.Version,
 				Shard:     shard,
@@ -254,15 +268,15 @@ func (ts *Server) FindAllShardsInKeyspace(ctx context.Context, keyspace string, 
 		}
 		return result, nil
 	}
-	shardsPath := path.Join(KeyspacesPath, keyspace, ShardsPath)
+	shardsPath := path.Join(KeyspacesPath, physicalKeyspace, ShardsPath)
 	listRes, err := ts.globalCell.List(ctx, shardsPath)
 	if err == nil { // We have everything we need to build the result
 		return buildResultFromList(listRes)
 	}
 	if IsErrType(err, NoNode) {
 		// The path doesn't exist, let's see if the keyspace exists.
-		if _, kerr := ts.GetKeyspace(ctx, keyspace); kerr != nil {
-			return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s): List", keyspace)
+		if _, kerr := ts.GetKeyspace(ctx, physicalKeyspace); kerr != nil {
+			return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s): List", physicalKeyspace)
 		}
 		// We simply have no shards.
 		return make(map[string]*ShardInfo, 0), nil
@@ -272,13 +286,13 @@ func (ts *Server) FindAllShardsInKeyspace(ctx context.Context, keyspace string, 
 	// It is also possible that the response containing all shards is too
 	// large in which case we also fall back to the one by one fetch.
 	if !IsErrType(err, NoImplementation) && !IsErrType(err, ResourceExhausted) {
-		return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s): List", keyspace)
+		return nil, vterrors.Wrapf(err, "FindAllShardsInKeyspace(%s): List", physicalKeyspace)
 	}
 
 	// Fall back to the shard by shard method.
-	shards, err := ts.GetShardNames(ctx, keyspace)
+	shards, err := ts.GetShardNames(ctx, physicalKeyspace)
 	if err != nil {
-		return nil, vterrors.Wrapf(err, "failed to get list of shard names for keyspace '%s'", keyspace)
+		return nil, vterrors.Wrapf(err, "failed to get list of shard names for keyspace '%s'", physicalKeyspace)
 	}
 
 	// Keyspaces with a large number of shards and geographically distributed
@@ -304,10 +318,10 @@ func (ts *Server) FindAllShardsInKeyspace(ctx context.Context, keyspace string, 
 		shard := shard
 
 		eg.Go(func() error {
-			si, err := ts.GetShard(ctx, keyspace, shard)
+			si, err := ts.GetShard(ctx, physicalKeyspace, shard)
 			switch {
 			case IsErrType(err, NoNode):
-				log.Warningf("GetShard(%s, %s) returned ErrNoNode, consider checking the topology.", keyspace, shard)
+				log.Warningf("GetShard(%s, %s) returned ErrNoNode, consider checking the topology.", physicalKeyspace, shard)
 				return nil
 			case err == nil:
 				mu.Lock()
@@ -316,7 +330,7 @@ func (ts *Server) FindAllShardsInKeyspace(ctx context.Context, keyspace string, 
 
 				return nil
 			default:
-				return vterrors.Wrapf(err, "GetShard(%s, %s) failed", keyspace, shard)
+				return vterrors.Wrapf(err, "GetShard(%s, %s) failed", physicalKeyspace, shard)
 			}
 		})
 	}
@@ -456,9 +470,14 @@ func (ts *Server) GetShardNames(ctx context.Context, keyspace string) ([]string,
 	if IsErrType(err, NoNode) {
 		// The directory doesn't exist, let's see if the keyspace
 		// is here or not.
-		_, kerr := ts.GetKeyspace(ctx, keyspace)
+		ki, kerr := ts.GetKeyspace(ctx, keyspace)
 		if kerr == nil {
-			// Keyspace is here, means no shards.
+			// Check if this is a virtual keyspace
+			if ki.IsVirtual {
+				// For virtual keyspaces, return the shards from the physical keyspace
+				return ts.GetShardNames(ctx, ki.VirtualKeyspaceInfo.PhysicalKeyspace)
+			}
+			// Regular keyspace is here, means no shards.
 			return nil, nil
 		}
 		return nil, err

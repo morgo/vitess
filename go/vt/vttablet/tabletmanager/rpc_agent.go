@@ -65,7 +65,7 @@ type RPCTM interface {
 
 	ReloadSchema(ctx context.Context, waitPosition string) error
 
-	PreflightSchema(ctx context.Context, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error)
+	PreflightSchema(ctx context.Context, schema string, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error)
 
 	ApplySchema(ctx context.Context, change *tmutils.SchemaChange) (*tabletmanagerdatapb.SchemaChangeResult, error)
 
@@ -177,4 +177,7 @@ type RPCTM interface {
 	// Throttler
 	CheckThrottler(ctx context.Context, request *tabletmanagerdatapb.CheckThrottlerRequest) (*tabletmanagerdatapb.CheckThrottlerResponse, error)
 	GetThrottlerStatus(ctx context.Context, request *tabletmanagerdatapb.GetThrottlerStatusRequest) (*tabletmanagerdatapb.GetThrottlerStatusResponse, error)
+
+	// Virtual Keyspace
+	AddVirtualKeyspace(ctx context.Context, request *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error)
 }

@@ -1019,6 +1019,263 @@ func (s *VtctldServer) CreateKeyspace(ctx context.Context, req *vtctldatapb.Crea
 	}, nil
 }
 
+// CreateVirtualKeyspace is part of the vtctlservicepb.VtctldServer interface.
+func (s *VtctldServer) CreateVirtualKeyspace(ctx context.Context, req *vtctldatapb.CreateVirtualKeyspaceRequest) (resp *vtctldatapb.CreateVirtualKeyspaceResponse, err error) {
+	span, ctx := trace.NewSpan(ctx, "VtctldServer.CreateVirtualKeyspace")
+	defer span.Finish()
+
+	defer panicHandler(&err)
+
+	span.Annotate("name", req.Name)
+	span.Annotate("physical_keyspace", req.PhysicalKeyspace)
+
+	if req.Name == "" {
+		err = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "virtual keyspace name is required")
+		return nil, err
+	}
+
+	if req.PhysicalKeyspace == "" {
+		err = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "physical keyspace is required")
+		return nil, err
+	}
+
+	// Verify the physical keyspace exists
+	if _, err = s.ts.GetKeyspace(ctx, req.PhysicalKeyspace); err != nil {
+		if topo.IsErrType(err, topo.NoNode) {
+			err = vterrors.Wrapf(err, "physical keyspace %s does not exist", req.PhysicalKeyspace)
+		}
+		return nil, err
+	}
+
+	// Set default schema name if not provided
+	schemaName := req.SchemaName
+	if schemaName == "" {
+		schemaName = "vt_" + req.Name + "_0"
+	}
+	virtualKeyspace := &topodatapb.VirtualKeyspace{
+		Name:             req.Name,
+		PhysicalKeyspace: req.PhysicalKeyspace,
+		SchemaName:       schemaName,
+		CreatedAt:        protoutil.TimeToProto(time.Now()),
+	}
+	// Create the virtual keyspace in the topology server.
+	if err = s.ts.CreateVirtualKeyspace(ctx, req.Name, req.PhysicalKeyspace, schemaName); err != nil {
+		return nil, err
+	}
+
+	span.Annotate("schema_name", schemaName)
+
+	// Create the MySQL schema on primary tablets in the physical keyspace
+	log.Infof("Creating MySQL schema %s for virtual keyspace %s on physical keyspace %s", schemaName, req.Name, req.PhysicalKeyspace)
+
+	// Get all shards in the physical keyspace
+	shards, err := s.ts.GetShardNames(ctx, req.PhysicalKeyspace)
+	if err != nil {
+		return nil, vterrors.Wrapf(err, "failed to get shards for physical keyspace %s", req.PhysicalKeyspace)
+	}
+
+	log.Infof("Found %d shards in physical keyspace %s: %v", len(shards), req.PhysicalKeyspace, shards)
+
+	// We should maybe detect this earlier and refuse to create the virtual keyspace
+	// If there are no shards in the physical keyspace.
+	if len(shards) == 0 {
+		log.Warningf("No shards found in physical keyspace %s, schema will need to be created manually", req.PhysicalKeyspace)
+		return &vtctldatapb.CreateVirtualKeyspaceResponse{
+			VirtualKeyspace: virtualKeyspace,
+		}, nil
+	}
+
+	// Process each shard and add the virtual keyspace to primary tablets
+	var addErrors []string
+	for _, shard := range shards {
+		log.Infof("Processing shard %s/%s", req.PhysicalKeyspace, shard)
+
+		// Get shard info to find the primary tablet
+		shardInfo, err := s.ts.GetShard(ctx, req.PhysicalKeyspace, shard)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to get shard info for %s/%s: %v", req.PhysicalKeyspace, shard, err)
+			log.Errorf(errMsg)
+			addErrors = append(addErrors, errMsg)
+			continue
+		}
+
+		if !shardInfo.HasPrimary() {
+			errMsg := fmt.Sprintf("no primary tablet found for shard %s/%s", req.PhysicalKeyspace, shard)
+			log.Warningf(errMsg)
+			addErrors = append(addErrors, errMsg)
+			continue
+		}
+
+		// Get the primary tablet
+		primaryTablet, err := s.ts.GetTablet(ctx, shardInfo.PrimaryAlias)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to get primary tablet %s for shard %s/%s: %v", topoproto.TabletAliasString(shardInfo.PrimaryAlias), req.PhysicalKeyspace, shard, err)
+			log.Errorf(errMsg)
+			addErrors = append(addErrors, errMsg)
+			continue
+		}
+
+		log.Infof("Adding virtual keyspace %s with schema %s to primary tablet %s for shard %s/%s", req.Name, schemaName, topoproto.TabletAliasString(primaryTablet.Alias), req.PhysicalKeyspace, shard)
+
+		// Call the tablet manager to add the virtual keyspace
+		// This will create the schema and add it to VReplication
+		_, err = s.tmc.AddVirtualKeyspace(ctx, primaryTablet.Tablet, &tabletmanagerdatapb.AddVirtualKeyspaceRequest{
+			VirtualKeyspace:  req.Name,
+			PhysicalKeyspace: req.PhysicalKeyspace,
+			SchemaName:       schemaName,
+		})
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to add virtual keyspace %s to primary tablet %s: %v", req.Name, topoproto.TabletAliasString(primaryTablet.Alias), err)
+			log.Errorf(errMsg)
+			addErrors = append(addErrors, errMsg)
+		} else {
+			log.Infof("Successfully added virtual keyspace %s to primary tablet %s", req.Name, topoproto.TabletAliasString(primaryTablet.Alias))
+		}
+	}
+
+	// If we had errors adding the virtual keyspace on some tablets, log them but don't fail the operation
+	// The virtual keyspace is still created in the topology and can be used
+	if len(addErrors) > 0 {
+		log.Warningf("Virtual keyspace %s created successfully, but failed to add to some primary tablets: %v", req.Name, addErrors)
+	}
+
+	cells := []string{}
+	err = s.ts.RebuildSrvVSchema(ctx, cells)
+	if err != nil {
+		return nil, fmt.Errorf("RebuildSrvVSchema(%v) = %w", cells, err)
+	}
+
+	log.Infof("Successfully created virtual keyspace %s with schema %s", req.Name, schemaName)
+
+	return &vtctldatapb.CreateVirtualKeyspaceResponse{
+		VirtualKeyspace: virtualKeyspace,
+	}, nil
+}
+
+// DeleteVirtualKeyspace is part of the vtctlservicepb.VtctldServer interface.
+func (s *VtctldServer) DeleteVirtualKeyspace(ctx context.Context, req *vtctldatapb.DeleteVirtualKeyspaceRequest) (resp *vtctldatapb.DeleteVirtualKeyspaceResponse, err error) {
+	span, ctx := trace.NewSpan(ctx, "VtctldServer.DeleteVirtualKeyspace")
+	defer span.Finish()
+
+	defer panicHandler(&err)
+
+	span.Annotate("name", req.Name)
+
+	if req.Name == "" {
+		err = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "virtual keyspace name is required")
+		return nil, err
+	}
+
+	// Get virtual keyspace info before deletion to find physical keyspace
+	vkInfo, err := s.ts.GetVirtualKeyspace(ctx, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	physicalKeyspace := vkInfo.VirtualKeyspace.PhysicalKeyspace
+	log.Infof("Deleting virtual keyspace %s from physical keyspace %s", req.Name, physicalKeyspace)
+
+	// Get all shards in the physical keyspace to clean up VIRTUAL tablets
+	shards, err := s.ts.GetShardNames(ctx, physicalKeyspace)
+	if err != nil {
+		log.Warningf("Failed to get shards for physical keyspace %s: %v", physicalKeyspace, err)
+		// Continue with deletion even if we can't get shards
+	} else {
+		// Clean up VIRTUAL tablets from each shard
+		for _, shard := range shards {
+			log.Infof("Cleaning up VIRTUAL tablets for virtual keyspace %s in shard %s/%s", req.Name, physicalKeyspace, shard)
+
+			// Get all tablets in the shard
+			aliases, err := s.ts.FindAllTabletAliasesInShard(ctx, physicalKeyspace, shard)
+			if err != nil {
+				log.Warningf("Failed to find tablet aliases in shard %s/%s: %v", physicalKeyspace, shard, err)
+				continue
+			}
+
+			// Find and delete VIRTUAL tablets for this virtual keyspace
+			for _, alias := range aliases {
+				tablet, err := s.ts.GetTablet(ctx, alias)
+				if err != nil {
+					log.Warningf("Failed to get tablet %s: %v", topoproto.TabletAliasString(alias), err)
+					continue
+				}
+
+				// Check if this is a VIRTUAL tablet for our virtual keyspace
+				if tablet.Type == topodatapb.TabletType_VIRTUAL {
+					virtualKeyspace, ok := tablet.Tags["virtual_keyspace"]
+					if ok && virtualKeyspace == req.Name {
+						log.Infof("Deleting VIRTUAL tablet %s for virtual keyspace %s", topoproto.TabletAliasString(alias), req.Name)
+
+						// Delete the VIRTUAL tablet
+						if err := deleteTablet(ctx, s.ts, alias, false); err != nil {
+							log.Warningf("Failed to delete VIRTUAL tablet %s: %v", topoproto.TabletAliasString(alias), err)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Delete the virtual keyspace from topology
+	if err = s.ts.DeleteVirtualKeyspace(ctx, req.Name); err != nil {
+		return nil, err
+	}
+
+	log.Infof("Successfully deleted virtual keyspace %s", req.Name)
+	return &vtctldatapb.DeleteVirtualKeyspaceResponse{}, nil
+}
+
+// GetVirtualKeyspace is part of the vtctlservicepb.VtctldServer interface.
+func (s *VtctldServer) GetVirtualKeyspace(ctx context.Context, req *vtctldatapb.GetVirtualKeyspaceRequest) (resp *vtctldatapb.GetVirtualKeyspaceResponse, err error) {
+	span, ctx := trace.NewSpan(ctx, "VtctldServer.GetVirtualKeyspace")
+	defer span.Finish()
+
+	defer panicHandler(&err)
+
+	span.Annotate("name", req.Name)
+
+	if req.Name == "" {
+		err = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "virtual keyspace name is required")
+		return nil, err
+	}
+
+	virtualKeyspace, err := s.ts.GetVirtualKeyspace(ctx, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &vtctldatapb.GetVirtualKeyspaceResponse{
+		VirtualKeyspace: virtualKeyspace.VirtualKeyspace,
+	}, nil
+}
+
+// ListVirtualKeyspaces is part of the vtctlservicepb.VtctldServer interface.
+func (s *VtctldServer) ListVirtualKeyspaces(ctx context.Context, req *vtctldatapb.ListVirtualKeyspacesRequest) (resp *vtctldatapb.ListVirtualKeyspacesResponse, err error) {
+	span, ctx := trace.NewSpan(ctx, "VtctldServer.ListVirtualKeyspaces")
+	defer span.Finish()
+
+	defer panicHandler(&err)
+
+	virtualKeyspaces, err := s.ts.ListVirtualKeyspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert string slice to VirtualKeyspace slice
+	virtualKeyspaceList := make([]*topodatapb.VirtualKeyspace, 0, len(virtualKeyspaces))
+	for _, name := range virtualKeyspaces {
+		vkInfo, err := s.ts.GetVirtualKeyspace(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		virtualKeyspaceList = append(virtualKeyspaceList, vkInfo.VirtualKeyspace)
+	}
+
+	return &vtctldatapb.ListVirtualKeyspacesResponse{
+		VirtualKeyspaces: virtualKeyspaceList,
+	}, nil
+}
+
 // CreateShard is part of the vtctlservicepb.VtctldServer interface.
 func (s *VtctldServer) CreateShard(ctx context.Context, req *vtctldatapb.CreateShardRequest) (resp *vtctldatapb.CreateShardResponse, err error) {
 	span, ctx := trace.NewSpan(ctx, "VtctldServer.CreateShard")

@@ -20,14 +20,32 @@
 
 source ../common/env.sh
 
+vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync main2 || fail "Failed to create and configure the main2 keyspace"
+
+
 for i in 200 201 202; do
-	CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh
-	CELL=zone1 KEYSPACE=customer TABLET_UID=$i ../common/scripts/vttablet-up.sh
+ CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh
+ CELL=zone1 KEYSPACE=main2 TABLET_UID=$i ../common/scripts/vttablet-up.sh
 done
 
-# set the correct durability policy for the keyspace
-vtctldclient --server localhost:15999 SetKeyspaceDurabilityPolicy --durability-policy=semi_sync customer || fail "Failed to set keyspace durability policy on the customer keyspace"
+# We need a primary to be up and elected otherwise
+# createVirtualKeyspace will fail to create the schema named vt_customer_0.
+# It relies on a primary tablet to be up and running.
+#echo "waiting 10 seconds for vtorc to elect a primary"
+#sleep 10
 
 # Wait for all the tablets to be up and registered in the topology server
 # and for a primary tablet to be elected in the shard and become healthy/serving.
-wait_for_healthy_shard customer 0 || exit 1
+wait_for_healthy_shard main2 0 || exit 1
+
+
+vtctldclient CreateVirtualKeyspace \
+	customer main2 || fail "Failed to create virtual keyspace 'customer'"
+
+# todo: currently we need to create an empty table for the schema to be created.
+# I will fix this later.
+# vtctldclient ApplySchema --sql "CREATE TABLE t1 (id int not null primary key)" customer
+
+# TODO: I will figure out how to automatically rebuild the keyspace graph later.
+vtctldclient RebuildKeyspaceGraph --cells=zone1 customer
+vtctldclient ApplyVSchema --vschema "{}" customer

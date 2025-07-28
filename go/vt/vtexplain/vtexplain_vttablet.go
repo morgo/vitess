@@ -443,8 +443,8 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 				}
 			}
 		}
-		showTableRows = append(showTableRows, mysql.BaseShowTablesRow(table, false, options))
-		showTableWithSizesRows = append(showTableWithSizesRows, mysql.BaseShowTablesWithSizesRow(table, true, options))
+		showTableRows = append(showTableRows, mysql.BaseShowTablesRow("", table, false, options))
+		showTableWithSizesRows = append(showTableWithSizesRows, mysql.BaseShowTablesWithSizesRow("", table, false, options))
 	}
 
 	tEnv.addResult(mysql.BaseShowTables, &sqltypes.Result{
@@ -497,7 +497,7 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 				continue
 			}
 			for _, col := range idx.Columns {
-				row := mysql.ShowPrimaryRow(table, col.Column.String())
+				row := mysql.ShowPrimaryRow("", table, col.Column.String())
 				indexRows = append(indexRows, row)
 			}
 		}
@@ -532,7 +532,8 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 			Rows:   colValues,
 		})
 	}
-
+	// TODO: this query now returns the schema_name and table_name
+	// and will need fixing.
 	tEnv.addResult(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows:   indexRows,

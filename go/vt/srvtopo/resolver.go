@@ -91,6 +91,7 @@ func (rs *ResolvedShard) WithKeyspace(newKeyspace string) *ResolvedShard {
 			Shard:      rs.Target.Shard,
 			TabletType: rs.Target.TabletType,
 			Cell:       rs.Target.Cell,
+			SchemaName: rs.Target.SchemaName, // Preserve schema name when changing keyspace
 		},
 		Gateway: rs.Gateway,
 	}

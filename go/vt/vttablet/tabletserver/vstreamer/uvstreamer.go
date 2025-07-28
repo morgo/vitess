@@ -153,14 +153,50 @@ func (uvs *uvstreamer) buildTablePlan() error {
 		}
 		tableLastPKs[tablePK.TableName] = tablePK
 	}
-	tables := uvs.se.GetSchema()
-	for range tables {
-		for _, rule := range uvs.filter.Rules {
-			if !strings.HasPrefix(rule.Match, "/") {
-				_, ok := tables[rule.Match]
-				if !ok {
-					return fmt.Errorf("table %s is not present in the database", rule.Match)
-				}
+	allSchemas := uvs.se.GetSchema()
+
+	// For virtual keyspace implementation, we need to find user tables from the primary schema
+	// In tests, this is typically the vttest schema, but we need to be selective
+	tables := make(map[string]*schema.Table)
+
+	// First, try to find the primary user schema (usually matches the keyspace name)
+	var primarySchema map[string]*schema.Table
+	for schemaName, schemaMap := range allSchemas {
+		// Skip system schemas
+		if schemaName == "information_schema" || schemaName == "performance_schema" || schemaName == "mysql" || schemaName == "sys" {
+			continue
+		}
+		// Skip _vt schema for table matching (it's internal)
+		if schemaName == "_vt" {
+			continue
+		}
+		// Use the first non-system, non-internal schema as primary
+		if primarySchema == nil {
+			primarySchema = schemaMap
+		}
+	}
+
+	// If we found a primary schema, use it; otherwise fall back to all non-system schemas
+	if primarySchema != nil {
+		tables = primarySchema
+	} else {
+		// Fallback: include all non-system schemas
+		for schemaName, schemaMap := range allSchemas {
+			if schemaName == "information_schema" || schemaName == "performance_schema" || schemaName == "mysql" || schemaName == "sys" {
+				continue
+			}
+			for tableName, table := range schemaMap {
+				tables[tableName] = table
+			}
+		}
+	}
+
+	// Validate that tables referenced in rules exist
+	for _, rule := range uvs.filter.Rules {
+		if !strings.HasPrefix(rule.Match, "/") {
+			_, ok := tables[rule.Match]
+			if !ok {
+				return fmt.Errorf("table %s is not present in the database", rule.Match)
 			}
 		}
 	}

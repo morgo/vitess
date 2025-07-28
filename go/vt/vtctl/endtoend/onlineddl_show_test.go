@@ -129,6 +129,7 @@ func onlineDDLTest(t *testing.T, args []string, expectedQuery string) {
 	expectedErrors := []string{
 		"unable to get shards for keyspace",
 		"no ExecuteFetchAsDba results on fake TabletManagerClient",
+		"keyspace: testkeyspace does not contain any primary tablets",
 	}
 	for _, expect := range expectedErrors {
 		if strings.Contains(err.Error(), expect) {

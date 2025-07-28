@@ -313,6 +313,7 @@ func (m *GetSchemaRequest) CloneVT() *GetSchemaRequest {
 	r := new(GetSchemaRequest)
 	r.IncludeViews = m.IncludeViews
 	r.TableSchemaOnly = m.TableSchemaOnly
+	r.DbNameOverride = m.DbNameOverride
 	if rhs := m.Tables; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -680,6 +681,7 @@ func (m *ApplySchemaRequest) CloneVT() *ApplySchemaRequest {
 	r.SqlMode = m.SqlMode
 	r.BatchSize = m.BatchSize
 	r.DisableForeignKeyChecks = m.DisableForeignKeyChecks
+	r.DbNameOverride = m.DbNameOverride
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -2109,6 +2111,7 @@ func (m *CreateVReplicationWorkflowRequest) CloneVT() *CreateVReplicationWorkflo
 	r.AutoStart = m.AutoStart
 	r.StopAfterCopy = m.StopAfterCopy
 	r.Options = m.Options
+	r.DbNameOverride = m.DbNameOverride
 	if rhs := m.BinlogSource; rhs != nil {
 		tmpContainer := make([]*binlogdata.BinlogSource, len(rhs))
 		for k, v := range rhs {
@@ -2160,6 +2163,7 @@ func (m *DeleteTableDataRequest) CloneVT() *DeleteTableDataRequest {
 	}
 	r := new(DeleteTableDataRequest)
 	r.BatchSize = m.BatchSize
+	r.DbNameOverride = m.DbNameOverride
 	if rhs := m.TableFilters; rhs != nil {
 		tmpContainer := make(map[string]string, len(rhs))
 		for k, v := range rhs {
@@ -2200,6 +2204,7 @@ func (m *DeleteVReplicationWorkflowRequest) CloneVT() *DeleteVReplicationWorkflo
 	}
 	r := new(DeleteVReplicationWorkflowRequest)
 	r.Workflow = m.Workflow
+	r.DbNameOverride = m.DbNameOverride
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -2233,6 +2238,7 @@ func (m *HasVReplicationWorkflowsRequest) CloneVT() *HasVReplicationWorkflowsReq
 		return (*HasVReplicationWorkflowsRequest)(nil)
 	}
 	r := new(HasVReplicationWorkflowsRequest)
+	r.DbNameOverride = m.DbNameOverride
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -2267,6 +2273,7 @@ func (m *ReadVReplicationWorkflowsRequest) CloneVT() *ReadVReplicationWorkflowsR
 	}
 	r := new(ReadVReplicationWorkflowsRequest)
 	r.ExcludeFrozen = m.ExcludeFrozen
+	r.DbNameOverride = m.DbNameOverride
 	if rhs := m.IncludeIds; rhs != nil {
 		tmpContainer := make([]int32, len(rhs))
 		copy(tmpContainer, rhs)
@@ -2332,6 +2339,7 @@ func (m *ReadVReplicationWorkflowRequest) CloneVT() *ReadVReplicationWorkflowReq
 	}
 	r := new(ReadVReplicationWorkflowRequest)
 	r.Workflow = m.Workflow
+	r.DbNameOverride = m.DbNameOverride
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -2684,6 +2692,7 @@ func (m *UpdateVReplicationWorkflowsRequest) CloneVT() *UpdateVReplicationWorkfl
 	}
 	r := new(UpdateVReplicationWorkflowsRequest)
 	r.AllWorkflows = m.AllWorkflows
+	r.DbNameOverride = m.DbNameOverride
 	if rhs := m.IncludeWorkflows; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -3153,6 +3162,41 @@ func (m *GetMaxValueForSequencesResponse) CloneVT() *GetMaxValueForSequencesResp
 }
 
 func (m *GetMaxValueForSequencesResponse) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
+func (m *AddVirtualKeyspaceRequest) CloneVT() *AddVirtualKeyspaceRequest {
+	if m == nil {
+		return (*AddVirtualKeyspaceRequest)(nil)
+	}
+	r := new(AddVirtualKeyspaceRequest)
+	r.VirtualKeyspace = m.VirtualKeyspace
+	r.PhysicalKeyspace = m.PhysicalKeyspace
+	r.SchemaName = m.SchemaName
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *AddVirtualKeyspaceRequest) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
+func (m *AddVirtualKeyspaceResponse) CloneVT() *AddVirtualKeyspaceResponse {
+	if m == nil {
+		return (*AddVirtualKeyspaceResponse)(nil)
+	}
+	r := new(AddVirtualKeyspaceResponse)
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *AddVirtualKeyspaceResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -3856,6 +3900,13 @@ func (m *GetSchemaRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x2a
 	}
 	if m.TableSchemaOnly {
 		i--
@@ -4645,6 +4696,13 @@ func (m *ApplySchemaRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x4a
 	}
 	if m.DisableForeignKeyChecks {
 		i--
@@ -8122,6 +8180,13 @@ func (m *CreateVReplicationWorkflowRequest) MarshalToSizedBufferVT(dAtA []byte) 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x62
+	}
 	if len(m.Options) > 0 {
 		i -= len(m.Options)
 		copy(dAtA[i:], m.Options)
@@ -8299,6 +8364,13 @@ func (m *DeleteTableDataRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x1a
+	}
 	if m.BatchSize != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.BatchSize))
 		i--
@@ -8389,6 +8461,13 @@ func (m *DeleteVReplicationWorkflowRequest) MarshalToSizedBufferVT(dAtA []byte) 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x12
+	}
 	if len(m.Workflow) > 0 {
 		i -= len(m.Workflow)
 		copy(dAtA[i:], m.Workflow)
@@ -8472,6 +8551,13 @@ func (m *HasVReplicationWorkflowsRequest) MarshalToSizedBufferVT(dAtA []byte) (i
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0xa
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -8547,6 +8633,13 @@ func (m *ReadVReplicationWorkflowsRequest) MarshalToSizedBufferVT(dAtA []byte) (
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x3a
 	}
 	if m.ExcludeFrozen {
 		i--
@@ -8716,6 +8809,13 @@ func (m *ReadVReplicationWorkflowRequest) MarshalToSizedBufferVT(dAtA []byte) (i
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x12
 	}
 	if len(m.Workflow) > 0 {
 		i -= len(m.Workflow)
@@ -9780,6 +9880,13 @@ func (m *UpdateVReplicationWorkflowsRequest) MarshalToSizedBufferVT(dAtA []byte)
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.DbNameOverride) > 0 {
+		i -= len(m.DbNameOverride)
+		copy(dAtA[i:], m.DbNameOverride)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbNameOverride)))
+		i--
+		dAtA[i] = 0x3a
 	}
 	if m.StopPosition != nil {
 		i -= len(*m.StopPosition)
@@ -11041,6 +11148,93 @@ func (m *GetMaxValueForSequencesResponse) MarshalToSizedBufferVT(dAtA []byte) (i
 	return len(dAtA) - i, nil
 }
 
+func (m *AddVirtualKeyspaceRequest) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *AddVirtualKeyspaceRequest) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *AddVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.SchemaName) > 0 {
+		i -= len(m.SchemaName)
+		copy(dAtA[i:], m.SchemaName)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SchemaName)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.PhysicalKeyspace) > 0 {
+		i -= len(m.PhysicalKeyspace)
+		copy(dAtA[i:], m.PhysicalKeyspace)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.PhysicalKeyspace)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.VirtualKeyspace) > 0 {
+		i -= len(m.VirtualKeyspace)
+		copy(dAtA[i:], m.VirtualKeyspace)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.VirtualKeyspace)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *AddVirtualKeyspaceResponse) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *AddVirtualKeyspaceResponse) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *AddVirtualKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *TableDefinition) SizeVT() (n int) {
 	if m == nil {
 		return 0
@@ -11330,6 +11524,10 @@ func (m *GetSchemaRequest) SizeVT() (n int) {
 	if m.TableSchemaOnly {
 		n += 2
 	}
+	l = len(m.DbNameOverride)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -11601,6 +11799,10 @@ func (m *ApplySchemaRequest) SizeVT() (n int) {
 	}
 	if m.DisableForeignKeyChecks {
 		n += 2
+	}
+	l = len(m.DbNameOverride)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -12798,6 +13000,10 @@ func (m *CreateVReplicationWorkflowRequest) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
+	l = len(m.DbNameOverride)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -12833,6 +13039,10 @@ func (m *DeleteTableDataRequest) SizeVT() (n int) {
 	if m.BatchSize != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.BatchSize))
 	}
+	l = len(m.DbNameOverride)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -12854,6 +13064,10 @@ func (m *DeleteVReplicationWorkflowRequest) SizeVT() (n int) {
 	var l int
 	_ = l
 	l = len(m.Workflow)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.DbNameOverride)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -12881,6 +13095,10 @@ func (m *HasVReplicationWorkflowsRequest) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
+	l = len(m.DbNameOverride)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -12940,6 +13158,10 @@ func (m *ReadVReplicationWorkflowsRequest) SizeVT() (n int) {
 	if m.ExcludeFrozen {
 		n += 2
 	}
+	l = len(m.DbNameOverride)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -12967,6 +13189,10 @@ func (m *ReadVReplicationWorkflowRequest) SizeVT() (n int) {
 	var l int
 	_ = l
 	l = len(m.Workflow)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.DbNameOverride)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -13417,6 +13643,10 @@ func (m *UpdateVReplicationWorkflowsRequest) SizeVT() (n int) {
 	}
 	if m.StopPosition != nil {
 		l = len(*m.StopPosition)
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.DbNameOverride)
+	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
@@ -13896,6 +14126,38 @@ func (m *GetMaxValueForSequencesResponse) SizeVT() (n int) {
 			n += mapEntrySize + 1 + protohelpers.SizeOfVarint(uint64(mapEntrySize))
 		}
 	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *AddVirtualKeyspaceRequest) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.VirtualKeyspace)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.PhysicalKeyspace)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.SchemaName)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *AddVirtualKeyspaceResponse) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
 	n += len(m.unknownFields)
 	return n
 }
@@ -15873,6 +16135,38 @@ func (m *GetSchemaRequest) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.TableSchemaOnly = bool(v != 0)
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -17476,6 +17770,38 @@ func (m *ApplySchemaRequest) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.DisableForeignKeyChecks = bool(v != 0)
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -24546,6 +24872,38 @@ func (m *CreateVReplicationWorkflowRequest) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Options = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 12:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -24830,6 +25188,38 @@ func (m *DeleteTableDataRequest) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -24963,6 +25353,38 @@ func (m *DeleteVReplicationWorkflowRequest) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Workflow = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -25102,6 +25524,38 @@ func (m *HasVReplicationWorkflowsRequest) UnmarshalVT(dAtA []byte) error {
 			return fmt.Errorf("proto: HasVReplicationWorkflowsRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -25522,6 +25976,38 @@ func (m *ReadVReplicationWorkflowsRequest) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.ExcludeFrozen = bool(v != 0)
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -25689,6 +26175,38 @@ func (m *ReadVReplicationWorkflowRequest) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Workflow = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -28859,6 +29377,38 @@ func (m *UpdateVReplicationWorkflowsRequest) UnmarshalVT(dAtA []byte) error {
 			}
 			s := string(dAtA[iNdEx:postIndex])
 			m.StopPosition = &s
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbNameOverride", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbNameOverride = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -32359,6 +32909,204 @@ func (m *GetMaxValueForSequencesResponse) UnmarshalVT(dAtA []byte) error {
 			}
 			m.MaxValuesBySequenceTable[mapkey] = mapvalue
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *AddVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: AddVirtualKeyspaceRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: AddVirtualKeyspaceRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field VirtualKeyspace", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.VirtualKeyspace = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PhysicalKeyspace", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PhysicalKeyspace = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SchemaName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SchemaName = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *AddVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: AddVirtualKeyspaceResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: AddVirtualKeyspaceResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

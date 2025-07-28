@@ -180,7 +180,15 @@ func (ts *Server) GetShard(ctx context.Context, keyspace, shard string) (*ShardI
 	span.Annotate("shard", shard)
 	defer span.Finish()
 
-	shardPath := shardFilePath(keyspace, shard)
+	// Check if this is a virtual keyspace and redirect to physical keyspace if needed
+	physicalKeyspace := keyspace
+	ki, err := ts.GetKeyspace(ctx, keyspace)
+	if err == nil && ki.IsVirtual {
+		// For virtual keyspaces, get the shard from the physical keyspace
+		physicalKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
+	}
+
+	shardPath := shardFilePath(physicalKeyspace, shard)
 
 	data, version, err := ts.globalCell.Get(ctx, shardPath)
 
@@ -192,6 +200,8 @@ func (ts *Server) GetShard(ctx context.Context, keyspace, shard string) (*ShardI
 	if err = value.UnmarshalVT(data); err != nil {
 		return nil, vterrors.Wrapf(err, "GetShard(%v,%v): bad shard data", keyspace, shard)
 	}
+	// Return ShardInfo with the original keyspace name (virtual keyspace name)
+	// but the shard data from the physical keyspace
 	return NewShardInfo(keyspace, shard, value, version), nil
 }
 
@@ -211,7 +221,25 @@ func (ts *Server) updateShard(ctx context.Context, si *ShardInfo) error {
 	if err != nil {
 		return err
 	}
-	shardPath := shardFilePath(si.keyspace, si.shardName)
+
+	// For updateShard, we need to use the physical keyspace path if this is a virtual keyspace
+	// We can't use GetKeyspace here because it might cause infinite recursion
+	// Instead, we check if the ShardInfo came from a virtual keyspace by looking at the keyspace name
+	// and checking if it exists as a virtual keyspace
+	physicalKeyspace := si.keyspace
+
+	// Try to get keyspace info directly from the global cell to avoid recursion
+	keyspacePath := path.Join(KeyspacesPath, si.keyspace, KeyspaceFile)
+	keyspaceData, _, err := ts.globalCell.Get(ctx, keyspacePath)
+	if err == nil {
+		k := &topodatapb.Keyspace{}
+		if err = k.UnmarshalVT(keyspaceData); err == nil && k.IsVirtual && k.VirtualKeyspaceInfo != nil {
+			// This is a virtual keyspace, use the physical keyspace for the shard path
+			physicalKeyspace = k.VirtualKeyspaceInfo.PhysicalKeyspace
+		}
+	}
+
+	shardPath := shardFilePath(physicalKeyspace, si.shardName)
 	newVersion, err := ts.globalCell.Update(ctx, shardPath, data, si.version)
 	if err != nil {
 		return err
@@ -360,6 +388,134 @@ func (ts *Server) GetOrCreateShard(ctx context.Context, keyspace, shard string) 
 	// try to read the shard again, maybe someone created it
 	// in between the original GetShard and the LockKeyspace
 	return ts.GetShard(ctx, keyspace, shard)
+}
+
+// CreateVirtualKeyspaceShard creates a shard for a virtual keyspace with VIRTUAL tablets.
+// This function creates a shard entry that contains VIRTUAL tablets referencing the
+// physical tablets from the underlying physical keyspace/shard.
+func (ts *Server) CreateVirtualKeyspaceShard(ctx context.Context, virtualKeyspace, physicalKeyspace, physicalShard, schemaName string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := ValidateKeyspaceName(virtualKeyspace); err != nil {
+		return vterrors.Wrapf(err, "invalid virtual keyspace name")
+	}
+
+	if err := ValidateKeyspaceName(physicalKeyspace); err != nil {
+		return vterrors.Wrapf(err, "invalid physical keyspace name")
+	}
+
+	// Validate that the physical shard exists
+	_, err := ts.GetShard(ctx, physicalKeyspace, physicalShard)
+	if err != nil {
+		return vterrors.Wrapf(err, "physical shard %s/%s does not exist", physicalKeyspace, physicalShard)
+	}
+
+	// Create the virtual keyspace if it doesn't exist
+	virtualKsi := &topodatapb.Keyspace{
+		SidecarDbName: sidecar.GetName(),
+		// Mark as virtual keyspace in keyspace metadata
+		KeyspaceType: topodatapb.KeyspaceType_NORMAL, // For now, keep as NORMAL
+	}
+	if err = ts.CreateKeyspace(ctx, virtualKeyspace, virtualKsi); err != nil && !IsErrType(err, NodeExists) {
+		return vterrors.Wrapf(err, "CreateKeyspace(%v) failed", virtualKeyspace)
+	}
+
+	// Create the virtual shard with the same shard name as physical
+	virtualShard := physicalShard
+	if err = ts.CreateShard(ctx, virtualKeyspace, virtualShard); err != nil && !IsErrType(err, NodeExists) {
+		return vterrors.Wrapf(err, "CreateShard(%v/%v) failed", virtualKeyspace, virtualShard)
+	}
+
+	// Get all tablets from the physical shard
+	physicalTablets, err := ts.GetTabletMapForShard(ctx, physicalKeyspace, physicalShard)
+	if err != nil {
+		return vterrors.Wrapf(err, "failed to get tablets for physical shard %s/%s", physicalKeyspace, physicalShard)
+	}
+
+	// Create VIRTUAL tablets for each physical tablet
+	var virtualPrimaryAlias *topodatapb.TabletAlias
+	for _, physicalTabletInfo := range physicalTablets {
+		virtualTabletAlias, err := ts.createVirtualTablet(ctx, virtualKeyspace, virtualShard, physicalTabletInfo, schemaName)
+		if err != nil {
+			return vterrors.Wrapf(err, "failed to create virtual tablet for %s", physicalTabletInfo.AliasString())
+		}
+
+		// If this is the primary tablet, set it as the virtual shard's primary
+		if physicalTabletInfo.Type == topodatapb.TabletType_PRIMARY {
+			virtualPrimaryAlias = virtualTabletAlias
+		}
+	}
+
+	// Update the virtual shard to set the primary alias
+	if virtualPrimaryAlias != nil {
+		_, err = ts.UpdateShardFields(ctx, virtualKeyspace, virtualShard, func(si *ShardInfo) error {
+			si.PrimaryAlias = virtualPrimaryAlias
+			return nil
+		})
+		if err != nil {
+			return vterrors.Wrapf(err, "failed to set primary alias for virtual shard %s/%s", virtualKeyspace, virtualShard)
+		}
+	}
+
+	return nil
+}
+
+// createVirtualTablet creates a VIRTUAL tablet that references a physical tablet.
+func (ts *Server) createVirtualTablet(ctx context.Context, virtualKeyspace, virtualShard string, physicalTabletInfo *TabletInfo, schemaName string) (*topodatapb.TabletAlias, error) {
+	// Generate a new tablet alias for the virtual tablet
+	// Use the same cell as the physical tablet but with a different UID
+	virtualTabletAlias := &topodatapb.TabletAlias{
+		Cell: physicalTabletInfo.Alias.Cell,
+		// Use a high UID range for virtual tablets to avoid conflicts
+		// Add 100000 to the physical tablet UID to create virtual tablet UID
+		Uid: physicalTabletInfo.Alias.Uid + 100000,
+	}
+
+	// Create the virtual tablet with VIRTUAL type
+	virtualTablet := &topodatapb.Tablet{
+		Alias:    virtualTabletAlias,
+		Keyspace: virtualKeyspace,
+		Shard:    virtualShard,
+		Type:     topodatapb.TabletType_VIRTUAL,
+		// Copy key range from physical tablet
+		KeyRange: physicalTabletInfo.KeyRange,
+		// Set hostname and ports to empty since VIRTUAL tablets don't run services
+		Hostname: "",
+		PortMap:  make(map[string]int32),
+		// Store metadata in tags
+		Tags: map[string]string{
+			"physical_tablet":  topoproto.TabletAliasString(physicalTabletInfo.Alias),
+			"virtual_keyspace": virtualKeyspace,
+			"schema_name":      schemaName,
+		},
+	}
+
+	// Create the virtual tablet
+	err := ts.CreateTablet(ctx, virtualTablet)
+	if err != nil {
+		return nil, err
+	}
+
+	return virtualTabletAlias, nil
+}
+
+// GetOrCreateVirtualKeyspaceShard creates or gets a virtual keyspace shard.
+func (ts *Server) GetOrCreateVirtualKeyspaceShard(ctx context.Context, virtualKeyspace, physicalKeyspace, physicalShard, schemaName string) (*ShardInfo, error) {
+	// Try to get the virtual shard first
+	si, err := ts.GetShard(ctx, virtualKeyspace, physicalShard)
+	if !IsErrType(err, NoNode) {
+		return si, err
+	}
+
+	// Create the virtual keyspace shard if it doesn't exist
+	if err := ts.CreateVirtualKeyspaceShard(ctx, virtualKeyspace, physicalKeyspace, physicalShard, schemaName); err != nil {
+		return nil, err
+	}
+
+	// Return the created shard
+	return ts.GetShard(ctx, virtualKeyspace, physicalShard)
 }
 
 // DeleteShard wraps the underlying conn.Delete

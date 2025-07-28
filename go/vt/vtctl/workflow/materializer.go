@@ -118,37 +118,45 @@ func (mz *materializer) getOptionsJSON() (string, error) {
 }
 
 func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVReplicationWorkflowRequest) error {
+	log.Infof("DEBUG: validating new workflow %s in keyspace %s, req: %#v", mz.ms.Workflow, mz.ms.TargetKeyspace, req)
 	if err := validateNewWorkflow(mz.ctx, mz.ts, mz.tmc, mz.ms.TargetKeyspace, mz.ms.Workflow); err != nil {
 		return err
 	}
 
+	log.Infof("DEBUG: calling mz.buildMaterializer")
 	err := mz.buildMaterializer()
 	if err != nil {
 		return err
 	}
 
 	var workflowSubType binlogdatapb.VReplicationWorkflowSubType
+	log.Infof("DEBUG: calling mz.getWorkflowSubType")
 	workflowSubType, err = mz.getWorkflowSubType()
 	if err != nil {
 		return err
 	}
 	req.WorkflowSubType = workflowSubType
+	log.Infof("DEBUG: calling mz.getOptionsJSON")
 	optionsJSON, err := getOptionsJSON(mz.ms.GetWorkflowOptions())
 	if err != nil {
 		return err
 	}
 	req.Options = optionsJSON
 
+	log.Infof("DEBUG: calling mz.deploySchema")
 	if err := mz.deploySchema(); err != nil {
 		return err
 	}
 
+	log.Infof("DEBUG: calling forAllShards")
 	return forAllShards(mz.targetShards, func(target *topo.ShardInfo) error {
+		log.Infof("DEBUG: calling  mz.ts.GetTablet for target: %v", target.PrimaryAlias)
 		targetPrimary, err := mz.ts.GetTablet(mz.ctx, target.PrimaryAlias)
 		if err != nil {
 			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
 		}
 
+		log.Infof("DEBUG: calling  mz.filterSourceShards for target: %v", target.PrimaryAlias)
 		sourceShards := mz.filterSourceShards(target)
 		// streamKeyRangesEqual allows us to optimize the stream for the cases
 		// where while the target keyspace may be sharded, the target shard has
@@ -161,11 +169,16 @@ func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVRe
 		// Each tablet needs its own copy of the request as it will have a unique
 		// BinlogSource.
 		tabletReq := req.CloneVT()
+		log.Infof("DEBUG: calling  mz.generateBinlogSources for target: %v, sourceShards: %#v, streamKeyRangesEqual: %v", targetPrimary.Tablet.Alias, sourceShards, streamKeyRangesEqual)
 		tabletReq.BinlogSource, err = mz.generateBinlogSources(target, sourceShards, streamKeyRangesEqual)
 		if err != nil {
 			return err
 		}
 
+		// TODO: this won't be accurate with multiple shards.
+		tabletReq.DbNameOverride = req.DbNameOverride
+
+		log.Infof("DEBUG: calling  mz.tmc.CreateVReplicationWorkflow for tablet: %v, tabletReq: %#v", targetPrimary.Tablet.Alias, tabletReq)
 		_, err = mz.tmc.CreateVReplicationWorkflow(mz.ctx, targetPrimary.Tablet, tabletReq)
 		return err
 	})
@@ -309,7 +322,18 @@ func (mz *materializer) deploySchema() error {
 		allTables := []string{"/.*/"}
 
 		hasTargetTable := map[string]bool{}
-		req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
+
+		// Check if this is a virtual keyspace and get the appropriate schema name
+		ki, err := mz.ts.GetKeyspace(mz.ctx, mz.ms.TargetKeyspace)
+		if err != nil {
+			return err
+		}
+		var schemaName string
+		if ki.IsVirtual {
+			schemaName = ki.VirtualKeyspaceInfo.SchemaName
+		}
+
+		req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, DbNameOverride: schemaName}
 		targetSchema, err := schematools.GetSchema(mz.ctx, mz.ts, mz.tmc, target.PrimaryAlias, req)
 		if err != nil {
 			return err
@@ -340,7 +364,7 @@ func (mz *materializer) deploySchema() error {
 				// Only get DDLs for tables once and lazily: if we need to copy the schema from source
 				// to target then we copy schemas from primaries on the source keyspace; we have found
 				// use cases where the user just has a replica (no primary) in the source keyspace.
-				sourceDDLs, err = getSourceTableDDLs(mz.ctx, mz.sourceTs, mz.tmc, mz.sourceShards)
+				sourceDDLs, err = getSourceTableDDLs(mz.ctx, mz.sourceTs, mz.tmc, mz.ms.SourceKeyspace, mz.sourceShards)
 			}
 			mu.Unlock()
 			if err != nil {
@@ -365,7 +389,7 @@ func (mz *materializer) deploySchema() error {
 
 				ddl, ok := sourceDDLs[ts.TargetTable]
 				if !ok {
-					return fmt.Errorf("source table %v does not exist", ts.TargetTable)
+					return fmt.Errorf("source table %v does not exist, source: %v target: %v, allDDLs: %#v", ts.TargetTable, mz.ms.SourceKeyspace, target.Keyspace(), sourceDDLs)
 				}
 
 				if createDDL == createDDLAsCopyDropConstraint {
@@ -453,13 +477,13 @@ func (mz *materializer) deploySchema() error {
 				}
 			}
 			sql := strings.Join(applyDDLs, ";\n")
-
 			_, err = mz.tmc.ApplySchema(mz.ctx, targetTablet.Tablet, &tmutils.SchemaChange{
 				SQL:                     sql,
 				Force:                   false,
 				AllowReplication:        true,
 				SQLMode:                 vreplication.SQLMode,
 				DisableForeignKeyChecks: true,
+				DbNameOverride:          schemaName,
 			})
 			if err != nil {
 				return err

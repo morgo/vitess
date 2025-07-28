@@ -128,6 +128,11 @@ const (
 	// to route queries from Vitess users. In this state,
 	// this tablet is dedicated to the process that uses it.
 	TabletType_DRAINED TabletType = 8
+	// VIRTUAL is used for virtual keyspace tablets that reference
+	// physical tablets. No actual vttablet process runs with this type.
+	// VIRTUAL tablets are used to create shard entries for virtual keyspaces
+	// while maintaining a clear mapping to the underlying physical tablets.
+	TabletType_VIRTUAL TabletType = 9
 )
 
 // Enum value maps for TabletType.
@@ -144,6 +149,7 @@ var (
 		6: "BACKUP",
 		7: "RESTORE",
 		8: "DRAINED",
+		9: "VIRTUAL",
 	}
 	TabletType_value = map[string]int32{
 		"UNKNOWN":      0,
@@ -157,6 +163,7 @@ var (
 		"BACKUP":       6,
 		"RESTORE":      7,
 		"DRAINED":      8,
+		"VIRTUAL":      9,
 	}
 )
 
@@ -239,7 +246,7 @@ func (x ShardReplicationError_Type) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ShardReplicationError_Type.Descriptor instead.
 func (ShardReplicationError_Type) EnumDescriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{6, 0}
+	return file_topodata_proto_rawDescGZIP(), []int{9, 0}
 }
 
 // KeyRange describes a range of sharding keys, when range-based
@@ -665,8 +672,14 @@ type Keyspace struct {
 	// used for various system metadata that is stored in each
 	// tablet's mysqld instance.
 	SidecarDbName string `protobuf:"bytes,10,opt,name=sidecar_db_name,json=sidecarDbName,proto3" json:"sidecar_db_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// is_virtual indicates if this keyspace is a virtual keyspace.
+	// Virtual keyspaces map to a schema on a physical keyspace's tablets.
+	IsVirtual bool `protobuf:"varint,11,opt,name=is_virtual,json=isVirtual,proto3" json:"is_virtual,omitempty"`
+	// virtual_keyspace_info contains additional information for virtual keyspaces.
+	// This field is only set when is_virtual is true.
+	VirtualKeyspaceInfo *VirtualKeyspaceInfo `protobuf:"bytes,12,opt,name=virtual_keyspace_info,json=virtualKeyspaceInfo,proto3" json:"virtual_keyspace_info,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Keyspace) Reset() {
@@ -741,6 +754,238 @@ func (x *Keyspace) GetSidecarDbName() string {
 	return ""
 }
 
+func (x *Keyspace) GetIsVirtual() bool {
+	if x != nil {
+		return x.IsVirtual
+	}
+	return false
+}
+
+func (x *Keyspace) GetVirtualKeyspaceInfo() *VirtualKeyspaceInfo {
+	if x != nil {
+		return x.VirtualKeyspaceInfo
+	}
+	return nil
+}
+
+// VirtualKeyspaceInfo contains information specific to virtual keyspaces.
+type VirtualKeyspaceInfo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// physical_keyspace is the name of the physical keyspace that hosts
+	// this virtual keyspace
+	PhysicalKeyspace string `protobuf:"bytes,1,opt,name=physical_keyspace,json=physicalKeyspace,proto3" json:"physical_keyspace,omitempty"`
+	// schema_name is the MySQL schema name used for this virtual keyspace
+	// on the physical tablets. If empty, defaults to "vt_" + name.
+	SchemaName string `protobuf:"bytes,2,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
+	// created_at is when this virtual keyspace was created
+	CreatedAt     *vttime.Time `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VirtualKeyspaceInfo) Reset() {
+	*x = VirtualKeyspaceInfo{}
+	mi := &file_topodata_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VirtualKeyspaceInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VirtualKeyspaceInfo) ProtoMessage() {}
+
+func (x *VirtualKeyspaceInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_topodata_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VirtualKeyspaceInfo.ProtoReflect.Descriptor instead.
+func (*VirtualKeyspaceInfo) Descriptor() ([]byte, []int) {
+	return file_topodata_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *VirtualKeyspaceInfo) GetPhysicalKeyspace() string {
+	if x != nil {
+		return x.PhysicalKeyspace
+	}
+	return ""
+}
+
+func (x *VirtualKeyspaceInfo) GetSchemaName() string {
+	if x != nil {
+		return x.SchemaName
+	}
+	return ""
+}
+
+func (x *VirtualKeyspaceInfo) GetCreatedAt() *vttime.Time {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+// VirtualKeyspace represents a virtual keyspace that maps to a schema
+// on a physical keyspace's tablets.
+type VirtualKeyspace struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the name of the virtual keyspace
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// physical_keyspace is the name of the physical keyspace that hosts
+	// this virtual keyspace
+	PhysicalKeyspace string `protobuf:"bytes,2,opt,name=physical_keyspace,json=physicalKeyspace,proto3" json:"physical_keyspace,omitempty"`
+	// schema_name is the MySQL schema name used for this virtual keyspace
+	// on the physical tablets. If empty, defaults to "vt_" + name.
+	SchemaName string `protobuf:"bytes,3,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
+	// created_at is when this virtual keyspace was created
+	CreatedAt     *vttime.Time `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VirtualKeyspace) Reset() {
+	*x = VirtualKeyspace{}
+	mi := &file_topodata_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VirtualKeyspace) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VirtualKeyspace) ProtoMessage() {}
+
+func (x *VirtualKeyspace) ProtoReflect() protoreflect.Message {
+	mi := &file_topodata_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VirtualKeyspace.ProtoReflect.Descriptor instead.
+func (*VirtualKeyspace) Descriptor() ([]byte, []int) {
+	return file_topodata_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *VirtualKeyspace) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *VirtualKeyspace) GetPhysicalKeyspace() string {
+	if x != nil {
+		return x.PhysicalKeyspace
+	}
+	return ""
+}
+
+func (x *VirtualKeyspace) GetSchemaName() string {
+	if x != nil {
+		return x.SchemaName
+	}
+	return ""
+}
+
+func (x *VirtualKeyspace) GetCreatedAt() *vttime.Time {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+// VirtualTabletRegistration tracks which tablets are registered to host
+// virtual keyspaces.
+type VirtualTabletRegistration struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// physical_keyspace is the physical keyspace this tablet belongs to
+	PhysicalKeyspace string `protobuf:"bytes,1,opt,name=physical_keyspace,json=physicalKeyspace,proto3" json:"physical_keyspace,omitempty"`
+	// max_assignments is the maximum number of virtual keyspaces this
+	// tablet can host
+	MaxAssignments int32 `protobuf:"varint,2,opt,name=max_assignments,json=maxAssignments,proto3" json:"max_assignments,omitempty"`
+	// virtual_keyspaces is the list of virtual keyspaces currently
+	// assigned to this tablet
+	VirtualKeyspaces []string `protobuf:"bytes,3,rep,name=virtual_keyspaces,json=virtualKeyspaces,proto3" json:"virtual_keyspaces,omitempty"`
+	// registered_at is when this tablet was registered for virtual usage
+	RegisteredAt  *vttime.Time `protobuf:"bytes,4,opt,name=registered_at,json=registeredAt,proto3" json:"registered_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VirtualTabletRegistration) Reset() {
+	*x = VirtualTabletRegistration{}
+	mi := &file_topodata_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VirtualTabletRegistration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VirtualTabletRegistration) ProtoMessage() {}
+
+func (x *VirtualTabletRegistration) ProtoReflect() protoreflect.Message {
+	mi := &file_topodata_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VirtualTabletRegistration.ProtoReflect.Descriptor instead.
+func (*VirtualTabletRegistration) Descriptor() ([]byte, []int) {
+	return file_topodata_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *VirtualTabletRegistration) GetPhysicalKeyspace() string {
+	if x != nil {
+		return x.PhysicalKeyspace
+	}
+	return ""
+}
+
+func (x *VirtualTabletRegistration) GetMaxAssignments() int32 {
+	if x != nil {
+		return x.MaxAssignments
+	}
+	return 0
+}
+
+func (x *VirtualTabletRegistration) GetVirtualKeyspaces() []string {
+	if x != nil {
+		return x.VirtualKeyspaces
+	}
+	return nil
+}
+
+func (x *VirtualTabletRegistration) GetRegisteredAt() *vttime.Time {
+	if x != nil {
+		return x.RegisteredAt
+	}
+	return nil
+}
+
 // ShardReplication describes the MySQL replication relationships
 // whithin a cell.
 type ShardReplication struct {
@@ -754,7 +999,7 @@ type ShardReplication struct {
 
 func (x *ShardReplication) Reset() {
 	*x = ShardReplication{}
-	mi := &file_topodata_proto_msgTypes[5]
+	mi := &file_topodata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -766,7 +1011,7 @@ func (x *ShardReplication) String() string {
 func (*ShardReplication) ProtoMessage() {}
 
 func (x *ShardReplication) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[5]
+	mi := &file_topodata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -779,7 +1024,7 @@ func (x *ShardReplication) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardReplication.ProtoReflect.Descriptor instead.
 func (*ShardReplication) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{5}
+	return file_topodata_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ShardReplication) GetNodes() []*ShardReplication_Node {
@@ -803,7 +1048,7 @@ type ShardReplicationError struct {
 
 func (x *ShardReplicationError) Reset() {
 	*x = ShardReplicationError{}
-	mi := &file_topodata_proto_msgTypes[6]
+	mi := &file_topodata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -815,7 +1060,7 @@ func (x *ShardReplicationError) String() string {
 func (*ShardReplicationError) ProtoMessage() {}
 
 func (x *ShardReplicationError) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[6]
+	mi := &file_topodata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -828,7 +1073,7 @@ func (x *ShardReplicationError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardReplicationError.ProtoReflect.Descriptor instead.
 func (*ShardReplicationError) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{6}
+	return file_topodata_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ShardReplicationError) GetType() ShardReplicationError_Type {
@@ -857,7 +1102,7 @@ type ShardReference struct {
 
 func (x *ShardReference) Reset() {
 	*x = ShardReference{}
-	mi := &file_topodata_proto_msgTypes[7]
+	mi := &file_topodata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -869,7 +1114,7 @@ func (x *ShardReference) String() string {
 func (*ShardReference) ProtoMessage() {}
 
 func (x *ShardReference) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[7]
+	mi := &file_topodata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -882,7 +1127,7 @@ func (x *ShardReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardReference.ProtoReflect.Descriptor instead.
 func (*ShardReference) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{7}
+	return file_topodata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ShardReference) GetName() string {
@@ -913,7 +1158,7 @@ type ShardTabletControl struct {
 
 func (x *ShardTabletControl) Reset() {
 	*x = ShardTabletControl{}
-	mi := &file_topodata_proto_msgTypes[8]
+	mi := &file_topodata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -925,7 +1170,7 @@ func (x *ShardTabletControl) String() string {
 func (*ShardTabletControl) ProtoMessage() {}
 
 func (x *ShardTabletControl) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[8]
+	mi := &file_topodata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -938,7 +1183,7 @@ func (x *ShardTabletControl) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardTabletControl.ProtoReflect.Descriptor instead.
 func (*ShardTabletControl) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{8}
+	return file_topodata_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ShardTabletControl) GetName() string {
@@ -980,7 +1225,7 @@ type ThrottledAppRule struct {
 
 func (x *ThrottledAppRule) Reset() {
 	*x = ThrottledAppRule{}
-	mi := &file_topodata_proto_msgTypes[9]
+	mi := &file_topodata_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -992,7 +1237,7 @@ func (x *ThrottledAppRule) String() string {
 func (*ThrottledAppRule) ProtoMessage() {}
 
 func (x *ThrottledAppRule) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[9]
+	mi := &file_topodata_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1005,7 +1250,7 @@ func (x *ThrottledAppRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ThrottledAppRule.ProtoReflect.Descriptor instead.
 func (*ThrottledAppRule) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{9}
+	return file_topodata_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ThrottledAppRule) GetName() string {
@@ -1063,7 +1308,7 @@ type ThrottlerConfig struct {
 
 func (x *ThrottlerConfig) Reset() {
 	*x = ThrottlerConfig{}
-	mi := &file_topodata_proto_msgTypes[10]
+	mi := &file_topodata_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1075,7 +1320,7 @@ func (x *ThrottlerConfig) String() string {
 func (*ThrottlerConfig) ProtoMessage() {}
 
 func (x *ThrottlerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[10]
+	mi := &file_topodata_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1088,7 +1333,7 @@ func (x *ThrottlerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ThrottlerConfig.ProtoReflect.Descriptor instead.
 func (*ThrottlerConfig) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{10}
+	return file_topodata_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ThrottlerConfig) GetEnabled() bool {
@@ -1156,7 +1401,7 @@ type SrvKeyspace struct {
 
 func (x *SrvKeyspace) Reset() {
 	*x = SrvKeyspace{}
-	mi := &file_topodata_proto_msgTypes[11]
+	mi := &file_topodata_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1168,7 +1413,7 @@ func (x *SrvKeyspace) String() string {
 func (*SrvKeyspace) ProtoMessage() {}
 
 func (x *SrvKeyspace) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[11]
+	mi := &file_topodata_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1181,7 +1426,7 @@ func (x *SrvKeyspace) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SrvKeyspace.ProtoReflect.Descriptor instead.
 func (*SrvKeyspace) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{11}
+	return file_topodata_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SrvKeyspace) GetPartitions() []*SrvKeyspace_KeyspacePartition {
@@ -1217,7 +1462,7 @@ type CellInfo struct {
 
 func (x *CellInfo) Reset() {
 	*x = CellInfo{}
-	mi := &file_topodata_proto_msgTypes[12]
+	mi := &file_topodata_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1229,7 +1474,7 @@ func (x *CellInfo) String() string {
 func (*CellInfo) ProtoMessage() {}
 
 func (x *CellInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[12]
+	mi := &file_topodata_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1242,7 +1487,7 @@ func (x *CellInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CellInfo.ProtoReflect.Descriptor instead.
 func (*CellInfo) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{12}
+	return file_topodata_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CellInfo) GetServerAddress() string {
@@ -1270,7 +1515,7 @@ type CellsAlias struct {
 
 func (x *CellsAlias) Reset() {
 	*x = CellsAlias{}
-	mi := &file_topodata_proto_msgTypes[13]
+	mi := &file_topodata_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1282,7 +1527,7 @@ func (x *CellsAlias) String() string {
 func (*CellsAlias) ProtoMessage() {}
 
 func (x *CellsAlias) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[13]
+	mi := &file_topodata_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1295,7 +1540,7 @@ func (x *CellsAlias) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CellsAlias.ProtoReflect.Descriptor instead.
 func (*CellsAlias) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{13}
+	return file_topodata_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CellsAlias) GetCells() []string {
@@ -1316,7 +1561,7 @@ type TopoConfig struct {
 
 func (x *TopoConfig) Reset() {
 	*x = TopoConfig{}
-	mi := &file_topodata_proto_msgTypes[14]
+	mi := &file_topodata_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1328,7 +1573,7 @@ func (x *TopoConfig) String() string {
 func (*TopoConfig) ProtoMessage() {}
 
 func (x *TopoConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[14]
+	mi := &file_topodata_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1341,7 +1586,7 @@ func (x *TopoConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopoConfig.ProtoReflect.Descriptor instead.
 func (*TopoConfig) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{14}
+	return file_topodata_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TopoConfig) GetTopoType() string {
@@ -1374,7 +1619,7 @@ type ExternalVitessCluster struct {
 
 func (x *ExternalVitessCluster) Reset() {
 	*x = ExternalVitessCluster{}
-	mi := &file_topodata_proto_msgTypes[15]
+	mi := &file_topodata_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1386,7 +1631,7 @@ func (x *ExternalVitessCluster) String() string {
 func (*ExternalVitessCluster) ProtoMessage() {}
 
 func (x *ExternalVitessCluster) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[15]
+	mi := &file_topodata_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1399,7 +1644,7 @@ func (x *ExternalVitessCluster) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalVitessCluster.ProtoReflect.Descriptor instead.
 func (*ExternalVitessCluster) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{15}
+	return file_topodata_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ExternalVitessCluster) GetTopoConfig() *TopoConfig {
@@ -1419,7 +1664,7 @@ type ExternalClusters struct {
 
 func (x *ExternalClusters) Reset() {
 	*x = ExternalClusters{}
-	mi := &file_topodata_proto_msgTypes[16]
+	mi := &file_topodata_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1431,7 +1676,7 @@ func (x *ExternalClusters) String() string {
 func (*ExternalClusters) ProtoMessage() {}
 
 func (x *ExternalClusters) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[16]
+	mi := &file_topodata_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1444,7 +1689,7 @@ func (x *ExternalClusters) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalClusters.ProtoReflect.Descriptor instead.
 func (*ExternalClusters) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{16}
+	return file_topodata_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ExternalClusters) GetVitessCluster() []*ExternalVitessCluster {
@@ -1475,7 +1720,7 @@ type Shard_SourceShard struct {
 
 func (x *Shard_SourceShard) Reset() {
 	*x = Shard_SourceShard{}
-	mi := &file_topodata_proto_msgTypes[19]
+	mi := &file_topodata_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1487,7 +1732,7 @@ func (x *Shard_SourceShard) String() string {
 func (*Shard_SourceShard) ProtoMessage() {}
 
 func (x *Shard_SourceShard) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[19]
+	mi := &file_topodata_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1554,7 +1799,7 @@ type Shard_TabletControl struct {
 
 func (x *Shard_TabletControl) Reset() {
 	*x = Shard_TabletControl{}
-	mi := &file_topodata_proto_msgTypes[20]
+	mi := &file_topodata_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1566,7 +1811,7 @@ func (x *Shard_TabletControl) String() string {
 func (*Shard_TabletControl) ProtoMessage() {}
 
 func (x *Shard_TabletControl) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[20]
+	mi := &file_topodata_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1620,7 +1865,7 @@ type ShardReplication_Node struct {
 
 func (x *ShardReplication_Node) Reset() {
 	*x = ShardReplication_Node{}
-	mi := &file_topodata_proto_msgTypes[21]
+	mi := &file_topodata_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1632,7 +1877,7 @@ func (x *ShardReplication_Node) String() string {
 func (*ShardReplication_Node) ProtoMessage() {}
 
 func (x *ShardReplication_Node) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[21]
+	mi := &file_topodata_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1645,7 +1890,7 @@ func (x *ShardReplication_Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardReplication_Node.ProtoReflect.Descriptor instead.
 func (*ShardReplication_Node) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{5, 0}
+	return file_topodata_proto_rawDescGZIP(), []int{8, 0}
 }
 
 func (x *ShardReplication_Node) GetTabletAlias() *TabletAlias {
@@ -1664,7 +1909,7 @@ type ThrottlerConfig_MetricNames struct {
 
 func (x *ThrottlerConfig_MetricNames) Reset() {
 	*x = ThrottlerConfig_MetricNames{}
-	mi := &file_topodata_proto_msgTypes[23]
+	mi := &file_topodata_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1676,7 +1921,7 @@ func (x *ThrottlerConfig_MetricNames) String() string {
 func (*ThrottlerConfig_MetricNames) ProtoMessage() {}
 
 func (x *ThrottlerConfig_MetricNames) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[23]
+	mi := &file_topodata_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1689,7 +1934,7 @@ func (x *ThrottlerConfig_MetricNames) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ThrottlerConfig_MetricNames.ProtoReflect.Descriptor instead.
 func (*ThrottlerConfig_MetricNames) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{10, 1}
+	return file_topodata_proto_rawDescGZIP(), []int{13, 1}
 }
 
 func (x *ThrottlerConfig_MetricNames) GetNames() []string {
@@ -1713,7 +1958,7 @@ type SrvKeyspace_KeyspacePartition struct {
 
 func (x *SrvKeyspace_KeyspacePartition) Reset() {
 	*x = SrvKeyspace_KeyspacePartition{}
-	mi := &file_topodata_proto_msgTypes[26]
+	mi := &file_topodata_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1725,7 +1970,7 @@ func (x *SrvKeyspace_KeyspacePartition) String() string {
 func (*SrvKeyspace_KeyspacePartition) ProtoMessage() {}
 
 func (x *SrvKeyspace_KeyspacePartition) ProtoReflect() protoreflect.Message {
-	mi := &file_topodata_proto_msgTypes[26]
+	mi := &file_topodata_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1738,7 +1983,7 @@ func (x *SrvKeyspace_KeyspacePartition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SrvKeyspace_KeyspacePartition.ProtoReflect.Descriptor instead.
 func (*SrvKeyspace_KeyspacePartition) Descriptor() ([]byte, []int) {
-	return file_topodata_proto_rawDescGZIP(), []int{11, 0}
+	return file_topodata_proto_rawDescGZIP(), []int{14, 0}
 }
 
 func (x *SrvKeyspace_KeyspacePartition) GetServedType() TabletType {
@@ -1813,7 +2058,7 @@ const file_topodata_proto_rawDesc = "" +
 	"tabletType\x12\x14\n" +
 	"\x05cells\x18\x02 \x03(\tR\x05cells\x12#\n" +
 	"\rdenied_tables\x18\x04 \x03(\tR\fdeniedTables\x12\x16\n" +
-	"\x06frozen\x18\x05 \x01(\bR\x06frozenJ\x04\b\x03\x10\x04J\x04\b\x03\x10\x04J\x04\b\x05\x10\x06\"\xd2\x02\n" +
+	"\x06frozen\x18\x05 \x01(\bR\x06frozenJ\x04\b\x03\x10\x04J\x04\b\x03\x10\x04J\x04\b\x05\x10\x06\"\xc4\x03\n" +
 	"\bKeyspace\x12;\n" +
 	"\rkeyspace_type\x18\x05 \x01(\x0e2\x16.topodata.KeyspaceTypeR\fkeyspaceType\x12#\n" +
 	"\rbase_keyspace\x18\x06 \x01(\tR\fbaseKeyspace\x121\n" +
@@ -1821,7 +2066,28 @@ const file_topodata_proto_rawDesc = "" +
 	"\x11durability_policy\x18\b \x01(\tR\x10durabilityPolicy\x12D\n" +
 	"\x10throttler_config\x18\t \x01(\v2\x19.topodata.ThrottlerConfigR\x0fthrottlerConfig\x12&\n" +
 	"\x0fsidecar_db_name\x18\n" +
-	" \x01(\tR\rsidecarDbNameJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05\"\x8b\x01\n" +
+	" \x01(\tR\rsidecarDbName\x12\x1d\n" +
+	"\n" +
+	"is_virtual\x18\v \x01(\bR\tisVirtual\x12Q\n" +
+	"\x15virtual_keyspace_info\x18\f \x01(\v2\x1d.topodata.VirtualKeyspaceInfoR\x13virtualKeyspaceInfoJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05\"\x90\x01\n" +
+	"\x13VirtualKeyspaceInfo\x12+\n" +
+	"\x11physical_keyspace\x18\x01 \x01(\tR\x10physicalKeyspace\x12\x1f\n" +
+	"\vschema_name\x18\x02 \x01(\tR\n" +
+	"schemaName\x12+\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\v2\f.vttime.TimeR\tcreatedAt\"\xa0\x01\n" +
+	"\x0fVirtualKeyspace\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
+	"\x11physical_keyspace\x18\x02 \x01(\tR\x10physicalKeyspace\x12\x1f\n" +
+	"\vschema_name\x18\x03 \x01(\tR\n" +
+	"schemaName\x12+\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\f.vttime.TimeR\tcreatedAt\"\xd1\x01\n" +
+	"\x19VirtualTabletRegistration\x12+\n" +
+	"\x11physical_keyspace\x18\x01 \x01(\tR\x10physicalKeyspace\x12'\n" +
+	"\x0fmax_assignments\x18\x02 \x01(\x05R\x0emaxAssignments\x12+\n" +
+	"\x11virtual_keyspaces\x18\x03 \x03(\tR\x10virtualKeyspaces\x121\n" +
+	"\rregistered_at\x18\x04 \x01(\v2\f.vttime.TimeR\fregisteredAt\"\x8b\x01\n" +
 	"\x10ShardReplication\x125\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x1f.topodata.ShardReplication.NodeR\x05nodes\x1a@\n" +
 	"\x04Node\x128\n" +
@@ -1894,7 +2160,7 @@ const file_topodata_proto_rawDesc = "" +
 	"\fKeyspaceType\x12\n" +
 	"\n" +
 	"\x06NORMAL\x10\x00\x12\f\n" +
-	"\bSNAPSHOT\x10\x01*\x9d\x01\n" +
+	"\bSNAPSHOT\x10\x01*\xaa\x01\n" +
 	"\n" +
 	"TabletType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -1910,7 +2176,8 @@ const file_topodata_proto_rawDesc = "" +
 	"\n" +
 	"\x06BACKUP\x10\x06\x12\v\n" +
 	"\aRESTORE\x10\a\x12\v\n" +
-	"\aDRAINED\x10\b\x1a\x02\x10\x01B8\n" +
+	"\aDRAINED\x10\b\x12\v\n" +
+	"\aVIRTUAL\x10\t\x1a\x02\x10\x01B8\n" +
 	"\x0fio.vitess.protoZ%vitess.io/vitess/go/vt/proto/topodatab\x06proto3"
 
 var (
@@ -1926,7 +2193,7 @@ func file_topodata_proto_rawDescGZIP() []byte {
 }
 
 var file_topodata_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_topodata_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_topodata_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_topodata_proto_goTypes = []any{
 	(KeyspaceType)(0),                     // 0: topodata.KeyspaceType
 	(TabletType)(0),                       // 1: topodata.TabletType
@@ -1936,71 +2203,78 @@ var file_topodata_proto_goTypes = []any{
 	(*Tablet)(nil),                        // 5: topodata.Tablet
 	(*Shard)(nil),                         // 6: topodata.Shard
 	(*Keyspace)(nil),                      // 7: topodata.Keyspace
-	(*ShardReplication)(nil),              // 8: topodata.ShardReplication
-	(*ShardReplicationError)(nil),         // 9: topodata.ShardReplicationError
-	(*ShardReference)(nil),                // 10: topodata.ShardReference
-	(*ShardTabletControl)(nil),            // 11: topodata.ShardTabletControl
-	(*ThrottledAppRule)(nil),              // 12: topodata.ThrottledAppRule
-	(*ThrottlerConfig)(nil),               // 13: topodata.ThrottlerConfig
-	(*SrvKeyspace)(nil),                   // 14: topodata.SrvKeyspace
-	(*CellInfo)(nil),                      // 15: topodata.CellInfo
-	(*CellsAlias)(nil),                    // 16: topodata.CellsAlias
-	(*TopoConfig)(nil),                    // 17: topodata.TopoConfig
-	(*ExternalVitessCluster)(nil),         // 18: topodata.ExternalVitessCluster
-	(*ExternalClusters)(nil),              // 19: topodata.ExternalClusters
-	nil,                                   // 20: topodata.Tablet.PortMapEntry
-	nil,                                   // 21: topodata.Tablet.TagsEntry
-	(*Shard_SourceShard)(nil),             // 22: topodata.Shard.SourceShard
-	(*Shard_TabletControl)(nil),           // 23: topodata.Shard.TabletControl
-	(*ShardReplication_Node)(nil),         // 24: topodata.ShardReplication.Node
-	nil,                                   // 25: topodata.ThrottlerConfig.ThrottledAppsEntry
-	(*ThrottlerConfig_MetricNames)(nil),   // 26: topodata.ThrottlerConfig.MetricNames
-	nil,                                   // 27: topodata.ThrottlerConfig.AppCheckedMetricsEntry
-	nil,                                   // 28: topodata.ThrottlerConfig.MetricThresholdsEntry
-	(*SrvKeyspace_KeyspacePartition)(nil), // 29: topodata.SrvKeyspace.KeyspacePartition
-	(*vttime.Time)(nil),                   // 30: vttime.Time
+	(*VirtualKeyspaceInfo)(nil),           // 8: topodata.VirtualKeyspaceInfo
+	(*VirtualKeyspace)(nil),               // 9: topodata.VirtualKeyspace
+	(*VirtualTabletRegistration)(nil),     // 10: topodata.VirtualTabletRegistration
+	(*ShardReplication)(nil),              // 11: topodata.ShardReplication
+	(*ShardReplicationError)(nil),         // 12: topodata.ShardReplicationError
+	(*ShardReference)(nil),                // 13: topodata.ShardReference
+	(*ShardTabletControl)(nil),            // 14: topodata.ShardTabletControl
+	(*ThrottledAppRule)(nil),              // 15: topodata.ThrottledAppRule
+	(*ThrottlerConfig)(nil),               // 16: topodata.ThrottlerConfig
+	(*SrvKeyspace)(nil),                   // 17: topodata.SrvKeyspace
+	(*CellInfo)(nil),                      // 18: topodata.CellInfo
+	(*CellsAlias)(nil),                    // 19: topodata.CellsAlias
+	(*TopoConfig)(nil),                    // 20: topodata.TopoConfig
+	(*ExternalVitessCluster)(nil),         // 21: topodata.ExternalVitessCluster
+	(*ExternalClusters)(nil),              // 22: topodata.ExternalClusters
+	nil,                                   // 23: topodata.Tablet.PortMapEntry
+	nil,                                   // 24: topodata.Tablet.TagsEntry
+	(*Shard_SourceShard)(nil),             // 25: topodata.Shard.SourceShard
+	(*Shard_TabletControl)(nil),           // 26: topodata.Shard.TabletControl
+	(*ShardReplication_Node)(nil),         // 27: topodata.ShardReplication.Node
+	nil,                                   // 28: topodata.ThrottlerConfig.ThrottledAppsEntry
+	(*ThrottlerConfig_MetricNames)(nil),   // 29: topodata.ThrottlerConfig.MetricNames
+	nil,                                   // 30: topodata.ThrottlerConfig.AppCheckedMetricsEntry
+	nil,                                   // 31: topodata.ThrottlerConfig.MetricThresholdsEntry
+	(*SrvKeyspace_KeyspacePartition)(nil), // 32: topodata.SrvKeyspace.KeyspacePartition
+	(*vttime.Time)(nil),                   // 33: vttime.Time
 }
 var file_topodata_proto_depIdxs = []int32{
 	4,  // 0: topodata.Tablet.alias:type_name -> topodata.TabletAlias
-	20, // 1: topodata.Tablet.port_map:type_name -> topodata.Tablet.PortMapEntry
+	23, // 1: topodata.Tablet.port_map:type_name -> topodata.Tablet.PortMapEntry
 	3,  // 2: topodata.Tablet.key_range:type_name -> topodata.KeyRange
 	1,  // 3: topodata.Tablet.type:type_name -> topodata.TabletType
-	21, // 4: topodata.Tablet.tags:type_name -> topodata.Tablet.TagsEntry
-	30, // 5: topodata.Tablet.primary_term_start_time:type_name -> vttime.Time
+	24, // 4: topodata.Tablet.tags:type_name -> topodata.Tablet.TagsEntry
+	33, // 5: topodata.Tablet.primary_term_start_time:type_name -> vttime.Time
 	4,  // 6: topodata.Shard.primary_alias:type_name -> topodata.TabletAlias
-	30, // 7: topodata.Shard.primary_term_start_time:type_name -> vttime.Time
+	33, // 7: topodata.Shard.primary_term_start_time:type_name -> vttime.Time
 	3,  // 8: topodata.Shard.key_range:type_name -> topodata.KeyRange
-	22, // 9: topodata.Shard.source_shards:type_name -> topodata.Shard.SourceShard
-	23, // 10: topodata.Shard.tablet_controls:type_name -> topodata.Shard.TabletControl
+	25, // 9: topodata.Shard.source_shards:type_name -> topodata.Shard.SourceShard
+	26, // 10: topodata.Shard.tablet_controls:type_name -> topodata.Shard.TabletControl
 	0,  // 11: topodata.Keyspace.keyspace_type:type_name -> topodata.KeyspaceType
-	30, // 12: topodata.Keyspace.snapshot_time:type_name -> vttime.Time
-	13, // 13: topodata.Keyspace.throttler_config:type_name -> topodata.ThrottlerConfig
-	24, // 14: topodata.ShardReplication.nodes:type_name -> topodata.ShardReplication.Node
-	2,  // 15: topodata.ShardReplicationError.type:type_name -> topodata.ShardReplicationError.Type
-	4,  // 16: topodata.ShardReplicationError.tablet_alias:type_name -> topodata.TabletAlias
-	3,  // 17: topodata.ShardReference.key_range:type_name -> topodata.KeyRange
-	3,  // 18: topodata.ShardTabletControl.key_range:type_name -> topodata.KeyRange
-	30, // 19: topodata.ThrottledAppRule.expires_at:type_name -> vttime.Time
-	25, // 20: topodata.ThrottlerConfig.throttled_apps:type_name -> topodata.ThrottlerConfig.ThrottledAppsEntry
-	27, // 21: topodata.ThrottlerConfig.app_checked_metrics:type_name -> topodata.ThrottlerConfig.AppCheckedMetricsEntry
-	28, // 22: topodata.ThrottlerConfig.metric_thresholds:type_name -> topodata.ThrottlerConfig.MetricThresholdsEntry
-	29, // 23: topodata.SrvKeyspace.partitions:type_name -> topodata.SrvKeyspace.KeyspacePartition
-	13, // 24: topodata.SrvKeyspace.throttler_config:type_name -> topodata.ThrottlerConfig
-	17, // 25: topodata.ExternalVitessCluster.topo_config:type_name -> topodata.TopoConfig
-	18, // 26: topodata.ExternalClusters.vitess_cluster:type_name -> topodata.ExternalVitessCluster
-	3,  // 27: topodata.Shard.SourceShard.key_range:type_name -> topodata.KeyRange
-	1,  // 28: topodata.Shard.TabletControl.tablet_type:type_name -> topodata.TabletType
-	4,  // 29: topodata.ShardReplication.Node.tablet_alias:type_name -> topodata.TabletAlias
-	12, // 30: topodata.ThrottlerConfig.ThrottledAppsEntry.value:type_name -> topodata.ThrottledAppRule
-	26, // 31: topodata.ThrottlerConfig.AppCheckedMetricsEntry.value:type_name -> topodata.ThrottlerConfig.MetricNames
-	1,  // 32: topodata.SrvKeyspace.KeyspacePartition.served_type:type_name -> topodata.TabletType
-	10, // 33: topodata.SrvKeyspace.KeyspacePartition.shard_references:type_name -> topodata.ShardReference
-	11, // 34: topodata.SrvKeyspace.KeyspacePartition.shard_tablet_controls:type_name -> topodata.ShardTabletControl
-	35, // [35:35] is the sub-list for method output_type
-	35, // [35:35] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	33, // 12: topodata.Keyspace.snapshot_time:type_name -> vttime.Time
+	16, // 13: topodata.Keyspace.throttler_config:type_name -> topodata.ThrottlerConfig
+	8,  // 14: topodata.Keyspace.virtual_keyspace_info:type_name -> topodata.VirtualKeyspaceInfo
+	33, // 15: topodata.VirtualKeyspaceInfo.created_at:type_name -> vttime.Time
+	33, // 16: topodata.VirtualKeyspace.created_at:type_name -> vttime.Time
+	33, // 17: topodata.VirtualTabletRegistration.registered_at:type_name -> vttime.Time
+	27, // 18: topodata.ShardReplication.nodes:type_name -> topodata.ShardReplication.Node
+	2,  // 19: topodata.ShardReplicationError.type:type_name -> topodata.ShardReplicationError.Type
+	4,  // 20: topodata.ShardReplicationError.tablet_alias:type_name -> topodata.TabletAlias
+	3,  // 21: topodata.ShardReference.key_range:type_name -> topodata.KeyRange
+	3,  // 22: topodata.ShardTabletControl.key_range:type_name -> topodata.KeyRange
+	33, // 23: topodata.ThrottledAppRule.expires_at:type_name -> vttime.Time
+	28, // 24: topodata.ThrottlerConfig.throttled_apps:type_name -> topodata.ThrottlerConfig.ThrottledAppsEntry
+	30, // 25: topodata.ThrottlerConfig.app_checked_metrics:type_name -> topodata.ThrottlerConfig.AppCheckedMetricsEntry
+	31, // 26: topodata.ThrottlerConfig.metric_thresholds:type_name -> topodata.ThrottlerConfig.MetricThresholdsEntry
+	32, // 27: topodata.SrvKeyspace.partitions:type_name -> topodata.SrvKeyspace.KeyspacePartition
+	16, // 28: topodata.SrvKeyspace.throttler_config:type_name -> topodata.ThrottlerConfig
+	20, // 29: topodata.ExternalVitessCluster.topo_config:type_name -> topodata.TopoConfig
+	21, // 30: topodata.ExternalClusters.vitess_cluster:type_name -> topodata.ExternalVitessCluster
+	3,  // 31: topodata.Shard.SourceShard.key_range:type_name -> topodata.KeyRange
+	1,  // 32: topodata.Shard.TabletControl.tablet_type:type_name -> topodata.TabletType
+	4,  // 33: topodata.ShardReplication.Node.tablet_alias:type_name -> topodata.TabletAlias
+	15, // 34: topodata.ThrottlerConfig.ThrottledAppsEntry.value:type_name -> topodata.ThrottledAppRule
+	29, // 35: topodata.ThrottlerConfig.AppCheckedMetricsEntry.value:type_name -> topodata.ThrottlerConfig.MetricNames
+	1,  // 36: topodata.SrvKeyspace.KeyspacePartition.served_type:type_name -> topodata.TabletType
+	13, // 37: topodata.SrvKeyspace.KeyspacePartition.shard_references:type_name -> topodata.ShardReference
+	14, // 38: topodata.SrvKeyspace.KeyspacePartition.shard_tablet_controls:type_name -> topodata.ShardTabletControl
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_topodata_proto_init() }
@@ -2014,7 +2288,7 @@ func file_topodata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_topodata_proto_rawDesc), len(file_topodata_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   27,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

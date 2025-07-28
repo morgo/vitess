@@ -390,7 +390,7 @@ func TestVersion(t *testing.T) {
 			`commit`}},
 	}}
 	runCases(t, nil, testcases, "", nil)
-	mt, err := env.SchemaEngine.GetTableForPos(ctx, sqlparser.NewIdentifierCS("t1"), gtid)
+	mt, err := env.SchemaEngine.GetTableForPos(ctx, testenv.DBName, sqlparser.NewIdentifierCS("t1"), gtid)
 	require.NoError(t, err)
 	assert.True(t, proto.Equal(mt, dbSchema.Tables[0]))
 }
@@ -1181,7 +1181,8 @@ func TestREKeyRange(t *testing.T) {
 			"create table t1(id1 int, id2 int, val varbinary(128), primary key(id1))",
 		},
 		options: &TestSpecOptions{
-			filter: filter,
+			filter:            filter,
+			customFieldEvents: true,
 		},
 	}
 	ignoreKeyspaceShardInFieldAndRowEvents = false
@@ -1194,20 +1195,34 @@ func TestREKeyRange(t *testing.T) {
 	setVSchema(t, shardedVSchema)
 	defer env.SetVSchema("{}")
 
+	// Create the field event for the test
+	fe := &TestFieldEvent{
+		table: "t1",
+		db:    testenv.DBName,
+		cols: []*TestColumn{
+			{name: "id1", dataType: "INT32", colType: "int", len: 11, collationID: 63},
+			{name: "id2", dataType: "INT32", colType: "int", len: 11, collationID: 63},
+			{name: "val", dataType: "VARBINARY", colType: "varbinary(128)", len: 128, collationID: 63},
+		},
+	}
+
 	// 1, 2, 3 and 5 are in shard -80.
 	// 4 and 6 are in shard 80-.
 	ts.tests = [][]*TestQuery{{
 		{"begin", nil},
-		{"insert into t1 values (1, 1, 'aaa')", nil},
+		{"insert into t1 values (1, 1, 'aaa')", []TestRowEvent{
+			{event: fe.String()},
+			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{after: []string{"1", "1", "aaa"}}}, keyspace: "vttest", shard: "0", dbName: "vttest"}},
+		}},
 		{"insert into t1 values (4, 1, 'bbb')", noEvents},
 		{"update t1 set id1 = 2 where id1 = 1", []TestRowEvent{ // Stays in shard.
-			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{before: []string{"1", "1", "aaa"}, after: []string{"2", "1", "aaa"}}}}},
+			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{before: []string{"1", "1", "aaa"}, after: []string{"2", "1", "aaa"}}}, keyspace: "vttest", shard: "0", dbName: "vttest"}},
 		}},
 		{"update t1 set id1 = 6 where id1 = 2", []TestRowEvent{ // Moves from -80 to 80-.
-			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{before: []string{"2", "1", "aaa"}}}}},
+			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{before: []string{"2", "1", "aaa"}}}, keyspace: "vttest", shard: "0", dbName: "vttest"}},
 		}},
 		{"update t1 set id1 = 3 where id1 = 4", []TestRowEvent{ // Moves from 80- back to -80.
-			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{after: []string{"3", "1", "bbb"}}}}},
+			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{after: []string{"3", "1", "bbb"}}}, keyspace: "vttest", shard: "0", dbName: "vttest"}},
 		}},
 		{"commit", nil},
 	}}
@@ -1237,7 +1252,10 @@ func TestREKeyRange(t *testing.T) {
 	// Only the first insert should be sent.
 	ts.tests = [][]*TestQuery{{
 		{"begin", nil},
-		{"insert into t1 values (4, 1, 'aaa')", nil},
+		{"insert into t1 values (4, 1, 'aaa')", []TestRowEvent{
+			{event: fe.String()},
+			{spec: &TestRowEventSpec{table: "t1", changes: []TestRowChange{{after: []string{"4", "1", "aaa"}}}, keyspace: "vttest", shard: "0", dbName: "vttest"}},
+		}},
 		{"insert into t1 values (1, 4, 'aaa')", noEvents},
 		{"commit", nil},
 	}}

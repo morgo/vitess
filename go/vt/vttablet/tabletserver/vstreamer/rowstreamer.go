@@ -66,6 +66,7 @@ type rowStreamer struct {
 	cancel func()
 
 	cp      dbconfigs.Connector
+	dbName  string // the database name to use
 	se      *schema.Engine
 	query   string
 	lastpk  []sqltypes.Value
@@ -87,7 +88,7 @@ type rowStreamer struct {
 
 func newRowStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine, query string,
 	lastpk []sqltypes.Value, vschema *localVSchema, send func(*binlogdatapb.VStreamRowsResponse) error, vse *Engine,
-	mode RowStreamerMode, conn *snapshotConn, options *binlogdatapb.VStreamOptions) *rowStreamer {
+	mode RowStreamerMode, conn *snapshotConn, dbName string, options *binlogdatapb.VStreamOptions) *rowStreamer {
 
 	config, err := GetVReplicationConfig(options)
 	if err != nil {
@@ -103,6 +104,7 @@ func newRowStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engi
 		lastpk:  lastpk,
 		send:    send,
 		vschema: vschema,
+		dbName:  dbName,
 		vse:     vse,
 		pktsize: DefaultPacketSizer(config.VStreamDynamicPacketSize, config.VStreamPacketSize),
 		mode:    mode,
@@ -154,7 +156,7 @@ func (rs *rowStreamer) buildPlan() error {
 		return err
 	}
 
-	st, err := rs.se.GetTableForPos(rs.ctx, fromTable, "")
+	st, err := rs.se.GetTableForPos(rs.ctx, rs.dbName, fromTable, "")
 	if err != nil {
 		return err
 	}
@@ -162,7 +164,7 @@ func (rs *rowStreamer) buildPlan() error {
 		Name: st.Name,
 	}
 
-	ti.Fields, err = getFields(rs.ctx, rs.cp, rs.vse.se, st.Name, rs.cp.DBName(), st.Fields)
+	ti.Fields, err = getFields(rs.ctx, rs.cp, rs.vse.se, st.Name, rs.dbName, st.Fields)
 	if err != nil {
 		return err
 	}
@@ -320,7 +322,7 @@ func (rs *rowStreamer) buildSelect(st *binlogdatapb.MinimalTable) (string, error
 		buf.Myprintf(" where ")
 		addPushdownExpressions()
 	}
-	buf.Myprintf(" order by ", sqlparser.NewIdentifierCS(rs.plan.Table.Name))
+	buf.Myprintf(" order by ")
 	prefix = ""
 	for _, pk := range rs.pkColumns {
 		buf.Myprintf("%s%v", prefix, sqlparser.NewIdentifierCI(rs.plan.Table.Fields[pk].Name))
@@ -349,8 +351,9 @@ func (rs *rowStreamer) streamQuery(send func(*binlogdatapb.VStreamRowsResponse) 
 		err        error
 	)
 	log.Infof("Streaming query: %v\n", rs.sendQuery)
+	log.Infof("DEBUG: streamQuery need to start a lock on %s.%s", rs.dbName, rs.plan.Table.Name)
 	if rs.mode == RowStreamerModeSingleTable {
-		gtid, rotatedLog, err = rs.conn.streamWithSnapshot(rs.ctx, rs.plan.Table.Name, rs.sendQuery)
+		gtid, rotatedLog, err = rs.conn.streamWithSnapshot(rs.ctx, rs.dbName, rs.plan.Table.Name, rs.sendQuery)
 		if err != nil {
 			return err
 		}

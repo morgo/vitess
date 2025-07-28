@@ -278,3 +278,8 @@ func (dc *MockDBClient) RemoveInvariants(queries ...string) {
 func (dc *MockDBClient) SupportsCapability(capability capabilities.FlavorCapability) (bool, error) {
 	return false, nil
 }
+
+// SetDBName sets the database name for virtual keyspace support
+func (dc *MockDBClient) SetDBName(dbName string) {
+	// No-op for mock client
+}

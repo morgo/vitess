@@ -106,15 +106,75 @@ func (exec *TabletExecutor) hasProvidedUUIDs() bool {
 	return len(exec.uuids) != 0
 }
 
-// Open opens a connection to the primary for every shard.
+// getPhysicalKeyspace returns the physical keyspace for the given keyspace.
+// If the keyspace is virtual, it returns the underlying physical keyspace.
+// If the keyspace is not virtual, it returns the keyspace itself.
+func (exec *TabletExecutor) getPhysicalKeyspace(ctx context.Context, keyspace string) (string, error) {
+	vkInfo, err := exec.ts.GetVirtualKeyspace(ctx, keyspace)
+	if err == nil {
+		// This is a virtual keyspace, return the physical keyspace
+		return vkInfo.PhysicalKeyspace, nil
+	} else if topo.IsErrType(err, topo.NoNode) {
+		// Not a virtual keyspace, return the keyspace itself
+		return keyspace, nil
+	} else {
+		// Some other error occurred
+		return "", fmt.Errorf("error checking virtual keyspace %s: %v", keyspace, err)
+	}
+}
+
+// getVirtualKeyspaceInfo returns the virtual keyspace information if the keyspace is virtual.
+// Returns nil if the keyspace is not virtual.
+func (exec *TabletExecutor) getVirtualKeyspaceInfo(ctx context.Context, keyspace string) (*topo.VirtualKeyspaceInfo, error) {
+	vkInfo, vkErr := exec.ts.GetVirtualKeyspace(ctx, keyspace)
+	if vkErr == nil {
+		// This is a virtual keyspace
+		return vkInfo, nil
+	} else if topo.IsErrType(vkErr, topo.NoNode) {
+		// Not a virtual keyspace
+		return nil, nil
+	} else {
+		// Some other error occurred
+		return nil, fmt.Errorf("error checking virtual keyspace %s: %v", keyspace, vkErr)
+	}
+}
+
+// Open opens a connection to the primary for every shard
+// If virtual:
+// - Use DbNameOverride to set the schema name of the virtual keyspace.
 func (exec *TabletExecutor) Open(ctx context.Context, keyspace string) error {
 	if !exec.isClosed {
 		return nil
 	}
 	exec.keyspace = keyspace
-	shards, err := exec.ts.FindAllShardsInKeyspace(ctx, keyspace, nil)
+	_, err := exec.ts.FindAllShardsInKeyspace(ctx, keyspace, nil)
 	if err != nil {
-		return fmt.Errorf("unable to get shards for keyspace: %s, error: %v", keyspace, err)
+		return fmt.Errorf("error finding shards in keyspace %s: %v", keyspace, err)
+	}
+
+	// Check if this is a virtual keyspace and get the physical keyspace for shard discovery
+	var dbNameOverride string
+	var shards map[string]*topo.ShardInfo
+	vkInfo, err := exec.getVirtualKeyspaceInfo(ctx, keyspace)
+	if err != nil {
+		return fmt.Errorf("error getting virtual keyspace info for %s: %v", keyspace, err)
+	}
+	if vkInfo != nil {
+		// Set the DbNameOverride to the schema name of the virtual keyspace
+		// We load the shards of the physical keyspace
+		// TODO: not entirely accurate if there are multiple shards.
+		dbNameOverride = vkInfo.SchemaName
+		shards, err = exec.ts.FindAllShardsInKeyspace(ctx, vkInfo.PhysicalKeyspace, nil)
+		if err != nil {
+			return fmt.Errorf("error finding shards in physical keyspace %s: %v", vkInfo.PhysicalKeyspace, err)
+		}
+		exec.logger.Printf("Using DbNameOverride %s for virtual keyspace %s", dbNameOverride, keyspace)
+	} else {
+		// Not a virtual keyspace, use the original keyspace
+		shards, err = exec.ts.FindAllShardsInKeyspace(ctx, keyspace, nil)
+		if err != nil {
+			return fmt.Errorf("error finding shards in keyspace %s: %v", keyspace, err)
+		}
 	}
 	exec.tablets = make([]*topodatapb.Tablet, 0, len(shards))
 	for shardName, shardInfo := range shards {
@@ -125,9 +185,13 @@ func (exec *TabletExecutor) Open(ctx context.Context, keyspace string) error {
 		if err != nil {
 			return fmt.Errorf("unable to get primary tablet info, keyspace: %s, shard: %s, error: %v", keyspace, shardName, err)
 		}
+		// Before adding the shard to the exec.tablets list, if it's virtual
+		// we need to set the DbNameOverride to the schema name of the virtual keyspace.
+		if dbNameOverride != "" {
+			tabletInfo.Tablet.DbNameOverride = dbNameOverride
+		}
 		exec.tablets = append(exec.tablets, tabletInfo.Tablet)
 	}
-
 	if len(exec.tablets) == 0 {
 		return fmt.Errorf("keyspace: %s does not contain any primary tablets", keyspace)
 	}

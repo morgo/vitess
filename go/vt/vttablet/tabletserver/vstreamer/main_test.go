@@ -265,6 +265,7 @@ func expectLog(ctx context.Context, t *testing.T, input any, ch <-chan []*binlog
 				if ignoreKeyspaceShardInFieldAndRowEvents && evs[i].Type == binlogdatapb.VEventType_ROW {
 					evs[i].RowEvent.Keyspace = ""
 					evs[i].RowEvent.Shard = ""
+					evs[i].RowEvent.DbName = ""
 				}
 				if !testRowEventFlags && evs[i].Type == binlogdatapb.VEventType_ROW {
 					evs[i].RowEvent.Flags = 0

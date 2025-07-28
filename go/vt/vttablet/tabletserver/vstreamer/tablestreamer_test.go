@@ -62,7 +62,7 @@ func TestTableStreamer(t *testing.T) {
 		"table_name:\"t4\" rows:{lengths:1 lengths:1 lengths:1 lengths:3 values:\"123aaa\"} rows:{lengths:1 lengths:1 lengths:1 lengths:3 values:\"234bbb\"} lastpk:{lengths:1 lengths:1 lengths:1 values:\"234\"}",
 	}
 	var gotStream []string
-	err := engine.StreamTables(ctx, func(response *binlogdatapb.VStreamTablesResponse) error {
+	err := engine.StreamTables(ctx, "vttest", func(response *binlogdatapb.VStreamTablesResponse) error {
 		response.Gtid = ""
 		for _, fld := range response.Fields {
 			fld.ColumnType = ""

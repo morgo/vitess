@@ -85,6 +85,47 @@ func (st *vrStats) register() {
 			return result
 		},
 	)
+
+	// Virtual keyspace specific metrics
+	stats.NewStringMapFuncWithMultiLabels(
+		"VReplicationVirtualKeyspaceInfo",
+		"Virtual keyspace information for vreplication workflows",
+		[]string{"workflow", "id", "virtual_keyspace", "physical_keyspace"},
+		"status",
+		func() map[string]string {
+			st.mu.Lock()
+			defer st.mu.Unlock()
+			result := make(map[string]string, len(st.controllers))
+			for _, ct := range st.controllers {
+				// Check if this is a virtual keyspace workflow
+				if ct.virtualKeyspaceInfo != nil {
+					key := fmt.Sprintf("%s.%d.%s.%s", ct.workflow, ct.id,
+						ct.virtualKeyspaceInfo.LogicalKeyspace,
+						ct.virtualKeyspaceInfo.PhysicalKeyspace)
+					result[key] = "active"
+				}
+			}
+			return result
+		},
+	)
+
+	stats.NewGaugesFuncWithMultiLabels(
+		"VReplicationVirtualKeyspaceStreamCount",
+		"Number of vreplication streams per virtual keyspace",
+		[]string{"virtual_keyspace", "physical_keyspace"},
+		func() map[string]int64 {
+			st.mu.Lock()
+			defer st.mu.Unlock()
+			result := make(map[string]int64)
+			for _, ct := range st.controllers {
+				if ct.virtualKeyspaceInfo != nil {
+					key := ct.virtualKeyspaceInfo.LogicalKeyspace + "." + ct.virtualKeyspaceInfo.PhysicalKeyspace
+					result[key]++
+				}
+			}
+			return result
+		},
+	)
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationLagSeconds",
 		"vreplication seconds behind primary per stream",

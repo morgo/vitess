@@ -480,12 +480,14 @@ func (bls *Streamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 
 			// Check we're in the right database, and if so, fill
 			// in more data.
+			// TODO: I think this is broken because it needs to support
+			// multiple DBNames.
 			if tm.Database != "" && tm.Database != bls.cp.DBName() {
 				continue
 			}
-
+			dbName := tm.Database
 			// Find and fill in the table schema.
-			tce.ti = bls.se.GetTable(sqlparser.NewIdentifierCS(tm.Name))
+			tce.ti = bls.se.GetTable(dbName, sqlparser.NewIdentifierCS(tm.Name))
 			if tce.ti == nil {
 				return pos, fmt.Errorf("unknown table %v in schema", tm.Name)
 			}

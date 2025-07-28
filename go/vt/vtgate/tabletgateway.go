@@ -223,7 +223,14 @@ func (gw *TabletGateway) WaitForTablets(ctx context.Context, tabletTypesToWait [
 	if err != nil {
 		return err
 	}
-	err = gw.hc.WaitForAllServingTablets(ctx, targets)
+
+	// Filter out virtual keyspace targets and keyspaces
+	nonVirtualTargets, nonVirtualKeyspaces, err := gw.filterVirtual(ctx, targets, keyspaces)
+	if err != nil {
+		return err
+	}
+
+	err = gw.hc.WaitForAllServingTablets(ctx, nonVirtualTargets)
 	if err != nil {
 		return err
 	}
@@ -234,7 +241,7 @@ func (gw *TabletGateway) WaitForTablets(ctx context.Context, tabletTypesToWait [
 	// Waiting for the keyspaces to become consistent ensures that all the primary tablets for all the shards should be serving as seen by the keyspace event watcher
 	// and any disruption from now on, will make sure we start buffering properly.
 	if topoproto.IsTypeInList(topodatapb.TabletType_PRIMARY, tabletTypesToWait) && gw.kev != nil {
-		return gw.kev.WaitForConsistentKeyspaces(ctx, keyspaces)
+		return gw.kev.WaitForConsistentKeyspaces(ctx, nonVirtualKeyspaces)
 	}
 	return nil
 }
@@ -408,6 +415,7 @@ func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, 
 
 		startTime := time.Now()
 		var canRetry bool
+
 		canRetry, err = inner(ctx, target, th.Conn)
 		gw.updateStats(target, startTime, err)
 		if canRetry {
@@ -503,4 +511,50 @@ func NewShardError(in error, target *querypb.Target) error {
 		return vterrors.Wrapf(in, "target: %s.%s.%s", target.Keyspace, target.Shard, topoproto.TabletTypeLString(target.TabletType))
 	}
 	return in
+}
+
+// filterVirtual filters out virtual keyspaces from targets and keyspaces lists.
+// It returns the non-virtual targets and keyspaces, making the health check system
+// agnostic to virtual keyspaces since they don't have real tablets.
+func (gw *TabletGateway) filterVirtual(ctx context.Context, targets []*querypb.Target, keyspaces []string) ([]*querypb.Target, []string, error) {
+	topoServer, err := gw.srvTopoServer.GetTopoServer()
+	if err != nil {
+		// If we can't get the topo server, use all targets and keyspaces to be safe
+		return targets, keyspaces, nil
+	}
+
+	var nonVirtualTargets []*querypb.Target
+	var nonVirtualKeyspaces []string
+	virtualKeyspaceSet := make(map[string]bool)
+
+	// Filter targets
+	for _, target := range targets {
+		keyspace, err := topoServer.GetKeyspace(ctx, target.Keyspace)
+		if err != nil || !keyspace.IsVirtual {
+			// Include non-virtual keyspaces and keyspaces we can't determine
+			nonVirtualTargets = append(nonVirtualTargets, target)
+		} else {
+			log.Infof("Skipping virtual keyspace %s from tablet health check", target.Keyspace)
+			virtualKeyspaceSet[target.Keyspace] = true
+		}
+	}
+
+	// Filter keyspaces
+	for _, ks := range keyspaces {
+		if virtualKeyspaceSet[ks] {
+			log.Infof("Skipping virtual keyspace %s from consistency check", ks)
+			continue
+		}
+
+		// Double-check if we haven't already determined this keyspace is virtual
+		keyspace, err := topoServer.GetKeyspace(ctx, ks)
+		if err != nil || !keyspace.IsVirtual {
+			// Include non-virtual keyspaces and keyspaces we can't determine
+			nonVirtualKeyspaces = append(nonVirtualKeyspaces, ks)
+		} else {
+			log.Infof("Skipping virtual keyspace %s from consistency check", ks)
+		}
+	}
+
+	return nonVirtualTargets, nonVirtualKeyspaces, nil
 }

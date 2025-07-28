@@ -40,6 +40,11 @@ import (
 // IsTrivialTypeChange returns if this db type be trivially reassigned
 // without changes to the replication graph
 func IsTrivialTypeChange(oldTabletType, newTabletType topodatapb.TabletType) bool {
+	// VIRTUAL tablets cannot be changed to any other type
+	if oldTabletType == topodatapb.TabletType_VIRTUAL || newTabletType == topodatapb.TabletType_VIRTUAL {
+		return false
+	}
+
 	switch oldTabletType {
 	case topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY, topodatapb.TabletType_SPARE, topodatapb.TabletType_BACKUP, topodatapb.TabletType_EXPERIMENTAL, topodatapb.TabletType_DRAINED:
 		switch newTabletType {
@@ -58,7 +63,7 @@ func IsTrivialTypeChange(oldTabletType, newTabletType topodatapb.TabletType) boo
 // IsInServingGraph returns if a tablet appears in the serving graph
 func IsInServingGraph(tt topodatapb.TabletType) bool {
 	switch tt {
-	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
+	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY, topodatapb.TabletType_VIRTUAL:
 		return true
 	}
 	return false
@@ -69,6 +74,9 @@ func IsRunningQueryService(tt topodatapb.TabletType) bool {
 	switch tt {
 	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY, topodatapb.TabletType_EXPERIMENTAL, topodatapb.TabletType_DRAINED:
 		return true
+	case topodatapb.TabletType_VIRTUAL:
+		// VIRTUAL tablets don't run query service themselves, but they reference physical tablets that do
+		return false
 	}
 	return false
 }
@@ -79,6 +87,9 @@ func IsRunningUpdateStream(tt topodatapb.TabletType) bool {
 	switch tt {
 	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
 		return true
+	case topodatapb.TabletType_VIRTUAL:
+		// VIRTUAL tablets don't run update stream themselves, but they reference physical tablets that do
+		return false
 	}
 	return false
 }
@@ -89,10 +100,16 @@ func IsRunningUpdateStream(tt topodatapb.TabletType) bool {
 // BACKUP, RESTORE, DRAINED may or may not be, but we don't know for sure
 func IsReplicaType(tt topodatapb.TabletType) bool {
 	switch tt {
-	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_BACKUP, topodatapb.TabletType_RESTORE, topodatapb.TabletType_DRAINED:
+	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_BACKUP, topodatapb.TabletType_RESTORE, topodatapb.TabletType_DRAINED, topodatapb.TabletType_VIRTUAL:
 		return false
 	}
 	return true
+}
+
+// IsVirtualType returns if this type is a virtual tablet that references
+// a physical tablet. VIRTUAL tablets don't run actual vttablet processes.
+func IsVirtualType(tt topodatapb.TabletType) bool {
+	return tt == topodatapb.TabletType_VIRTUAL
 }
 
 // NewTablet create a new Tablet record with the given id, cell, and hostname.
@@ -195,6 +212,38 @@ func (ts *Server) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) 
 		version: version,
 		Tablet:  tablet,
 	}, nil
+}
+
+// GetTabletWithoutResolving is like GetTablet but never resolves VIRTUAL tablets.
+// This is useful when you need the VIRTUAL tablet information itself rather than
+// the physical tablet it references.
+func (ts *Server) GetTabletWithoutResolving(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
+	// This is the same as GetTablet since we don't auto-resolve by default
+	return ts.GetTablet(ctx, alias)
+}
+
+// GetTabletAndResolve gets a tablet and optionally resolves VIRTUAL tablets to their physical counterparts.
+func (ts *Server) GetTabletAndResolve(ctx context.Context, alias *topodatapb.TabletAlias, resolveVirtual bool) (*TabletInfo, error) {
+	tabletInfo, err := ts.GetTablet(ctx, alias)
+	if err != nil {
+		return nil, err
+	}
+
+	if resolveVirtual && IsVirtualType(tabletInfo.Type) {
+		resolver := NewDefaultTabletResolver(ts)
+		physicalTablet, err := resolver.ResolveTablet(ctx, tabletInfo.Tablet)
+		if err != nil {
+			return nil, vterrors.Wrapf(err, "failed to resolve VIRTUAL tablet %s",
+				topoproto.TabletAliasString(alias))
+		}
+		// Return the physical tablet info but keep the original version
+		return &TabletInfo{
+			version: tabletInfo.version,
+			Tablet:  physicalTablet,
+		}, nil
+	}
+
+	return tabletInfo, nil
 }
 
 // GetTabletAliasesByCell returns all the tablet aliases in a cell.
@@ -374,6 +423,14 @@ func (ts *Server) UpdateTabletFields(ctx context.Context, alias *topodatapb.Tabl
 		if err != nil {
 			return nil, err
 		}
+
+		// Prevent updates to VIRTUAL tablets
+		if IsVirtualType(ti.Type) {
+			return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+				"cannot update VIRTUAL tablet %s directly, update the physical tablet instead",
+				topoproto.TabletAliasString(alias))
+		}
+
 		if err = update(ti.Tablet); err != nil {
 			if IsErrType(err, NoUpdateNeeded) {
 				return nil, nil
@@ -397,6 +454,11 @@ func Validate(ctx context.Context, ts *Server, tabletAlias *topodatapb.TabletAli
 		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "bad tablet alias data for tablet %v: %#v", topoproto.TabletAliasString(tabletAlias), tablet.Alias)
 	}
 
+	// Special validation for VIRTUAL tablets
+	if IsVirtualType(tablet.Type) {
+		return validateVirtualTablet(ctx, ts, tablet.Tablet)
+	}
+
 	// Validate the entry in the shard replication nodes
 	si, err := ts.GetShardReplication(ctx, tablet.Alias.Cell, tablet.Keyspace, tablet.Shard)
 	if err != nil {
@@ -405,6 +467,52 @@ func Validate(ctx context.Context, ts *Server, tabletAlias *topodatapb.TabletAli
 
 	if _, err = si.GetShardReplicationNode(tabletAlias); err != nil {
 		return vterrors.Wrapf(err, "tablet %v not found in cell %v shard replication", tabletAlias, tablet.Alias.Cell)
+	}
+
+	return nil
+}
+
+// validateVirtualTablet performs specific validation for VIRTUAL tablets.
+func validateVirtualTablet(ctx context.Context, ts *Server, tablet *topodatapb.Tablet) error {
+	// Ensure physical tablet reference exists
+	physicalTabletAlias, err := GetPhysicalTabletAlias(tablet)
+	if err != nil {
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid physical tablet reference",
+			topoproto.TabletAliasString(tablet.Alias))
+	}
+
+	// Verify the physical tablet exists
+	physicalTablet, err := ts.GetTablet(ctx, physicalTabletAlias)
+	if err != nil {
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s references non-existent physical tablet %s",
+			topoproto.TabletAliasString(tablet.Alias), topoproto.TabletAliasString(physicalTabletAlias))
+	}
+
+	// Ensure physical tablet is not also VIRTUAL
+	if IsVirtualType(physicalTablet.Type) {
+		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+			"VIRTUAL tablet %s cannot reference another VIRTUAL tablet %s",
+			topoproto.TabletAliasString(tablet.Alias), topoproto.TabletAliasString(physicalTabletAlias))
+	}
+
+	// Validate virtual keyspace name
+	virtualKeyspace, err := GetVirtualKeyspaceName(tablet)
+	if err != nil {
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid virtual keyspace name",
+			topoproto.TabletAliasString(tablet.Alias))
+	}
+
+	if virtualKeyspace != tablet.Keyspace {
+		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+			"VIRTUAL tablet %s virtual_keyspace tag (%s) doesn't match tablet keyspace (%s)",
+			topoproto.TabletAliasString(tablet.Alias), virtualKeyspace, tablet.Keyspace)
+	}
+
+	// Validate schema name exists
+	_, err = GetSchemaName(tablet)
+	if err != nil {
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid schema name",
+			topoproto.TabletAliasString(tablet.Alias))
 	}
 
 	return nil

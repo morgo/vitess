@@ -65,7 +65,7 @@ func (sorter *schemazSorter) Less(i, j int) bool {
 	return sorter.less(sorter.rows[i], sorter.rows[j])
 }
 
-func schemazHandler(tables map[string]*Table, w http.ResponseWriter, r *http.Request) {
+func schemazHandler(tables map[string]map[string]*Table, w http.ResponseWriter, r *http.Request) {
 	if err := acl.CheckAccessHTTP(r, acl.DEBUGGING); err != nil {
 		acl.SendError(w, err)
 		return
@@ -75,8 +75,10 @@ func schemazHandler(tables map[string]*Table, w http.ResponseWriter, r *http.Req
 	w.Write(schemazHeader)
 
 	tableList := make([]*Table, 0, len(tables))
-	for _, t := range tables {
-		tableList = append(tableList, t)
+	for _, db := range tables {
+		for _, t := range db {
+			tableList = append(tableList, t)
+		}
 	}
 
 	sorter := schemazSorter{

@@ -241,9 +241,18 @@ func (dbcfgs *DBConfigs) DbaWithDB() Connector {
 	return dbcfgs.makeParams(&dbcfgs.dbaParams, true)
 }
 
+// DbaWithDB returns connection parameters for appdebug with dbname set.
+func (dbcfgs *DBConfigs) DbaWithoutDB() Connector {
+	return dbcfgs.makeParams(&dbcfgs.dbaParams, false)
+}
+
 // FilteredWithDB returns connection parameters for filtered with dbname set.
 func (dbcfgs *DBConfigs) FilteredWithDB() Connector {
 	return dbcfgs.makeParams(&dbcfgs.filteredParams, true)
+}
+
+func (dbcfgs *DBConfigs) FilteredWithoutDB() Connector {
+	return dbcfgs.makeParams(&dbcfgs.filteredParams, false)
 }
 
 // ReplConnector returns connection parameters for repl with no dbname set.

@@ -134,7 +134,7 @@ func (h *historian) RegisterVersionEvent() error {
 }
 
 // GetTableForPos returns a best-effort schema for a specific gtid
-func (h *historian) GetTableForPos(tableName sqlparser.IdentifierCS, gtid string) (*binlogdatapb.MinimalTable, error) {
+func (h *historian) GetTableForPos(dbName string, tableName sqlparser.IdentifierCS, gtid string) (*binlogdatapb.MinimalTable, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.isOpen {

@@ -164,21 +164,14 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 
 	srvTopoServer := srvtopo.NewResilientServer(ctx, topoServer, srvTopoCounts)
 
-	tabletTypeFunc := func() topodatapb.TabletType {
-		if tsv.sm == nil || tsv.sm.Target() == nil {
-			return topodatapb.TabletType_UNKNOWN
-		}
-		return tsv.sm.Target().TabletType
-	}
-
 	tsv.statelessql = NewQueryList("oltp-stateless", env.Parser())
 	tsv.statefulql = NewQueryList("oltp-stateful", env.Parser())
 	tsv.olapql = NewQueryList("olap", env.Parser())
 	tsv.se = schema.NewEngine(tsv)
 	tsv.hs = newHealthStreamer(tsv, alias, tsv.se)
 	tsv.rt = repltracker.NewReplTracker(tsv, alias)
-	tsv.lagThrottler = throttle.NewThrottler(tsv, srvTopoServer, topoServer, alias, tsv.rt.HeartbeatWriter(), tabletTypeFunc)
-	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, tsv.lagThrottler, alias.Cell)
+	// Initialize vstreamer with nil throttler - we'll update it later
+	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, nil, alias.Cell)
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
 	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
@@ -186,9 +179,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.te = NewTxEngine(tsv, tsv.hs.sendUnresolvedTransactionSignal)
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
-	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
-	tsv.onlineDDLExecutor = onlineddl.NewExecutor(tsv, alias, topoServer, tsv.lagThrottler, tabletTypeFunc, tsv.onlineDDLExecutorToggleTableBuffer, tsv.tableGC.RequestChecks, tsv.te.preparedPool.IsEmptyForTable)
-
+	// Initialize the state manager first, before creating components that depend on it
 	tsv.sm = &stateManager{
 		statelessql:       tsv.statelessql,
 		statefulql:        tsv.statefulql,
@@ -203,12 +194,41 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		txThrottler:       tsv.txThrottler,
 		te:                tsv.te,
 		messager:          tsv.messager,
-		ddle:              tsv.onlineDDLExecutor,
-		throttler:         tsv.lagThrottler,
-		tableGC:           tsv.tableGC,
 		rw:                newRequestsWaiter(),
 		diskHealthMonitor: newDiskHealthMonitor(ctx),
 	}
+
+	// Now define tabletTypeFunc after sm is initialized
+	tabletTypeFunc := func() topodatapb.TabletType {
+		if tsv.sm == nil || tsv.sm.Target() == nil {
+			return topodatapb.TabletType_UNKNOWN
+		}
+		return tsv.sm.Target().TabletType
+	}
+
+	// Initialize components that depend on tabletTypeFunc
+	tsv.lagThrottler = throttle.NewThrottler(tsv, srvTopoServer, topoServer, alias, tsv.rt.HeartbeatWriter(), tabletTypeFunc)
+	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
+
+	// Initialize onlineDDLExecutor after te is created
+	// Create a wrapper function to safely check preparedPool
+	isPreparedPoolEmptyFunc := func(tableName string) bool {
+		if tsv.te.preparedPool == nil {
+			return true // If preparedPool is not initialized, consider it empty
+		}
+		return tsv.te.preparedPool.IsEmptyForTable(tableName)
+	}
+	tsv.onlineDDLExecutor = onlineddl.NewExecutor(tsv, alias, topoServer, tsv.lagThrottler, tabletTypeFunc, tsv.onlineDDLExecutorToggleTableBuffer, tsv.tableGC.RequestChecks, isPreparedPoolEmptyFunc)
+
+	// Update the state manager with components that were created after it
+	tsv.sm.ddle = tsv.onlineDDLExecutor
+	tsv.sm.throttler = tsv.lagThrottler
+	tsv.sm.tableGC = tsv.tableGC
+
+	// TODO: we should somewhere in the tabletserver init
+	// discover what keyspaces (default physical + all virtual)
+	// we host so that it can be used in various places.
+	// It might be here that we do this.
 
 	tsv.exporter.NewGaugeFunc("TabletState", "Tablet server state", func() int64 { return int64(tsv.sm.State()) })
 	tsv.checkMysqlGaugeFunc = tsv.exporter.NewGaugeFunc("CheckMySQLRunning", "Check MySQL operation currently in progress", tsv.sm.isCheckMySQLRunning)
@@ -285,6 +305,9 @@ func (tsv *TabletServer) onlineDDLExecutorToggleTableBuffer(bufferingCtx context
 
 // InitDBConfig initializes the db config variables for TabletServer. You must call this function
 // to complete the creation of TabletServer.
+// TODO: this is only partially correct,
+// since it is specifying the physical keyspace and shard here,
+// not all the virtual keyspaces that may be present.
 func (tsv *TabletServer) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.DBConfigs, mysqld mysqlctl.MysqlDaemon) error {
 	if tsv.sm.State() != StateNotConnected {
 		return vterrors.NewErrorf(vtrpcpb.Code_UNAVAILABLE, vterrors.ServerNotAvailable, "Server isn't available")
@@ -293,13 +316,16 @@ func (tsv *TabletServer) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.
 	tsv.sm.target = target.CloneVT()
 	tsv.config.DB = dbcfgs
 
-	tsv.se.InitDBConfig(tsv.config.DB.DbaWithDB())
+	tsv.se.InitDBConfig(tsv.config.DB.DbaWithoutDB())
 	tsv.rt.InitDBConfig(target, mysqld)
 	tsv.txThrottler.InitDBConfig(target)
-	tsv.vstreamer.InitDBConfig(target.Keyspace, target.Shard)
+	//tsv.vstreamer.InitDBConfig(target.Keyspace, target.Shard)
 	tsv.hs.InitDBConfig(target)
+	// TODO: this should cover all keyspaces
 	tsv.onlineDDLExecutor.InitDBConfig(target.Keyspace, target.Shard, dbcfgs.DBName)
+	// lag throttler can use physical keyspace and shard
 	tsv.lagThrottler.InitDBConfig(target.Keyspace, target.Shard)
+	// TODO: this should cover all keyspaces
 	tsv.tableGC.InitDBConfig(target.Keyspace, target.Shard, dbcfgs.DBName)
 	return nil
 }
@@ -459,7 +485,7 @@ func (tsv *TabletServer) ReloadSchema(ctx context.Context) error {
 // changes to finish being applied.
 func (tsv *TabletServer) WaitForSchemaReset(timeout time.Duration) {
 	onSchemaChange := make(chan struct{}, 1)
-	tsv.se.RegisterNotifier("_tsv_wait", func(_ map[string]*schema.Table, _, _, _ []*schema.Table, _ bool) {
+	tsv.se.RegisterNotifier("_tsv_wait", func(_ map[string]map[string]*schema.Table, _, _, _ []*schema.Table, _ bool) {
 		onSchemaChange <- struct{}{}
 	}, true)
 	defer tsv.se.UnregisterNotifier("_tsv_wait")
@@ -1275,6 +1301,70 @@ func (tsv *TabletServer) VStream(ctx context.Context, request *binlogdatapb.VStr
 	return tsv.vstreamer.Stream(ctx, request.Position, request.TableLastPKs, request.Filter, throttlerapp.VStreamerName, send, request.Options)
 }
 
+// keyspaceToDBName converts a keyspace name to a database schema name.
+// For virtual keyspaces, it looks up the physical keyspace from the topology server
+// and creates a predictable mapping following the convention: vt_{keyspacename}_{shardID}
+// For the physical keyspace, it uses the configured database name.
+func (tsv *TabletServer) keyspaceToDBName(keyspace string, shard string) string {
+	// If this is the physical keyspace (matches the configured target keyspace), use the configured DB name
+	if keyspace == tsv.sm.target.Keyspace {
+		return tsv.config.DB.DBName
+	}
+
+	// Check if this is a virtual keyspace by looking it up in the topology server
+	ctx := context.Background()
+	ki, err := tsv.topoServer.GetKeyspace(ctx, keyspace)
+	if err != nil {
+		log.Warningf("Failed to get keyspace info for %s from topology server: %v. Using fallback naming convention.", keyspace, err)
+		// Fallback to the naming convention if topo lookup fails
+		safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
+		safeShard := strings.ReplaceAll(shard, "-", "_")
+		return fmt.Sprintf("vt_%s_%s", safeKeyspace, safeShard)
+	}
+
+	// Check if this is a virtual keyspace
+	if ki.BaseKeyspace != "" {
+		// This is a virtual keyspace, check if we host it on this tablet
+		if ki.BaseKeyspace == tsv.sm.target.Keyspace {
+			// This virtual keyspace is hosted on our physical keyspace
+			// Use the naming convention: vt_{keyspacename}_{shardID}
+			safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
+			safeShard := strings.ReplaceAll(shard, "-", "_")
+			return fmt.Sprintf("vt_%s_%s", safeKeyspace, safeShard)
+		} else {
+			// This virtual keyspace is hosted on a different physical keyspace
+			// This should not happen in normal operation, but log a warning
+			log.Warningf("Request for virtual keyspace %s (hosted on %s) received by tablet serving physical keyspace %s",
+				keyspace, ki.BaseKeyspace, tsv.sm.target.Keyspace)
+			// Still return the expected database name for consistency
+			safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
+			safeShard := strings.ReplaceAll(shard, "-", "_")
+			return fmt.Sprintf("vt_%s_%s", safeKeyspace, safeShard)
+		}
+	}
+
+	// This is a regular (physical) keyspace, but not the one we're serving
+	// This should not happen in normal operation
+	log.Warningf("Request for physical keyspace %s received by tablet serving physical keyspace %s",
+		keyspace, tsv.sm.target.Keyspace)
+
+	// For consistency, return the keyspace name as the database name
+	// This is likely to fail, but it's the most reasonable fallback
+	return keyspace
+}
+
+func (tsv *TabletServer) getDBName(target *querypb.Target) (string, error) {
+	if target == nil || target.Keyspace == "" {
+		return "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target keyspace cannot be empty")
+	}
+
+	if target.Shard == "" {
+		return "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target shard cannot be empty")
+	}
+
+	return tsv.keyspaceToDBName(target.Keyspace, target.Shard), nil
+}
+
 // VStreamRows streams rows from the specified starting point.
 func (tsv *TabletServer) VStreamRows(ctx context.Context, request *binlogdatapb.VStreamRowsRequest, send func(*binlogdatapb.VStreamRowsResponse) error) error {
 	if err := tsv.sm.VerifyTarget(ctx, request.Target); err != nil {
@@ -1288,7 +1378,19 @@ func (tsv *TabletServer) VStreamRows(ctx context.Context, request *binlogdatapb.
 		}
 		row = r.Rows[0]
 	}
-	return tsv.vstreamer.StreamRows(ctx, request.Query, row, send, request.Options)
+
+	// convert request.Target to dbName
+	dbName, err := tsv.getDBName(request.Target)
+	if err != nil {
+		return err
+	}
+	if request.DbName != "" {
+		// If dbName is provided, use it instead of the one derived from the target.
+		dbName = request.DbName
+	}
+
+	log.Infof("DEBUGZ: VStreamRows dbname: %s, request.Target: %#v request.DbName: %#v row: %v, req: %v", dbName, request.Target, request.DbName, row, request)
+	return tsv.vstreamer.StreamRows(ctx, dbName, request.Query, row, send, request.Options)
 }
 
 // VStreamTables streams all tables.
@@ -1296,7 +1398,18 @@ func (tsv *TabletServer) VStreamTables(ctx context.Context, request *binlogdatap
 	if err := tsv.sm.VerifyTarget(ctx, request.Target); err != nil {
 		return err
 	}
-	return tsv.vstreamer.StreamTables(ctx, send, request.Options)
+	log.Infof("DEBUGZ: VStreamTables request: %v", request)
+	// convert request.Target to dbName
+	dbName, err := tsv.getDBName(request.Target)
+	if err != nil {
+		return err
+	}
+	if request.DbName != "" {
+		// If dbName is provided, use it instead of the one derived from the target.
+		dbName = request.DbName
+	}
+
+	return tsv.vstreamer.StreamTables(ctx, dbName, send, request.Options)
 }
 
 // VStreamResults streams rows from the specified starting point.
@@ -1304,7 +1417,12 @@ func (tsv *TabletServer) VStreamResults(ctx context.Context, target *querypb.Tar
 	if err := tsv.sm.VerifyTarget(ctx, target); err != nil {
 		return err
 	}
-	return tsv.vstreamer.StreamResults(ctx, query, send)
+	log.Infof("DEBUGZ: VStreamResults target: %v", target)
+	dbName, err := tsv.getDBName(target)
+	if err != nil {
+		return err
+	}
+	return tsv.vstreamer.StreamResults(ctx, dbName, query, send)
 }
 
 // ReserveBeginExecute implements the QueryService interface

@@ -249,6 +249,20 @@ func (mr *MockHealthCheckMockRecorder) Unsubscribe(c any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unsubscribe", reflect.TypeOf((*MockHealthCheck)(nil).Unsubscribe), c)
 }
 
+// GetHealthyTabletStatsForVirtualKeyspace mocks base method.
+func (m *MockHealthCheck) GetHealthyTabletStatsForVirtualKeyspace(virtualKeyspace, physicalKeyspace string, target *query.Target) []*discovery.TabletHealth {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHealthyTabletStatsForVirtualKeyspace", virtualKeyspace, physicalKeyspace, target)
+	ret0, _ := ret[0].([]*discovery.TabletHealth)
+	return ret0
+}
+
+// GetHealthyTabletStatsForVirtualKeyspace indicates an expected call of GetHealthyTabletStatsForVirtualKeyspace.
+func (mr *MockHealthCheckMockRecorder) GetHealthyTabletStatsForVirtualKeyspace(virtualKeyspace, physicalKeyspace, target any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHealthyTabletStatsForVirtualKeyspace", reflect.TypeOf((*MockHealthCheck)(nil).GetHealthyTabletStatsForVirtualKeyspace), virtualKeyspace, physicalKeyspace, target)
+}
+
 // WaitForAllServingTablets mocks base method.
 func (m *MockHealthCheck) WaitForAllServingTablets(ctx context.Context, targets []*query.Target) error {
 	m.ctrl.T.Helper()

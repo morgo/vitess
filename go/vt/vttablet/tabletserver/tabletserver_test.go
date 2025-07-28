@@ -2709,16 +2709,25 @@ func TestDatabaseNameReplaceByKeyspaceNameReserveBeginExecuteMethod(t *testing.T
 
 func setupTabletServerTest(t testing.TB, ctx context.Context, keyspaceName string) (*fakesqldb.DB, *TabletServer) {
 	cfg := tabletenv.NewDefaultConfig()
+	cfg.DB.DBName = "fakesqldb" // Set DBName before creating TabletServer
 	return setupTabletServerTestCustom(t, ctx, cfg, keyspaceName, vtenv.NewTestEnv())
 }
 
 func setupTabletServerTestCustom(t testing.TB, ctx context.Context, cfg *tabletenv.TabletConfig, keyspaceName string, env *vtenv.Environment) (*fakesqldb.DB, *TabletServer) {
 	db := setupFakeDB(t)
 	sidecardb.AddSchemaInitQueries(db, true, env.Parser())
+
+	// Ensure DBName is set in the config BEFORE creating the TabletServer
+	// This is critical because the schema engine's physicalDBName is set during NewEngine()
+	if cfg.DB.DBName == "" {
+		cfg.DB.DBName = "fakesqldb"
+	}
+
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
 	tsv := NewTabletServer(ctx, env, "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
 	require.Equal(t, StateNotConnected, tsv.sm.State())
 	dbcfgs := newDBConfigs(db)
+
 	target := &querypb.Target{
 		Keyspace:   keyspaceName,
 		TabletType: topodatapb.TabletType_PRIMARY,
@@ -2734,16 +2743,16 @@ func setupFakeDB(t testing.TB) *fakesqldb.DB {
 	db.AddQueryPattern(baseShowTablesWithSizesPattern, &sqltypes.Result{
 		Fields: mysql.BaseShowTablesWithSizesFields,
 		Rows: [][]sqltypes.Value{
-			mysql.BaseShowTablesWithSizesRow("test_table", false, ""),
-			mysql.BaseShowTablesWithSizesRow("msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
+			mysql.BaseShowTablesWithSizesRow("fakesqldb", "test_table", false, ""),
+			mysql.BaseShowTablesWithSizesRow("fakesqldb", "msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
 		},
 	})
 	db.AddQuery(mysql.BaseShowTables,
 		&sqltypes.Result{
 			Fields: mysql.BaseShowTablesFields,
 			Rows: [][]sqltypes.Value{
-				mysql.BaseShowTablesRow("test_table", false, ""),
-				mysql.BaseShowTablesRow("msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
+				mysql.BaseShowTablesRow("", "test_table", false, ""),
+				mysql.BaseShowTablesRow("", "msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
 			},
 		})
 	db.AddQuery("show status like 'Innodb_rows_read'", sqltypes.MakeTestResult(sqltypes.MakeTestFields(
@@ -2804,11 +2813,13 @@ func addTabletServerSupportedQueries(db *fakesqldb.DB) {
 				{sqltypes.NewVarBinary("0")},
 			},
 		},
+		// TODO: this query now returns the schema_name and table_name
+		// and will need fixing.
 		mysql.BaseShowPrimary: {
 			Fields: mysql.ShowPrimaryFields,
 			Rows: [][]sqltypes.Value{
-				mysql.ShowPrimaryRow("test_table", "pk"),
-				mysql.ShowPrimaryRow("msg", "id"),
+				mysql.ShowPrimaryRow("fakesqldb", "test_table", "pk"),
+				mysql.ShowPrimaryRow("fakesqldb", "msg", "id"),
 			},
 		},
 		// queries for TestReserve*

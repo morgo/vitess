@@ -307,6 +307,7 @@ type SchemaChange struct {
 	AfterSchema             *tabletmanagerdatapb.SchemaDefinition
 	SQLMode                 string
 	DisableForeignKeyChecks bool
+	DbNameOverride          string
 }
 
 // Equal compares two SchemaChange objects.
@@ -315,5 +316,8 @@ func (s *SchemaChange) Equal(s2 *SchemaChange) bool {
 		s.Force == s2.Force &&
 		s.AllowReplication == s2.AllowReplication &&
 		proto.Equal(s.BeforeSchema, s2.BeforeSchema) &&
-		proto.Equal(s.AfterSchema, s2.AfterSchema)
+		proto.Equal(s.AfterSchema, s2.AfterSchema) &&
+		s.SQLMode == s2.SQLMode &&
+		s.DisableForeignKeyChecks == s2.DisableForeignKeyChecks &&
+		s.DbNameOverride == s2.DbNameOverride
 }

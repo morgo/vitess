@@ -914,7 +914,7 @@ func (fv *fakeVStreamer) Stream(ctx context.Context, startPos string, tablePKs [
 	}
 }
 
-func (fv *fakeVStreamer) StreamResults(ctx context.Context, query string, send func(*binlogdatapb.VStreamResultsResponse) error) error {
+func (fv *fakeVStreamer) StreamResults(ctx context.Context, dbName, query string, send func(*binlogdatapb.VStreamResultsResponse) error) error {
 	fv.mu.Lock()
 	defer fv.mu.Unlock()
 	for _, r := range fv.pollerResponse {

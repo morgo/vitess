@@ -108,6 +108,12 @@ type Engine struct {
 
 const throttledLoggerInterval = 5 * time.Minute
 
+// InitDBConfig initializes the keyspace and shard for the engine.
+func (vse *Engine) InitDBConfig(keyspace, shard string) {
+	vse.keyspace = keyspace
+	vse.shard = shard
+}
+
 // NewEngine creates a new Engine.
 // Initialization sequence is: NewEngine->InitDBConfig->Open.
 // Open and Close can be called multiple times and are idempotent.
@@ -154,12 +160,6 @@ func NewEngine(env tabletenv.Env, ts srvtopo.Server, se *schema.Engine, lagThrot
 
 func (vse *Engine) GetTabletInfo() string {
 	return fmt.Sprintf("%s/%s/%s", vse.cell, vse.keyspace, vse.shard)
-}
-
-// InitDBConfig initializes the target parameters for the Engine.
-func (vse *Engine) InitDBConfig(keyspace, shard string) {
-	vse.keyspace = keyspace
-	vse.shard = shard
 }
 
 // Open starts the Engine service.
@@ -254,7 +254,7 @@ func (vse *Engine) Stream(ctx context.Context, startPos string, tablePKs []*binl
 		}
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
-		streamer := newUVStreamer(ctx, vse, vse.env.Config().DB.FilteredWithDB(), vse.se, startPos, tablePKs,
+		streamer := newUVStreamer(ctx, vse, vse.env.Config().DB.FilteredWithoutDB(), vse.se, startPos, tablePKs,
 			filter, vse.lvschema, throttlerApp, send, options)
 		idx := vse.streamIdx
 		vse.streamers[idx] = streamer
@@ -282,13 +282,13 @@ func (vse *Engine) Stream(ctx context.Context, startPos string, tablePKs []*binl
 
 // StreamRows streams rows.
 // This streams the table data rows (so we can copy the table data snapshot)
-func (vse *Engine) StreamRows(ctx context.Context, query string, lastpk []sqltypes.Value,
+func (vse *Engine) StreamRows(ctx context.Context, dbName string, query string, lastpk []sqltypes.Value,
 	send func(*binlogdatapb.VStreamRowsResponse) error, options *binlogdatapb.VStreamOptions) error {
 	// Ensure vschema is initialized and the watcher is started.
 	// Starting of the watcher has to be delayed till the first call to Stream
 	// because this overhead should be incurred only if someone uses this feature.
 	vse.watcherOnce.Do(vse.setWatch)
-	log.Infof("Streaming rows for query %s, lastpk: %s", query, lastpk)
+	log.Infof("Streaming rows for query %s, lastpk: %s, dbName: %s", query, lastpk, dbName)
 
 	// Create stream and add it to the map.
 	rowStreamer, idx, err := func() (*rowStreamer, int, error) {
@@ -298,8 +298,8 @@ func (vse *Engine) StreamRows(ctx context.Context, query string, lastpk []sqltyp
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
 
-		rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithDB(), vse.se, query, lastpk, vse.lvschema,
-			send, vse, RowStreamerModeSingleTable, nil, options)
+		rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, query, lastpk, vse.lvschema,
+			send, vse, RowStreamerModeSingleTable, nil, dbName, options)
 		idx := vse.streamIdx
 		vse.rowStreamers[idx] = rowStreamer
 		vse.streamIdx++
@@ -325,9 +325,10 @@ func (vse *Engine) StreamRows(ctx context.Context, query string, lastpk []sqltyp
 }
 
 // StreamTables streams all tables.
-func (vse *Engine) StreamTables(ctx context.Context,
+func (vse *Engine) StreamTables(ctx context.Context, dbName string,
 	send func(*binlogdatapb.VStreamTablesResponse) error, options *binlogdatapb.VStreamOptions) error {
 
+	log.Infof("DEBUG: starting StreamTables for db %s with options: %v", dbName, options)
 	// Ensure vschema is initialized and the watcher is started.
 	// Starting of the watcher is delayed till the first call to StreamTables
 	// so that this overhead is incurred only if someone uses this feature.
@@ -342,7 +343,7 @@ func (vse *Engine) StreamTables(ctx context.Context,
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
 
-		tableStreamer := newTableStreamer(ctx, vse.env.Config().DB.FilteredWithDB(), vse.se, vse.lvschema, send, vse, options)
+		tableStreamer := newTableStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, vse.lvschema, send, vse, dbName, options)
 		idx := vse.streamIdx
 		vse.tableStreamers[idx] = tableStreamer
 		vse.streamIdx++
@@ -368,7 +369,7 @@ func (vse *Engine) StreamTables(ctx context.Context,
 }
 
 // StreamResults streams results of the query with the gtid.
-func (vse *Engine) StreamResults(ctx context.Context, query string,
+func (vse *Engine) StreamResults(ctx context.Context, dbName, query string,
 	send func(*binlogdatapb.VStreamResultsResponse) error) error {
 
 	// Create stream and add it to the map.
@@ -378,7 +379,7 @@ func (vse *Engine) StreamResults(ctx context.Context, query string,
 		}
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
-		resultStreamer := newResultStreamer(ctx, vse.env.Config().DB.FilteredWithDB(), query, send, vse)
+		resultStreamer := newResultStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), dbName, query, send, vse)
 		idx := vse.streamIdx
 		vse.resultStreamers[idx] = resultStreamer
 		vse.streamIdx++

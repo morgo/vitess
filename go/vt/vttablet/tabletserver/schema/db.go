@@ -47,19 +47,16 @@ values (database(), :table_name, :create_statement, :create_time)`
 
 	// detectViewChange query detects if there is any view change from previous copy.
 	detectViewChange = `
-SELECT distinct table_name
+SELECT distinct table_schema, table_name
 FROM (
-	SELECT table_name, view_definition
+	SELECT table_schema, table_name, view_definition
 	FROM information_schema.views
-	WHERE table_schema = database()
-
 	UNION ALL
-
-	SELECT table_name, view_definition
+	SELECT table_schema, table_name, view_definition
 	FROM %s.views
-	WHERE table_schema = database()
+	
 ) _inner
-GROUP BY table_name, view_definition
+GROUP BY table_schema, table_name, view_definition
 HAVING COUNT(*) = 1
 `
 
@@ -324,7 +321,8 @@ func getChangedViewNames(ctx context.Context, conn *connpool.Conn, isServingPrim
 	}
 	callback := func(qr *sqltypes.Result) error {
 		for _, row := range qr.Rows {
-			view := row[0].ToString()
+			// Since detectViewChange now returns table_schema, table_name, we need the second column
+			view := row[1].ToString()
 			views[view] = true
 		}
 		return nil
@@ -381,7 +379,18 @@ func (se *Engine) getMismatchedTableNames(ctx context.Context, conn *connpool.Co
 			tableName := row[0].ToString()
 			createTime, _ := row[1].ToInt64()
 			tablesFound[tableName] = true
-			table, isFound := se.tables[tableName]
+
+			// Search for the table across all databases
+			var table *Table
+			var isFound bool
+			for _, schemaMap := range se.tables {
+				if t, ok := schemaMap[tableName]; ok {
+					table = t
+					isFound = true
+					break
+				}
+			}
+
 			if !isFound || table.CreateTime != createTime {
 				tablesMismatched[tableName] = true
 			}
@@ -397,13 +406,15 @@ func (se *Engine) getMismatchedTableNames(ctx context.Context, conn *connpool.Co
 	}
 
 	// Finally, we also check for tables that exist only in the cache, because these tables would have been created.
-	for tableName := range se.tables {
-		if se.tables[tableName].Type == View {
-			continue
-		}
-		// Explicitly ignore dual because schema-engine stores this in its list of tables.
-		if !tablesFound[tableName] && tableName != "dual" {
-			tablesMismatched[tableName] = true
+	for _, schemaMap := range se.tables {
+		for tableName, table := range schemaMap {
+			if table.Type == View {
+				continue
+			}
+			// Explicitly ignore dual because schema-engine stores this in its list of tables.
+			if !tablesFound[tableName] && tableName != "dual" {
+				tablesMismatched[tableName] = true
+			}
 		}
 	}
 

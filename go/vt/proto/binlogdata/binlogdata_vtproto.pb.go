@@ -336,6 +336,7 @@ func (m *RowEvent) CloneVT() *RowEvent {
 	r.Shard = m.Shard
 	r.Flags = m.Flags
 	r.IsInternalTable = m.IsInternalTable
+	r.DbName = m.DbName
 	if rhs := m.RowChanges; rhs != nil {
 		tmpContainer := make([]*RowChange, len(rhs))
 		for k, v := range rhs {
@@ -581,6 +582,7 @@ func (m *VStreamOptions) CloneVT() *VStreamOptions {
 		return (*VStreamOptions)(nil)
 	}
 	r := new(VStreamOptions)
+	r.DbName = m.DbName
 	if rhs := m.InternalTables; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -672,6 +674,7 @@ func (m *VStreamRowsRequest) CloneVT() *VStreamRowsRequest {
 	r.Query = m.Query
 	r.Lastpk = m.Lastpk.CloneVT()
 	r.Options = m.Options.CloneVT()
+	r.DbName = m.DbName
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -734,6 +737,7 @@ func (m *VStreamTablesRequest) CloneVT() *VStreamTablesRequest {
 	r.ImmediateCallerId = m.ImmediateCallerId.CloneVT()
 	r.Target = m.Target.CloneVT()
 	r.Options = m.Options.CloneVT()
+	r.DbName = m.DbName
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -1754,6 +1758,13 @@ func (m *RowEvent) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DbName) > 0 {
+		i -= len(m.DbName)
+		copy(dAtA[i:], m.DbName)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbName)))
+		i--
+		dAtA[i] = 0x3a
+	}
 	if m.IsInternalTable {
 		i--
 		if m.IsInternalTable {
@@ -2462,6 +2473,13 @@ func (m *VStreamOptions) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DbName) > 0 {
+		i -= len(m.DbName)
+		copy(dAtA[i:], m.DbName)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbName)))
+		i--
+		dAtA[i] = 0x22
+	}
 	if len(m.TablesToCopy) > 0 {
 		for iNdEx := len(m.TablesToCopy) - 1; iNdEx >= 0; iNdEx-- {
 			i -= len(m.TablesToCopy[iNdEx])
@@ -2679,6 +2697,13 @@ func (m *VStreamRowsRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.DbName) > 0 {
+		i -= len(m.DbName)
+		copy(dAtA[i:], m.DbName)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbName)))
+		i--
+		dAtA[i] = 0x3a
+	}
 	if m.Options != nil {
 		size, err := m.Options.MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
@@ -2881,6 +2906,13 @@ func (m *VStreamTablesRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) 
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.DbName) > 0 {
+		i -= len(m.DbName)
+		copy(dAtA[i:], m.DbName)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbName)))
+		i--
+		dAtA[i] = 0x2a
 	}
 	if m.Options != nil {
 		size, err := m.Options.MarshalToSizedBufferVT(dAtA[:i])
@@ -3699,6 +3731,10 @@ func (m *RowEvent) SizeVT() (n int) {
 	if m.IsInternalTable {
 		n += 2
 	}
+	l = len(m.DbName)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -3982,6 +4018,10 @@ func (m *VStreamOptions) SizeVT() (n int) {
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
 	}
+	l = len(m.DbName)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -4072,6 +4112,10 @@ func (m *VStreamRowsRequest) SizeVT() (n int) {
 		l = m.Options.SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
+	l = len(m.DbName)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -4142,6 +4186,10 @@ func (m *VStreamTablesRequest) SizeVT() (n int) {
 	}
 	if m.Options != nil {
 		l = m.Options.SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.DbName)
+	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
@@ -6910,6 +6958,38 @@ func (m *RowEvent) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.IsInternalTable = bool(v != 0)
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbName = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -8817,6 +8897,38 @@ func (m *VStreamOptions) UnmarshalVT(dAtA []byte) error {
 			}
 			m.TablesToCopy = append(m.TablesToCopy, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbName = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -9462,6 +9574,38 @@ func (m *VStreamRowsRequest) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbName = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -9970,6 +10114,38 @@ func (m *VStreamTablesRequest) UnmarshalVT(dAtA []byte) error {
 			if err := m.Options.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DbName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DbName = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

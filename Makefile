@@ -97,7 +97,7 @@ endif
 		    -ldflags "$(EXTRA_BUILD_LDFLAGS) $(shell tools/build_version_flags.sh)" \
 		    -tags "$(EXTRA_BUILD_TAGS)" \
 		    -o ${VTROOTBIN} ./go/...
-ifndef NOVTADMINBUILD
+ifdef VTADMINBUILD
 	echo "Building VTAdmin Web, disable VTAdmin build by setting 'NOVTADMINBUILD'"
 	PREFIX="" ./web/vtadmin/build.sh
 endif

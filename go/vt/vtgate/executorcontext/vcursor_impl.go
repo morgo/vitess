@@ -850,18 +850,71 @@ func (vc *VCursorImpl) markSavepoint(ctx context.Context, needsRollbackOnParialE
 	return nil
 }
 
+// ResolveVirtualKeyspaceTarget resolves virtual keyspace targets to their physical counterparts.
+// This function checks if the keyspace is a virtual keyspace and if so, resolves it to the
+// physical keyspace and updates the target accordingly.
+func (vc *VCursorImpl) ResolveVirtualKeyspaceTarget(ctx context.Context, rss []*srvtopo.ResolvedShard) ([]*srvtopo.ResolvedShard, error) {
+	if vc.topoServer == nil {
+		return rss, nil
+	}
+
+	// Check if any of the resolved shards are for virtual keyspaces
+	for i, rs := range rss {
+		// Check if this keyspace is a virtual keyspace by looking for VIRTUAL tablets
+		if vc.vschema.Keyspaces[rs.Target.Keyspace] == nil {
+			continue // Skip if keyspace not in vschema
+		}
+
+		// Try to get virtual keyspace information
+		virtualKeyspaceInfo, err := vc.topoServer.GetVirtualKeyspace(ctx, rs.Target.Keyspace)
+		if err != nil {
+			// If it's not a virtual keyspace, continue with the original target
+			if topo.IsErrType(err, topo.NoNode) {
+				continue
+			}
+			return nil, err
+		}
+
+		// This is a virtual keyspace, resolve it to the physical keyspace
+		physicalKeyspace := virtualKeyspaceInfo.PhysicalKeyspace
+		if physicalKeyspace == "" {
+			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "virtual keyspace %s has no physical keyspace configured", rs.Target.Keyspace)
+		}
+
+		// Create a new resolved shard with the physical keyspace
+		newTarget := &querypb.Target{
+			Keyspace:   physicalKeyspace,
+			Shard:      rs.Target.Shard,
+			TabletType: rs.Target.TabletType,
+		}
+
+		rss[i] = &srvtopo.ResolvedShard{
+			Target:  newTarget,
+			Gateway: rs.Gateway,
+		}
+	}
+
+	return rss, nil
+}
+
 // ExecuteMultiShard is part of the engine.VCursor interface.
 func (vc *VCursorImpl) ExecuteMultiShard(ctx context.Context, primitive engine.Primitive, rss []*srvtopo.ResolvedShard, queries []*querypb.BoundQuery, rollbackOnError, canAutocommit, fetchLastInsertID bool) (*sqltypes.Result, []error) {
-	noOfShards := len(rss)
-	atomic.AddUint64(&vc.logStats.ShardQueries, uint64(noOfShards))
-	err := vc.markSavepoint(ctx, rollbackOnError && (noOfShards > 1), map[string]*querypb.BindVariable{})
+	// Resolve virtual keyspace targets to physical ones
+	resolvedRss, err := vc.ResolveVirtualKeyspaceTarget(ctx, rss)
 	if err != nil {
 		return nil, []error{err}
 	}
 
-	qr, errs := vc.executor.ExecuteMultiShard(ctx, primitive, rss, commentedShardQueries(queries, vc.marginComments), vc.SafeSession, canAutocommit, vc.ignoreMaxMemoryRows, vc.observer, fetchLastInsertID)
-	vc.setRollbackOnPartialExecIfRequired(len(errs) != len(rss), rollbackOnError)
-	vc.logShardsQueried(primitive, len(rss))
+	noOfShards := len(resolvedRss)
+	atomic.AddUint64(&vc.logStats.ShardQueries, uint64(noOfShards))
+	err = vc.markSavepoint(ctx, rollbackOnError && (noOfShards > 1), map[string]*querypb.BindVariable{})
+	if err != nil {
+		return nil, []error{err}
+	}
+
+	qr, errs := vc.executor.ExecuteMultiShard(ctx, primitive, resolvedRss, commentedShardQueries(queries, vc.marginComments), vc.SafeSession, canAutocommit, vc.ignoreMaxMemoryRows, vc.observer, fetchLastInsertID)
+	vc.setRollbackOnPartialExecIfRequired(len(errs) != len(resolvedRss), rollbackOnError)
+	vc.logShardsQueried(primitive, len(resolvedRss))
 	if qr != nil && qr.InsertIDUpdated() {
 		vc.SafeSession.LastInsertId = qr.InsertID
 	}
@@ -872,15 +925,21 @@ func (vc *VCursorImpl) ExecuteMultiShard(ctx context.Context, primitive engine.P
 func (vc *VCursorImpl) StreamExecuteMulti(ctx context.Context, primitive engine.Primitive, query string, rss []*srvtopo.ResolvedShard, bindVars []map[string]*querypb.BindVariable, rollbackOnError, autocommit, fetchLastInsertID bool, callback func(reply *sqltypes.Result) error) []error {
 	callback = vc.wrapCallback(callback, primitive)
 
-	noOfShards := len(rss)
-	atomic.AddUint64(&vc.logStats.ShardQueries, uint64(noOfShards))
-	err := vc.markSavepoint(ctx, rollbackOnError && (noOfShards > 1), map[string]*querypb.BindVariable{})
+	// Resolve virtual keyspace targets to physical ones
+	resolvedRss, err := vc.ResolveVirtualKeyspaceTarget(ctx, rss)
 	if err != nil {
 		return []error{err}
 	}
 
-	errs := vc.executor.StreamExecuteMulti(ctx, primitive, vc.marginComments.Leading+query+vc.marginComments.Trailing, rss, bindVars, vc.SafeSession, autocommit, callback, vc.observer, fetchLastInsertID)
-	vc.setRollbackOnPartialExecIfRequired(len(errs) != len(rss), rollbackOnError)
+	noOfShards := len(resolvedRss)
+	atomic.AddUint64(&vc.logStats.ShardQueries, uint64(noOfShards))
+	err = vc.markSavepoint(ctx, rollbackOnError && (noOfShards > 1), map[string]*querypb.BindVariable{})
+	if err != nil {
+		return []error{err}
+	}
+
+	errs := vc.executor.StreamExecuteMulti(ctx, primitive, vc.marginComments.Leading+query+vc.marginComments.Trailing, resolvedRss, bindVars, vc.SafeSession, autocommit, callback, vc.observer, fetchLastInsertID)
+	vc.setRollbackOnPartialExecIfRequired(len(errs) != len(resolvedRss), rollbackOnError)
 
 	return errs
 }

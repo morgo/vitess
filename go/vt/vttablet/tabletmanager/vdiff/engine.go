@@ -110,10 +110,10 @@ func (vde *Engine) InitDBConfig(dbcfgs *dbconfigs.DBConfigs) {
 		return
 	}
 	vde.dbClientFactoryFiltered = func() binlogplayer.DBClient {
-		return binlogplayer.NewDBClient(dbcfgs.FilteredWithDB(), vde.parser)
+		return binlogplayer.NewDBClient(dbcfgs.FilteredWithoutDB(), vde.parser)
 	}
 	vde.dbClientFactoryDba = func() binlogplayer.DBClient {
-		return binlogplayer.NewDBClient(dbcfgs.DbaWithDB(), vde.parser)
+		return binlogplayer.NewDBClient(dbcfgs.DbaWithoutDB(), vde.parser)
 	}
 	vde.dbName = dbcfgs.DBName
 }

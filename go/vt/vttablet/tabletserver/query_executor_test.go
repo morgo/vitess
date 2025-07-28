@@ -1619,18 +1619,18 @@ func initQueryExecutorTestDB(db *fakesqldb.DB) {
 	db.AddQueryPattern(baseShowTablesWithSizesPattern, &sqltypes.Result{
 		Fields: mysql.BaseShowTablesWithSizesFields,
 		Rows: [][]sqltypes.Value{
-			mysql.BaseShowTablesWithSizesRow("test_table", false, ""),
-			mysql.BaseShowTablesWithSizesRow("seq", false, "vitess_sequence"),
-			mysql.BaseShowTablesWithSizesRow("msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
+			mysql.BaseShowTablesWithSizesRow("fakesqldb", "test_table", false, ""),
+			mysql.BaseShowTablesWithSizesRow("fakesqldb", "seq", false, "vitess_sequence"),
+			mysql.BaseShowTablesWithSizesRow("fakesqldb", "msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
 		},
 	})
 	db.AddQuery(mysql.BaseShowTables,
 		&sqltypes.Result{
 			Fields: mysql.BaseShowTablesFields,
 			Rows: [][]sqltypes.Value{
-				mysql.BaseShowTablesRow("test_table", false, ""),
-				mysql.BaseShowTablesRow("seq", false, "vitess_sequence"),
-				mysql.BaseShowTablesRow("msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
+				mysql.BaseShowTablesRow("fakesqldb", "test_table", false, ""),
+				mysql.BaseShowTablesRow("fakesqldb", "seq", false, "vitess_sequence"),
+				mysql.BaseShowTablesRow("fakesqldb", "msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
 			},
 		})
 	db.AddQuery("show status like 'Innodb_rows_read'", sqltypes.MakeTestResult(sqltypes.MakeTestFields(
@@ -1717,12 +1717,14 @@ func addQueryExecutorSupportedQueries(db *fakesqldb.DB) {
 			}},
 			Rows: [][]sqltypes.Value{},
 		},
+		// TODO: this query now returns the schema_name and table_name
+		// and will need fixing.
 		mysql.BaseShowPrimary: {
 			Fields: mysql.ShowPrimaryFields,
 			Rows: [][]sqltypes.Value{
-				mysql.ShowPrimaryRow("test_table", "pk"),
-				mysql.ShowPrimaryRow("seq", "id"),
-				mysql.ShowPrimaryRow("msg", "id"),
+				mysql.ShowPrimaryRow("fakesqldb", "test_table", "pk"),
+				mysql.ShowPrimaryRow("fakesqldb", "seq", "id"),
+				mysql.ShowPrimaryRow("fakesqldb", "msg", "id"),
 			},
 		},
 		"begin":                                {},

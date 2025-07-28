@@ -427,6 +427,11 @@ func (client *FakeTabletManagerClient) GetThrottlerStatus(ctx context.Context, t
 	return &tabletmanagerdatapb.GetThrottlerStatusResponse{}, nil
 }
 
+// AddVirtualKeyspace is part of the tmclient.TabletManagerClient interface.
+func (client *FakeTabletManagerClient) AddVirtualKeyspace(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error) {
+	return &tabletmanagerdatapb.AddVirtualKeyspaceResponse{}, nil
+}
+
 //
 // Management related methods
 //

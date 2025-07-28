@@ -216,6 +216,69 @@ func (te *Env) SetVSchema(vs string) error {
 	return te.TopoServ.RebuildSrvVSchema(ctx, te.Cells)
 }
 
+// CreateVirtualKeyspace creates a virtual keyspace (additional schema) for testing.
+func (te *Env) CreateVirtualKeyspace(virtualKeyspaceName string) error {
+	ctx := context.Background()
+
+	// Create the database/schema
+	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", virtualKeyspaceName)
+	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
+		return fmt.Errorf("failed to create virtual keyspace database %s: %v", virtualKeyspaceName, err)
+	}
+
+	// Create keyspace in topology
+	if err := te.TopoServ.CreateKeyspace(ctx, virtualKeyspaceName, &topodatapb.Keyspace{}); err != nil {
+		// Ignore if keyspace already exists
+		if !topo.IsErrType(err, topo.NodeExists) {
+			return fmt.Errorf("failed to create virtual keyspace in topology: %v", err)
+		}
+	}
+
+	// Create shard for the virtual keyspace
+	if err := te.TopoServ.CreateShard(ctx, virtualKeyspaceName, te.ShardName); err != nil {
+		// Ignore if shard already exists
+		if !topo.IsErrType(err, topo.NodeExists) {
+			return fmt.Errorf("failed to create shard for virtual keyspace: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// SetVirtualKeyspaceVSchema sets the vschema for a virtual keyspace.
+func (te *Env) SetVirtualKeyspaceVSchema(keyspaceName, vs string) error {
+	ctx := context.Background()
+	var kspb vschemapb.Keyspace
+	if err := json2.UnmarshalPB([]byte(vs), &kspb); err != nil {
+		return err
+	}
+	ksvs := &topo.KeyspaceVSchemaInfo{
+		Name:     keyspaceName,
+		Keyspace: &kspb,
+	}
+	if err := te.TopoServ.SaveVSchema(ctx, ksvs); err != nil {
+		return err
+	}
+	te.SchemaEngine.Reload(ctx)
+	return te.TopoServ.RebuildSrvVSchema(ctx, te.Cells)
+}
+
+// DropVirtualKeyspace drops a virtual keyspace.
+func (te *Env) DropVirtualKeyspace(virtualKeyspaceName string) error {
+	ctx := context.Background()
+
+	// Drop the database/schema
+	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", virtualKeyspaceName)
+	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
+		return fmt.Errorf("failed to drop virtual keyspace database %s: %v", virtualKeyspaceName, err)
+	}
+
+	// Clean up topology (optional, as this might be used by other components)
+	// We'll leave the keyspace in topology for now
+
+	return nil
+}
+
 // In MySQL 8.0 and later information_schema no longer contains the display width for integer types and
 // as of 8.0.19 for year types as this was an unnecessary headache because it can only serve to confuse
 // if the display width is less than the type width (8.0 no longer supports the 2 digit YEAR). So if the

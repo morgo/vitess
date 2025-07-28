@@ -63,14 +63,16 @@ func AddDefaultQueries(db *fakesqldb.DB) {
 		},
 	})
 
+	// TODO: this query now returns the schema_name and table_name
+	// and will need fixing.
 	db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows: [][]sqltypes.Value{
-			mysql.ShowPrimaryRow("test_table_01", "pk"),
-			mysql.ShowPrimaryRow("test_table_02", "pk"),
-			mysql.ShowPrimaryRow("test_table_03", "pk"),
-			mysql.ShowPrimaryRow("seq", "id"),
-			mysql.ShowPrimaryRow("msg", "id"),
+			mysql.ShowPrimaryRow("fakesqldb", "test_table_01", "pk"),
+			mysql.ShowPrimaryRow("fakesqldb", "test_table_02", "pk"),
+			mysql.ShowPrimaryRow("fakesqldb", "test_table_03", "pk"),
+			mysql.ShowPrimaryRow("fakesqldb", "seq", "id"),
+			mysql.ShowPrimaryRow("fakesqldb", "msg", "id"),
 		},
 	})
 

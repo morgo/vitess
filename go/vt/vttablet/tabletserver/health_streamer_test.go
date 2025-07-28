@@ -238,11 +238,11 @@ func TestReloadSchema(t *testing.T) {
 			db.AddQuery(mysql.BaseShowTables,
 				sqltypes.MakeTestResult(
 					sqltypes.MakeTestFields(
-						"TABLE_NAME | TABLE_TYPE | UNIX_TIMESTAMP(t.create_time) | TABLE_COMMENT",
-						"varchar|varchar|int64|varchar",
+						"table_schema | table_name | table_type | UNIX_TIMESTAMP(create_time) | table_comment",
+						"varchar|varchar|varchar|int64|varchar",
 					),
-					"product|BASE TABLE|1684735966|",
-					"users|BASE TABLE|1684735966|",
+					"fakesqldb|product|BASE TABLE|1684735966|",
+					"fakesqldb|users|BASE TABLE|1684735966|",
 				))
 
 			db.AddQueryPattern("SELECT COLUMN_NAME as column_name.*", sqltypes.MakeTestResult(
@@ -261,10 +261,12 @@ func TestReloadSchema(t *testing.T) {
 			db.AddQuery(mysql.ShowRowsRead, sqltypes.MakeTestResult(
 				sqltypes.MakeTestFields("Variable_name|Value", "varchar|int32"),
 				"Innodb_rows_read|50"))
+			// TODO: this query now returns the schema_name and table_name
+			// and will need fixing.
 			db.AddQuery(mysql.BaseShowPrimary, sqltypes.MakeTestResult(
-				sqltypes.MakeTestFields("table_name | column_name", "varchar|varchar"),
-				"product|id",
-				"users|id",
+				sqltypes.MakeTestFields("table_schema | table_name | column_name", "varchar|varchar|varchar"),
+				"fakesqldb|product|id",
+				"fakesqldb|users|id",
 			))
 
 			se.InitDBConfig(cfg.DB.DbaWithDB())
@@ -297,11 +299,11 @@ func TestReloadSchema(t *testing.T) {
 			db.AddQuery(mysql.BaseShowTables,
 				sqltypes.MakeTestResult(
 					sqltypes.MakeTestFields(
-						"TABLE_NAME | TABLE_TYPE | UNIX_TIMESTAMP(t.create_time) | TABLE_COMMENT",
-						"varchar|varchar|int64|varchar",
+						"table_schema | table_name | table_type | UNIX_TIMESTAMP(create_time) | table_comment",
+						"varchar|varchar|varchar|int64|varchar",
 					),
-					"product|BASE TABLE|1684735967|",
-					"users|BASE TABLE|1684735967|",
+					"fakesqldb|product|BASE TABLE|1684735967|",
+					"fakesqldb|users|BASE TABLE|1684735967|",
 				))
 
 			var wg sync.WaitGroup
@@ -397,14 +399,16 @@ func TestReloadView(t *testing.T) {
 	db.AddQuery(mysql.ShowRowsRead, sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("Variable_name|Value", "varchar|int32"),
 		"Innodb_rows_read|50"))
+	// TODO: this query now returns the schema_name and table_name
+	// and will need fixing.
 	db.AddQuery(mysql.BaseShowPrimary, sqltypes.MakeTestResult(
-		sqltypes.MakeTestFields("table_name | column_name", "varchar|varchar"),
+		sqltypes.MakeTestFields("table_schema | table_name | column_name", "varchar|varchar|varchar"),
 	))
-	db.AddQueryPattern(".*SELECT table_name, view_definition.*views.*", &sqltypes.Result{})
+	db.AddQueryPattern(".*SELECT distinct table_schema, table_name.*views.*", &sqltypes.Result{})
 	db.AddQuery("SELECT TABLE_NAME, CREATE_TIME FROM _vt.`tables`", &sqltypes.Result{})
 	// adding query pattern for udfs
 	db.AddQueryPattern("SELECT name.*", &sqltypes.Result{})
-	db.AddQuery(mysql.ShowPartitons, &sqltypes.Result{})
+	db.AddQuery(mysql.ShowPartitions, &sqltypes.Result{})
 	db.AddQuery(mysql.ShowTableRowCountClusteredIndex, &sqltypes.Result{})
 	db.AddQuery(mysql.ShowIndexSizes, &sqltypes.Result{})
 	db.AddQuery(mysql.ShowIndexCardinalities, &sqltypes.Result{})
@@ -443,8 +447,8 @@ func TestReloadView(t *testing.T) {
 	}{
 		{
 			// view_a and view_b added.
-			detectViewChangeOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_name", "varchar"),
-				"view_a", "view_b"),
+			detectViewChangeOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_schema|table_name", "varchar|varchar"),
+				"fakesqldb|view_a", "fakesqldb|view_b"),
 			showTablesWithSizesOutput: sqltypes.MakeTestResult(showTableSizesFields, "view_a|VIEW|12345678||123|123", "view_b|VIEW|12345678||123|123"),
 			viewDefinitionsOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_name|view_definition", "varchar|text"),
 				"view_a|def_a", "view_b|def_b"),
@@ -465,8 +469,8 @@ func TestReloadView(t *testing.T) {
 		{
 			// view_b modified
 			showTablesWithSizesOutput: sqltypes.MakeTestResult(showTableSizesFields, "view_a|VIEW|12345678||123|123", "view_b|VIEW|12345678||123|123"),
-			detectViewChangeOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_name", "varchar"),
-				"view_b"),
+			detectViewChangeOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_schema|table_name", "varchar|varchar"),
+				"fakesqldb|view_b"),
 			viewDefinitionsOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_name|view_definition", "varchar|text"),
 				"view_b|def_mod_b"),
 			createStmtOutput:           []*sqltypes.Result{sqltypes.MakeTestResult(showCreateViewFields, "view_b|create_view_mod_b|utf8|utf8_general_ci")},
@@ -481,8 +485,8 @@ func TestReloadView(t *testing.T) {
 		{
 			// view_a modified, view_b deleted and view_c added.
 			showTablesWithSizesOutput: sqltypes.MakeTestResult(showTableSizesFields, "view_c|VIEW|98732432||123|123", "view_a|VIEW|12345678||123|123"),
-			detectViewChangeOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_name", "varchar"),
-				"view_a", "view_b", "view_c"),
+			detectViewChangeOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_schema|table_name", "varchar|varchar"),
+				"fakesqldb|view_a", "fakesqldb|view_b", "fakesqldb|view_c"),
 			viewDefinitionsOutput: sqltypes.MakeTestResult(sqltypes.MakeTestFields("table_name|view_definition", "varchar|text"),
 				"view_a|def_mod_a", "view_c|def_c"),
 			createStmtOutput: []*sqltypes.Result{sqltypes.MakeTestResult(showCreateViewFields, "view_a|create_view_mod_a|utf8|utf8_general_ci"),
@@ -507,7 +511,7 @@ func TestReloadView(t *testing.T) {
 
 	// setting first test case result.
 	db.AddQueryPattern("SELECT .* information_schema.innodb_tablespaces .*", tcases[0].showTablesWithSizesOutput)
-	db.AddQueryPattern(".*SELECT table_name, view_definition.*views.*", tcases[0].detectViewChangeOutput)
+	db.AddQueryPattern(".*SELECT distinct table_schema, table_name.*views.*", tcases[0].detectViewChangeOutput)
 
 	db.AddQuery(tcases[0].expGetViewDefinitionsQuery, tcases[0].viewDefinitionsOutput)
 	for idx := range tcases[0].expCreateStmtQuery {
@@ -528,7 +532,7 @@ func TestReloadView(t *testing.T) {
 				sort.Strings(response.RealtimeStats.ViewSchemaChanged)
 				assert.Equal(t, tcases[tcCount.Load()].expViewsChanged, response.RealtimeStats.ViewSchemaChanged)
 				tcCount.Add(1)
-				db.AddQueryPattern(".*SELECT table_name, view_definition.*views.*", &sqltypes.Result{})
+				db.AddQueryPattern(".*SELECT distinct table_schema, table_name.*views.*", &sqltypes.Result{})
 				ch <- struct{}{}
 				require.NoError(t, db.LastError())
 			}
@@ -554,7 +558,7 @@ func TestReloadView(t *testing.T) {
 				db.AddQuery(query, &sqltypes.Result{})
 			}
 			db.AddQueryPattern("SELECT .* information_schema.innodb_tablespaces .*", tcases[idx].showTablesWithSizesOutput)
-			db.AddQueryPattern(".*SELECT table_name, view_definition.*views.*", tcases[idx].detectViewChangeOutput)
+			db.AddQueryPattern(".*SELECT distinct table_schema, table_name.*views.*", tcases[idx].detectViewChangeOutput)
 		case <-time.After(10 * time.Second):
 			t.Fatalf("timed out")
 		}

@@ -295,11 +295,23 @@ func (wr *Wrangler) applySQLShard(ctx context.Context, tabletInfo *topo.TabletIn
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	// Need to make sure that replication is enabled since we're only applying the statement on primaries
+
+	// Get the virtual keyspace info to determine if we need to override the database name
+	var dbNameOverride string
+	keyspaceInfo, err := wr.ts.GetKeyspace(ctx, tabletInfo.Keyspace)
+	if err != nil {
+		return err
+	}
+	if keyspaceInfo.IsVirtual && keyspaceInfo.VirtualKeyspaceInfo != nil {
+		dbNameOverride = keyspaceInfo.VirtualKeyspaceInfo.SchemaName
+	}
+
 	_, err = wr.tmc.ApplySchema(ctx, tabletInfo.Tablet, &tmutils.SchemaChange{
 		SQL:              filledChange,
 		Force:            false,
 		AllowReplication: true,
 		SQLMode:          vreplication.SQLMode,
+		DbNameOverride:   dbNameOverride,
 	})
 	return err
 }

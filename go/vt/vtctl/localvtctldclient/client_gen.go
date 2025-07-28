@@ -216,6 +216,11 @@ func (client *localVtctldClient) CreateShard(ctx context.Context, in *vtctldatap
 	return client.s.CreateShard(ctx, in)
 }
 
+// CreateVirtualKeyspace is part of the vtctlservicepb.VtctldClient interface.
+func (client *localVtctldClient) CreateVirtualKeyspace(ctx context.Context, in *vtctldatapb.CreateVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldatapb.CreateVirtualKeyspaceResponse, error) {
+	return client.s.CreateVirtualKeyspace(ctx, in)
+}
+
 // DeleteCellInfo is part of the vtctlservicepb.VtctldClient interface.
 func (client *localVtctldClient) DeleteCellInfo(ctx context.Context, in *vtctldatapb.DeleteCellInfoRequest, opts ...grpc.CallOption) (*vtctldatapb.DeleteCellInfoResponse, error) {
 	return client.s.DeleteCellInfo(ctx, in)
@@ -244,6 +249,11 @@ func (client *localVtctldClient) DeleteSrvVSchema(ctx context.Context, in *vtctl
 // DeleteTablets is part of the vtctlservicepb.VtctldClient interface.
 func (client *localVtctldClient) DeleteTablets(ctx context.Context, in *vtctldatapb.DeleteTabletsRequest, opts ...grpc.CallOption) (*vtctldatapb.DeleteTabletsResponse, error) {
 	return client.s.DeleteTablets(ctx, in)
+}
+
+// DeleteVirtualKeyspace is part of the vtctlservicepb.VtctldClient interface.
+func (client *localVtctldClient) DeleteVirtualKeyspace(ctx context.Context, in *vtctldatapb.DeleteVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldatapb.DeleteVirtualKeyspaceResponse, error) {
+	return client.s.DeleteVirtualKeyspace(ctx, in)
 }
 
 // EmergencyReparentShard is part of the vtctlservicepb.VtctldClient interface.
@@ -421,6 +431,11 @@ func (client *localVtctldClient) GetVersion(ctx context.Context, in *vtctldatapb
 	return client.s.GetVersion(ctx, in)
 }
 
+// GetVirtualKeyspace is part of the vtctlservicepb.VtctldClient interface.
+func (client *localVtctldClient) GetVirtualKeyspace(ctx context.Context, in *vtctldatapb.GetVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldatapb.GetVirtualKeyspaceResponse, error) {
+	return client.s.GetVirtualKeyspace(ctx, in)
+}
+
 // GetWorkflows is part of the vtctlservicepb.VtctldClient interface.
 func (client *localVtctldClient) GetWorkflows(ctx context.Context, in *vtctldatapb.GetWorkflowsRequest, opts ...grpc.CallOption) (*vtctldatapb.GetWorkflowsResponse, error) {
 	return client.s.GetWorkflows(ctx, in)
@@ -434,6 +449,11 @@ func (client *localVtctldClient) InitShardPrimary(ctx context.Context, in *vtctl
 // LaunchSchemaMigration is part of the vtctlservicepb.VtctldClient interface.
 func (client *localVtctldClient) LaunchSchemaMigration(ctx context.Context, in *vtctldatapb.LaunchSchemaMigrationRequest, opts ...grpc.CallOption) (*vtctldatapb.LaunchSchemaMigrationResponse, error) {
 	return client.s.LaunchSchemaMigration(ctx, in)
+}
+
+// ListVirtualKeyspaces is part of the vtctlservicepb.VtctldClient interface.
+func (client *localVtctldClient) ListVirtualKeyspaces(ctx context.Context, in *vtctldatapb.ListVirtualKeyspacesRequest, opts ...grpc.CallOption) (*vtctldatapb.ListVirtualKeyspacesResponse, error) {
+	return client.s.ListVirtualKeyspaces(ctx, in)
 }
 
 // LookupVindexComplete is part of the vtctlservicepb.VtctldClient interface.

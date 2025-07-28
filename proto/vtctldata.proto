@@ -255,6 +255,8 @@ message Workflow {
   // These are additional (optional) settings for vreplication workflows. Previously we used to add it to the
   // binlogdata.BinlogSource proto object. More details in go/vt/sidecardb/schema/vreplication.sql.
   WorkflowOptions options = 10;
+  // Virtual keyspace information for workflows that operate on virtual keyspaces
+  VirtualKeyspace virtual_keyspace = 11;
 
   message ReplicationLocation {
     string keyspace = 1;
@@ -318,6 +320,12 @@ message Workflow {
       string component_throttled = 1;
       vttime.Time time_throttled = 2;
     }
+  }
+
+  message VirtualKeyspace {
+    string logical_keyspace = 1;
+    string physical_keyspace = 2;
+    map<string, string> schema_mapping = 3;
   }
 }
 
@@ -630,6 +638,54 @@ message CreateKeyspaceResponse {
   // Keyspace is the newly-created keyspace.
   Keyspace keyspace = 1;
 }
+
+message CreateVirtualKeyspaceRequest {
+  // Name is the name of the virtual keyspace to create.
+  string name = 1;
+  // PhysicalKeyspace is the name of the physical keyspace that will host
+  // this virtual keyspace.
+  string physical_keyspace = 2;
+  // SchemaName is the MySQL schema name to use for this virtual keyspace.
+  // If empty, defaults to "vt_" + name.
+  string schema_name = 3;
+}
+
+message CreateVirtualKeyspaceResponse {
+  // VirtualKeyspace is the newly-created virtual keyspace.
+  topodata.VirtualKeyspace virtual_keyspace = 1;
+}
+
+
+
+message GetVirtualKeyspaceRequest {
+  // Name is the name of the virtual keyspace to retrieve.
+  string name = 1;
+}
+
+message GetVirtualKeyspaceResponse {
+  // VirtualKeyspace is the virtual keyspace information.
+  topodata.VirtualKeyspace virtual_keyspace = 1;
+}
+
+message ListVirtualKeyspacesRequest {
+}
+
+message ListVirtualKeyspacesResponse {
+  // VirtualKeyspaces is the list of all virtual keyspaces.
+  repeated topodata.VirtualKeyspace virtual_keyspaces = 1;
+}
+
+message DeleteVirtualKeyspaceRequest {
+  // Name is the name of the virtual keyspace to delete.
+  string name = 1;
+  // Force allows deletion even if the virtual keyspace has data.
+  bool force = 2;
+}
+
+message DeleteVirtualKeyspaceResponse {
+}
+
+
 
 message CreateShardRequest {
   // Keyspace is the name of the keyspace to create the shard in.
@@ -1107,6 +1163,8 @@ message GetSrvVSchemasResponse {
 
 message GetTabletRequest {
   topodata.TabletAlias tablet_alias = 1;
+  // ResolveVirtual indicates whether to resolve VIRTUAL tablets to their physical counterparts
+  bool resolve_virtual = 2;
 }
 
 message GetTabletResponse {
@@ -1136,6 +1194,8 @@ message GetTabletsRequest {
   // tablet_type specifies the type of tablets to return. Omit to return all
   // tablet types.
   topodata.TabletType tablet_type = 6;
+  // ResolveVirtual indicates whether to resolve VIRTUAL tablets to their physical counterparts
+  bool resolve_virtual = 7;
 }
 
 message GetTabletsResponse {

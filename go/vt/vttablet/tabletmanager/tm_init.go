@@ -395,6 +395,9 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 		return err
 	}
 
+	// TODO: this is only partially correct,
+	// since it is specifying the physical keyspace and shard here,
+	// not all the virtual keyspaces that may be present.
 	err = tm.QueryServiceControl.InitDBConfig(&querypb.Target{
 		Keyspace:   tablet.Keyspace,
 		Shard:      tablet.Shard,

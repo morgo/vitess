@@ -23,6 +23,7 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/grpcclient"
+	"vitess.io/vitess/go/vt/log"
 	binlogdatapb "vitess.io/vitess/go/vt/proto/binlogdata"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -98,14 +99,17 @@ func (ec *externalConnector) Get(name string) (*mysqlConnector, error) {
 	c := &mysqlConnector{}
 	c.env = tabletenv.NewEnv(ec.env, config, name)
 	c.se = schema.NewEngine(c.env)
+	// Initialize schema engine with proper database connector
+	c.se.InitDBConfig(config.DB.AllPrivsWithDB())
 	c.vstreamer = vstreamer.NewEngine(c.env, nil, c.se, nil, "")
-	c.vstreamer.InitDBConfig("", "")
-	c.se.InitDBConfig(c.env.Config().DB.AllPrivsWithDB())
+	// Initialize vstreamer with proper keyspace and shard - use the database name as keyspace
+	c.vstreamer.InitDBConfig(config.DB.DBName, "0")
 
-	// Open
+	// Open schema engine first
 	if err := c.se.Open(); err != nil {
 		return nil, vterrors.Wrapf(err, "external mysqlConnector: %v", name)
 	}
+	// Then open vstreamer
 	c.vstreamer.Open()
 
 	// Register
@@ -149,12 +153,18 @@ func (c *mysqlConnector) VStreamRows(ctx context.Context, query string, lastpk *
 		}
 		row = r.Rows[0]
 	}
-	return c.vstreamer.StreamRows(ctx, query, row, send, options)
+	// Use the database name from options if provided, otherwise fall back to the environment's config
+	dbName := c.env.Config().DB.DBName
+	if options != nil && options.DbName != "" {
+		dbName = options.DbName
+	}
+	log.Infof("DEBUGZ: VStreamRows external connector request. DB:%s", dbName)
+	return c.vstreamer.StreamRows(ctx, dbName, query, row, send, options)
 }
 
 func (c *mysqlConnector) VStreamTables(ctx context.Context,
 	send func(response *binlogdatapb.VStreamTablesResponse) error, options *binlogdatapb.VStreamOptions) error {
-	return c.vstreamer.StreamTables(ctx, send, options)
+	return c.vstreamer.StreamTables(ctx, "", send, options)
 }
 
 // -----------------------------------------------------------
@@ -195,6 +205,10 @@ func (tc *tabletConnector) VStream(ctx context.Context, startPos string, tablePK
 func (tc *tabletConnector) VStreamRows(ctx context.Context, query string, lastpk *querypb.QueryResult,
 	send func(*binlogdatapb.VStreamRowsResponse) error, options *binlogdatapb.VStreamOptions) error {
 	req := &binlogdatapb.VStreamRowsRequest{Target: tc.target, Query: query, Lastpk: lastpk, Options: options}
+	// Set the top-level DbName field for virtual keyspaces
+	if options != nil && options.DbName != "" {
+		req.DbName = options.DbName
+	}
 	return tc.qs.VStreamRows(ctx, req, send)
 }
 
