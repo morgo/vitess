@@ -4123,7 +4123,7 @@ func TestMaterializerNoSourceTable(t *testing.T) {
 	}
 
 	err := ws.Materialize(ctx, ms)
-	require.EqualError(t, err, "source table t1 does not exist, source: sourceks target: targetks, allDDLs: map[string]string{}")
+	require.EqualError(t, err, "source table t1 does not exist")
 }
 
 func TestMaterializerSyntaxError(t *testing.T) {

@@ -1867,7 +1867,7 @@ func TestMirrorTraffic(t *testing.T) {
 				TabletTypes: tabletTypes,
 				Percent:     50.0,
 			},
-			wantErr:         "failed to get keyspace info for no_ks: node doesn't exist: keyspaces/no_ks/Keyspace",
+			wantErr:         "FindAllShardsInKeyspace(no_ks): List: node doesn't exist: keyspaces/no_ks/shards",
 			wantMirrorRules: make(map[string]map[string]float32),
 		},
 		{

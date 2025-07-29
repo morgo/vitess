@@ -168,7 +168,7 @@ func TestVDiffCreate(t *testing.T) {
 			name: "no values",
 			req:  &vtctldatapb.VDiffCreateRequest{},
 			// We did not provide any keyspace or shard.
-			wantErr: "failed to get keyspace info for : GetKeyspace: empty name: empty name",
+			wantErr: "FindAllShardsInKeyspace() invalid keyspace name: UnescapeID err: invalid input identifier ''",
 		},
 		{
 			name: "generated UUID",

@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,9 +45,8 @@ import (
 )
 
 var (
-	errControllerOpen       = errors.New("Open Fail")
-	errControllerRead       = errors.New("Read Fail")
-	testWaitReplicasTimeout = 10 * time.Second
+	errControllerOpen = errors.New("Open Fail")
+	errControllerRead = errors.New("Read Fail")
 )
 
 func init() {

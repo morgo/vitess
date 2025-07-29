@@ -306,7 +306,7 @@ func (dr *switcherDryRun) cancelMigration(ctx context.Context, sm *StreamMigrato
 	return nil
 }
 
-func (dr *switcherDryRun) lockKeyspace(ctx context.Context, keyspace, action string, opts ...topo.LockOption) (context.Context, func(*error), error) {
+func (dr *switcherDryRun) lockKeyspace(ctx context.Context, keyspace, _ string, _ ...topo.LockOption) (context.Context, func(*error), error) {
 	dr.drLog.Logf("Lock keyspace %s", keyspace)
 	return ctx, func(e *error) {
 		dr.drLog.Logf("Unlock keyspace %s", keyspace)
