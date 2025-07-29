@@ -310,11 +310,9 @@ func GetColumnsList(dbName, tableName string, exec func(string, int, bool) (*sql
 	query := fmt.Sprintf(GetColumnNamesQuery, dbName2, sqltypes.EncodeStringSQL(sanitizedTableName))
 	qr, err := exec(query, -1, true)
 	if err != nil {
-		log.Infof("DEBUGZ: fetchColumns GetColumnsList error for table %s.%s using query %s: %v", dbName, tableName, query, err)
 		return "", err
 	}
 	if qr == nil || len(qr.Rows) == 0 {
-		log.Infof("DEBUGZ: fetchColumns GetColumnsList empty result for table %s.%s using query %s", dbName, tableName, query)
 		err := &EmptyColumnsErr{dbName: dbName, tableName: tableName, query: query}
 		log.Error(err.Error())
 		return "", err

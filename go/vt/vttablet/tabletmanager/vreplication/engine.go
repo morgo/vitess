@@ -204,7 +204,7 @@ func (vre *Engine) InitDBConfigWithKeyspace(physicalKeyspace string) error {
 }
 
 // AddVirtualKeyspace adds a virtual keyspace to the engine's schema mapping.
-func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, schemaName string) error {
+func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, dbName string) error {
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 
@@ -218,7 +218,7 @@ func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, schemaName string) error 
 	}
 
 	// Add the mapping
-	vre.schemaMap[virtualKeyspace] = schemaName
+	vre.schemaMap[virtualKeyspace] = dbName
 
 	// Create schema-specific client factories if needed
 	if vre.schemaClientFactories == nil {
@@ -238,7 +238,7 @@ func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, schemaName string) error 
 			client := vre.dbClientFactoryFiltered()
 			// Set the client to use the specific schema for this virtual keyspace
 			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
-				schemaClient.SetDBName(schemaName)
+				schemaClient.SetDBName(dbName)
 			}
 			return client
 		},
@@ -246,13 +246,13 @@ func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, schemaName string) error 
 			client := vre.dbClientFactoryDba()
 			// Set the client to use the specific schema for this virtual keyspace
 			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
-				schemaClient.SetDBName(schemaName)
+				schemaClient.SetDBName(dbName)
 			}
 			return client
 		},
 	}
 
-	log.Infof("Added virtual keyspace %s with schema %s to VReplication engine", virtualKeyspace, schemaName)
+	log.Infof("Added virtual keyspace %s with schema %s to VReplication engine", virtualKeyspace, dbName)
 	return nil
 }
 
@@ -310,11 +310,11 @@ func (vre *Engine) stopControllersForVirtualKeyspace(virtualKeyspace string) {
 // OnVirtualKeyspaceCreated is called when a new virtual keyspace is created.
 // This method integrates with the virtual keyspace lifecycle to automatically
 // register the new keyspace and optionally create replication streams.
-func (vre *Engine) OnVirtualKeyspaceCreated(ctx context.Context, virtualKeyspace, physicalKeyspace, schemaName string) error {
-	log.Infof("Virtual keyspace created: %s (physical: %s, schema: %s)", virtualKeyspace, physicalKeyspace, schemaName)
+func (vre *Engine) OnVirtualKeyspaceCreated(ctx context.Context, virtualKeyspace, physicalKeyspace, dbName string) error {
+	log.Infof("Virtual keyspace created: %s (physical: %s, schema: %s)", virtualKeyspace, physicalKeyspace, dbName)
 
 	// Add the virtual keyspace to our schema mapping
-	if err := vre.AddVirtualKeyspace(virtualKeyspace, schemaName); err != nil {
+	if err := vre.AddVirtualKeyspace(virtualKeyspace, dbName); err != nil {
 		return fmt.Errorf("failed to add virtual keyspace %s: %v", virtualKeyspace, err)
 	}
 

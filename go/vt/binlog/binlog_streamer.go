@@ -480,8 +480,6 @@ func (bls *Streamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 
 			// Check we're in the right database, and if so, fill
 			// in more data.
-			// TODO: I think this is broken because it needs to support
-			// multiple DBNames.
 			if tm.Database != "" && tm.Database != bls.cp.DBName() {
 				continue
 			}

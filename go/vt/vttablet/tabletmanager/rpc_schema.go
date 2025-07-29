@@ -68,19 +68,19 @@ func (tm *TabletManager) ResetSequences(ctx context.Context, tables []string) er
 }
 
 // PreflightSchema will try out the schema changes in "changes".
-func (tm *TabletManager) PreflightSchema(ctx context.Context, schema string, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error) {
+func (tm *TabletManager) PreflightSchema(ctx context.Context, dbName string, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error) {
 	if err := tm.lock(ctx); err != nil {
 		return nil, err
 	}
 	defer tm.unlock()
 
 	// get the db name from the tablet
-	dbName := topoproto.TabletDbName(tm.Tablet())
-	if schema != "" {
-		dbName = schema
+	finalDBName := topoproto.TabletDbName(tm.Tablet())
+	if dbName != "" {
+		finalDBName = dbName
 	}
 	// and preflight the change
-	return tm.MysqlDaemon.PreflightSchemaChange(ctx, dbName, changes)
+	return tm.MysqlDaemon.PreflightSchemaChange(ctx, finalDBName, changes)
 }
 
 // ApplySchema will apply a schema change

@@ -123,34 +123,28 @@ func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVRe
 		return err
 	}
 
-	log.Infof("DEBUG: calling mz.buildMaterializer")
 	err := mz.buildMaterializer()
 	if err != nil {
 		return err
 	}
 
 	var workflowSubType binlogdatapb.VReplicationWorkflowSubType
-	log.Infof("DEBUG: calling mz.getWorkflowSubType")
 	workflowSubType, err = mz.getWorkflowSubType()
 	if err != nil {
 		return err
 	}
 	req.WorkflowSubType = workflowSubType
-	log.Infof("DEBUG: calling mz.getOptionsJSON")
 	optionsJSON, err := getOptionsJSON(mz.ms.GetWorkflowOptions())
 	if err != nil {
 		return err
 	}
 	req.Options = optionsJSON
 
-	log.Infof("DEBUG: calling mz.deploySchema")
 	if err := mz.deploySchema(); err != nil {
 		return err
 	}
 
-	log.Infof("DEBUG: calling forAllShards")
 	return forAllShards(mz.targetShards, func(target *topo.ShardInfo) error {
-		log.Infof("DEBUG: calling  mz.ts.GetTablet for target: %v", target.PrimaryAlias)
 		targetPrimary, err := mz.ts.GetTablet(mz.ctx, target.PrimaryAlias)
 		if err != nil {
 			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
@@ -389,7 +383,7 @@ func (mz *materializer) deploySchema() error {
 
 				ddl, ok := sourceDDLs[ts.TargetTable]
 				if !ok {
-					return fmt.Errorf("source table %v does not exist, source: %v target: %v, allDDLs: %#v", ts.TargetTable, mz.ms.SourceKeyspace, target.Keyspace(), sourceDDLs)
+					return fmt.Errorf("source table %v does not exist", ts.TargetTable)
 				}
 
 				if createDDL == createDDLAsCopyDropConstraint {

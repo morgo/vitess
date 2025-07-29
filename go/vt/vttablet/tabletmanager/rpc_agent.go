@@ -65,7 +65,7 @@ type RPCTM interface {
 
 	ReloadSchema(ctx context.Context, waitPosition string) error
 
-	PreflightSchema(ctx context.Context, schema string, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error)
+	PreflightSchema(ctx context.Context, dbName string, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error)
 
 	ApplySchema(ctx context.Context, change *tmutils.SchemaChange) (*tabletmanagerdatapb.SchemaChangeResult, error)
 

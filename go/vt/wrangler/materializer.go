@@ -263,8 +263,6 @@ func (wr *Wrangler) MoveTables(ctx context.Context, workflow, sourceKeyspace, ta
 			CreateDdl:        createDDLMode,
 		})
 	}
-	log.Infof("DEBUG: materializer prepareMaterializeStreams for workflow %s.%s with tables %v", workflow, targetKeyspace, tables)
-	// TODO: is this the right target/source keyspace?
 	mz, err := wr.prepareMaterializerStreams(ctx, ms)
 	if err != nil {
 		return err
@@ -289,7 +287,6 @@ func (wr *Wrangler) MoveTables(ctx context.Context, workflow, sourceKeyspace, ta
 			}
 		}
 	}()
-	log.Infof("DEBUG: materializer not externalTopo")
 
 	// Now that the streams have been successfully created, let's put the associated
 	// routing rules in place.
@@ -330,8 +327,6 @@ func (wr *Wrangler) MoveTables(ctx context.Context, workflow, sourceKeyspace, ta
 			return err
 		}
 	}
-	log.Infof("DEBUG: materializer rebuildSrvVSchema for workflow %s.%s", workflow, targetKeyspace)
-
 	if err := wr.ts.RebuildSrvVSchema(ctx, nil); err != nil {
 		return err
 	}
@@ -341,12 +336,12 @@ func (wr *Wrangler) MoveTables(ctx context.Context, workflow, sourceKeyspace, ta
 			return err
 		}
 	}
-	log.Infof("DEBUG: materializer collectingTargetStream")
+
 	tabletShards, err := wr.collectTargetStreams(ctx, mz)
 	if err != nil {
 		return err
 	}
-	log.Infof("DEBUG: materializer getMigrationId")
+
 	migrationID, err := getMigrationID(targetKeyspace, tabletShards)
 	if err != nil {
 		return err
@@ -366,9 +361,7 @@ func (wr *Wrangler) MoveTables(ctx context.Context, workflow, sourceKeyspace, ta
 			return errors.New(msg)
 		}
 	}
-	log.Infof("DEBUG: materializer just about to start streams")
 	if autoStart {
-		log.Infof("DEBUG: materializer starting streams")
 		return mz.startStreams(ctx)
 	}
 	wr.Logger().Infof("Streams will not be started since --auto_start is set to false")
@@ -946,8 +939,6 @@ func (wr *Wrangler) ExternalizeVindex(ctx context.Context, qualifiedVindexName s
 func (wr *Wrangler) collectTargetStreams(ctx context.Context, mz *materializer) ([]string, error) {
 	var shardTablets []string
 	var mu sync.Mutex
-	log.Infof("DEBUG: mat collectTargetStreams")
-
 	err := mz.forAllTargets(func(target *topo.ShardInfo) error {
 		var qrproto *querypb.QueryResult
 		var id int64
@@ -956,10 +947,7 @@ func (wr *Wrangler) collectTargetStreams(ctx context.Context, mz *materializer) 
 		if err != nil {
 			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
 		}
-		// TODO: this is likely wrong.
-		dbName := targetPrimary.DbName()
-		log.Infof("DEBUG: LIKELY WRONG keyspace: %s dbName: %s", target.Keyspace(), dbName)
-		query := fmt.Sprintf("select id from _vt.vreplication where db_name=%s and workflow=%s", encodeString(dbName), encodeString(mz.ms.Workflow))
+		query := fmt.Sprintf("select id from _vt.vreplication where db_name=%s and workflow=%s", encodeString(targetPrimary.DbName()), encodeString(mz.ms.Workflow))
 		if qrproto, err = mz.wr.tmc.VReplicationExec(ctx, targetPrimary.Tablet, query); err != nil {
 			return vterrors.Wrapf(err, "VReplicationExec(%v, %s)", targetPrimary.Tablet, query)
 		}
@@ -1244,7 +1232,7 @@ func (mz *materializer) deploySchema(ctx context.Context) error {
 
 				ddl, ok := sourceDDLs[ts.TargetTable]
 				if !ok {
-					return fmt.Errorf("source table %v does not exist, keyspace: %v", ts.TargetTable, target.Keyspace())
+					return fmt.Errorf("source table %v does not exist", ts.TargetTable)
 				}
 
 				if createDDL == createDDLAsCopyDropConstraint {
@@ -1290,23 +1278,12 @@ func (mz *materializer) deploySchema(ctx context.Context) error {
 			}
 
 			sql := strings.Join(applyDDLs, ";\n")
-			// Get the virtual keyspace info to determine if we need to override the database name
-			var dbNameOverride string
-			keyspaceInfo, err := mz.wr.ts.GetKeyspace(ctx, targetTablet.Keyspace)
-			if err != nil {
-				return err
-			}
-			if keyspaceInfo.IsVirtual && keyspaceInfo.VirtualKeyspaceInfo != nil {
-				dbNameOverride = keyspaceInfo.VirtualKeyspaceInfo.SchemaName
-			}
-
 			_, err = mz.wr.tmc.ApplySchema(ctx, targetTablet.Tablet, &tmutils.SchemaChange{
 				SQL:                     sql,
 				Force:                   false,
 				AllowReplication:        true,
 				SQLMode:                 vreplication.SQLMode,
 				DisableForeignKeyChecks: true,
-				DbNameOverride:          dbNameOverride,
 			})
 			if err != nil {
 				return err
@@ -1561,14 +1538,12 @@ func (mz *materializer) createStreams(ctx context.Context, insertsMap map[string
 }
 
 func (mz *materializer) startStreams(ctx context.Context) error {
-	log.Infof("DEBUG: materializer startStreamsinternal")
 	return mz.forAllTargets(func(target *topo.ShardInfo) error {
 		targetPrimary, err := mz.wr.ts.GetTablet(ctx, target.PrimaryAlias)
 		if err != nil {
 			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
 		}
 		query := fmt.Sprintf("update _vt.vreplication set state='Running' where db_name=%s and workflow=%s", encodeString(targetPrimary.DbName()), encodeString(mz.ms.Workflow))
-		log.Infof("DEBUG: materializer startStreamsinternal query: %s", query)
 		if _, err := mz.wr.tmc.VReplicationExec(ctx, targetPrimary.Tablet, query); err != nil {
 			return vterrors.Wrapf(err, "VReplicationExec(%v, %s)", targetPrimary.Tablet, query)
 		}

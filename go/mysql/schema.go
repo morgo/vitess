@@ -31,7 +31,7 @@ const (
 		SELECT TABLE_SCHEMA as table_schema, TABLE_NAME as table_name, COLUMN_NAME as column_name
 		FROM information_schema.STATISTICS
 		WHERE LOWER(INDEX_NAME) = 'primary'
-		AND TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
+		AND TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys', '_vt')
 		ORDER BY table_schema, table_name, SEQ_IN_INDEX`
 	// ShowRowsRead is the query used to find the number of rows read.
 	ShowRowsRead = "show status like 'Innodb_rows_read'"
@@ -130,13 +130,13 @@ var BaseInnoDBTableSizesFields = []*querypb.Field{{
 
 // BaseShowTablesRow returns the fields from a BaseShowTables or
 // BaseShowTablesForTable command.
-func BaseShowTablesRow(schemaName, tableName string, isView bool, comment string) []sqltypes.Value {
+func BaseShowTablesRow(dbName, tableName string, isView bool, comment string) []sqltypes.Value {
 	tableType := "BASE TABLE"
 	if isView {
 		tableType = "VIEW"
 	}
 	return []sqltypes.Value{
-		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(schemaName)),
+		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(dbName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(tableName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(tableType)),
 		sqltypes.MakeTrusted(sqltypes.Int64, []byte("1427325875")), // unix_timestamp(create_time)
@@ -144,8 +144,8 @@ func BaseShowTablesRow(schemaName, tableName string, isView bool, comment string
 	}
 }
 
-func BaseShowTablesWithSizesRow(schemaName, tableName string, isView bool, comment string) []sqltypes.Value {
-	return append(BaseShowTablesRow(schemaName, tableName, isView, comment),
+func BaseShowTablesWithSizesRow(dbName, tableName string, isView bool, comment string) []sqltypes.Value {
+	return append(BaseShowTablesRow(dbName, tableName, isView, comment),
 		sqltypes.MakeTrusted(sqltypes.Int64, []byte("100")), // file_size
 		sqltypes.MakeTrusted(sqltypes.Int64, []byte("150")), // allocated_size
 	)
@@ -172,9 +172,9 @@ var ShowPrimaryFields = []*querypb.Field{{
 }}
 
 // ShowPrimaryRow returns a row for a primary key column.
-func ShowPrimaryRow(schemaName, tableName, colName string) []sqltypes.Value {
+func ShowPrimaryRow(dbName, tableName, colName string) []sqltypes.Value {
 	return []sqltypes.Value{
-		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(schemaName)),
+		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(dbName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(tableName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(colName)),
 	}

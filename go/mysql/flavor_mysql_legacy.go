@@ -51,14 +51,17 @@ var _ flavor = (*mysqlFlavor8Legacy)(nil)
 var _ flavor = (*mysqlFlavor8)(nil)
 
 // TablesWithSize56 is a query to select table along with size for mysql 5.6
-const TablesWithSize56 = `SELECT table_schema, table_name,
+const TablesWithSize56 = `SELECT table_schema,
+	table_name,
 	table_type,
 	UNIX_TIMESTAMP(create_time) AS uts_create_time,
 	table_comment,
 	SUM(data_length + index_length),
 	SUM(data_length + index_length)
 FROM information_schema.tables
-GROUP BY table_schema, table_name,
+WHERE table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')
+GROUP BY table_schema,
+	table_name,
 	table_type,
 	uts_create_time,
 	table_comment`
@@ -72,7 +75,8 @@ GROUP BY table_schema, table_name,
 // early for performance reasons. This effectively causes only a single read of `information_schema.innodb_sys_tablespaces`
 // per query.
 // Note that 5.7 has NULL for a VIEW's create_time, so we use IFNULL to make it 1 (non NULL and non zero).
-const TablesWithSize57 = `SELECT table_schema, table_name,
+const TablesWithSize57 = `SELECT table_schema,
+	table_name,
 	t.table_type,
 	IFNULL(UNIX_TIMESTAMP(t.create_time), 1),
 	t.table_comment,
@@ -84,6 +88,7 @@ LEFT OUTER JOIN (
 	FROM information_schema.innodb_sys_tablespaces
 	GROUP BY space, file_size, allocated_size, name
 ) i ON i.name = CONCAT(t.table_schema, '/', t.table_name) or i.name LIKE CONCAT(t.table_schema, '/', t.table_name, '#p#%')
+WHERE table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')
 GROUP BY t.table_schema, t.table_name, t.table_type, t.create_time, t.table_comment`
 
 func (mysqlFlavorLegacy) startReplicationCommand() string {

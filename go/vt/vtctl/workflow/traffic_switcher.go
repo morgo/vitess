@@ -1572,7 +1572,7 @@ func (ts *trafficSwitcher) checkJournals(ctx context.Context) (journalsExist boo
 // source shard's primary tablet using a non-pooled connection as the DBA user. The connection
 // is closed when the LOCK TABLES statement returns, so we immediately release the LOCKs.
 func (ts *trafficSwitcher) executeLockTablesOnSource(ctx context.Context) error {
-	ts.Logger().Infof("!!Locking (and then immediately unlocking) the following tables on source keyspace %v: %v", ts.SourceKeyspaceName(), ts.Tables())
+	ts.Logger().Infof("Locking (and then immediately unlocking) the following tables on source keyspace %v: %v", ts.SourceKeyspaceName(), ts.Tables())
 	if len(ts.Tables()) == 0 {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no tables found in the source keyspace %v associated with the %s workflow", ts.SourceKeyspaceName(), ts.WorkflowName())
 	}

@@ -185,9 +185,9 @@ func (dc *fakeDBClient) SupportsCapability(capability capabilities.FlavorCapabil
 	return false, nil
 }
 
-// SetDBName sets the database name for virtual keyspace support
+// SetDBName is part of the DBClient interface for virtual keyspace support
 func (dc *fakeDBClient) SetDBName(dbName string) {
-	// This is a no-op for the fake client
+	// No-op for fake client
 }
 
 // ExecuteFetch is part of the DBClient interface
