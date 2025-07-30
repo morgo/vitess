@@ -168,14 +168,7 @@ func StreamMigratorFinalize(ctx context.Context, ts ITrafficSwitcher, workflows 
 
 	workflowList := stringListify(workflows)
 	err := ts.ForAllSources(func(source *MigrationSource) error {
-		// Get the correct database name for virtual keyspaces
 		dbName := source.GetPrimary().DbName()
-		if tsImpl, ok := ts.(*trafficSwitcher); ok {
-			virtualDbName := tsImpl.ws.getDbNameOverride(ctx, ts.SourceKeyspaceName())
-			if virtualDbName != "" {
-				dbName = virtualDbName
-			}
-		}
 
 		query := fmt.Sprintf("delete from _vt.vreplication where db_name=%s and workflow in (%s)", encodeString(dbName), workflowList)
 		_, err := ts.VReplicationExec(ctx, source.GetPrimary().Alias, query)
@@ -187,14 +180,7 @@ func StreamMigratorFinalize(ctx context.Context, ts ITrafficSwitcher, workflows 
 	}
 
 	err = ts.ForAllTargets(func(target *MigrationTarget) error {
-		// Get the correct database name for virtual keyspaces
 		dbName := target.GetPrimary().DbName()
-		if tsImpl, ok := ts.(*trafficSwitcher); ok {
-			virtualDbName := tsImpl.ws.getDbNameOverride(ctx, ts.TargetKeyspaceName())
-			if virtualDbName != "" {
-				dbName = virtualDbName
-			}
-		}
 
 		query := fmt.Sprintf("update _vt.vreplication set state='Running' where db_name=%s and workflow in (%s)", encodeString(dbName), workflowList)
 		_, err := ts.VReplicationExec(ctx, target.GetPrimary().Alias, query)
@@ -1010,14 +996,7 @@ func (sm *StreamMigrator) createTargetStreams(ctx context.Context, tmpl []*VRepl
 	}
 
 	return sm.ts.ForAllTargets(func(target *MigrationTarget) error {
-		// Get the correct database name for virtual keyspaces
 		dbName := target.GetPrimary().DbName()
-		if tsImpl, ok := sm.ts.(*trafficSwitcher); ok {
-			virtualDbName := tsImpl.ws.getDbNameOverride(ctx, sm.ts.TargetKeyspaceName())
-			if virtualDbName != "" {
-				dbName = virtualDbName
-			}
-		}
 
 		ig := vreplication.NewInsertGenerator(binlogdatapb.VReplicationWorkflowState_Stopped, dbName)
 		tabletStreams := VReplicationStreams(tmpl).Copy().ToSlice()
@@ -1095,14 +1074,7 @@ func (sm *StreamMigrator) deleteTargetStreams(ctx context.Context) error {
 
 	workflows := stringListify(sm.workflows)
 	err := sm.ts.ForAllTargets(func(target *MigrationTarget) error {
-		// Get the correct database name for virtual keyspaces
 		dbName := target.GetPrimary().DbName()
-		if tsImpl, ok := sm.ts.(*trafficSwitcher); ok {
-			virtualDbName := tsImpl.ws.getDbNameOverride(ctx, sm.ts.TargetKeyspaceName())
-			if virtualDbName != "" {
-				dbName = virtualDbName
-			}
-		}
 
 		query := fmt.Sprintf("delete from _vt.vreplication where db_name=%s and workflow in (%s)", encodeString(dbName), workflows)
 		_, err := sm.ts.VReplicationExec(ctx, target.GetPrimary().Alias, query)

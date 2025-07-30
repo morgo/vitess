@@ -491,7 +491,6 @@ const InnoDBTableSizes = `
 		GROUP BY it.name
 `
 
-// TODO: These queries now includes the schema_name
 const ShowPartitions = `select table_schema, table_name, partition_name from information_schema.partitions where partition_name is not null AND table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')`
 const ShowTableRowCountClusteredIndex = `select database_name, table_name, n_rows, clustered_index_size * @@innodb_page_size from mysql.innodb_table_stats WHERE table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')`
 const ShowIndexSizes = `select database_name, table_name, index_name, stat_value * @@innodb_page_size from mysql.innodb_index_stats where stat_name = 'size' AND table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')`

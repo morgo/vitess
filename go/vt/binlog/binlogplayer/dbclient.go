@@ -44,7 +44,7 @@ type DBClient interface {
 	ExecuteFetch(query string, maxrows int) (qr *sqltypes.Result, err error)
 	ExecuteFetchMulti(query string, maxrows int) (qrs []*sqltypes.Result, err error)
 	SupportsCapability(capability capabilities.FlavorCapability) (bool, error)
-	SetDBName(dbName string) // Add method for virtual keyspace support
+	SetDBName(dbName string) // Add method for virtual shard support
 }
 
 // dbClientImpl is a real DBClient backed by a mysql connection.
@@ -135,7 +135,7 @@ func (dc *dbClientImpl) SupportsCapability(capability capabilities.FlavorCapabil
 	return dc.dbConn.SupportsCapability(capability)
 }
 
-// SetDBName sets the database name for virtual keyspace support
+// SetDBName sets the database name for virtual shard support
 func (dc *dbClientImpl) SetDBName(dbName string) {
 	// Create a new connector with the updated database name
 	params, _ := dc.dbConfig.MysqlParams()
@@ -214,7 +214,7 @@ func (dcr *dbClientImplWithSidecarDBReplacement) ExecuteFetchMulti(query string,
 	return dcr.dbClientImpl.ExecuteFetchMulti(strings.Join(qps, ";"), maxrows)
 }
 
-// SetDBName sets the database name for virtual keyspace support
+// SetDBName sets the database name for virtual shard support
 func (dcr *dbClientImplWithSidecarDBReplacement) SetDBName(dbName string) {
 	dcr.dbClientImpl.SetDBName(dbName)
 }

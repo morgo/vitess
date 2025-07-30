@@ -1409,14 +1409,14 @@ func (client *Client) RestoreFromBackup(ctx context.Context, tablet *topodatapb.
 	}, nil
 }
 
-// AddVirtualKeyspace is part of the tmclient.TabletManagerClient interface.
-func (client *Client) AddVirtualKeyspace(ctx context.Context, tablet *topodatapb.Tablet, req *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error) {
+// AddVirtualShard is part of the tmclient.TabletManagerClient interface.
+func (client *Client) AddVirtualShard(ctx context.Context, tablet *topodatapb.Tablet, req *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error) {
 	c, closer, err := client.dialer.dial(ctx, tablet)
 	if err != nil {
 		return nil, err
 	}
 	defer closer.Close()
-	response, err := c.AddVirtualKeyspace(ctx, req)
+	response, err := c.AddVirtualShard(ctx, req)
 	if err != nil {
 		return nil, err
 	}

@@ -1103,6 +1103,6 @@ func (itmc *internalTabletManagerClient) ResetSequences(ctx context.Context, tab
 	return fmt.Errorf("not implemented in vtcombo")
 }
 
-func (itmc *internalTabletManagerClient) AddVirtualKeyspace(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error) {
+func (itmc *internalTabletManagerClient) AddVirtualShard(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error) {
 	return nil, fmt.Errorf("not implemented in vtcombo")
 }

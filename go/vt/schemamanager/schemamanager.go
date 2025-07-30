@@ -125,12 +125,12 @@ func Run(ctx context.Context, controller Controller, executor Executor) (execRes
 	if err := controller.OnValidationSuccess(ctx); err != nil {
 		return execResult, err
 	}
-
 	execResult = executor.Execute(ctx, sqls)
 
 	if err := controller.OnExecutorComplete(ctx, execResult); err != nil {
 		return execResult, err
 	}
+
 	if execResult.ExecutorErr != "" || len(execResult.FailedShards) > 0 {
 		out, _ := json.MarshalIndent(execResult, "", "  ")
 		return execResult, fmt.Errorf("schema change failed, ExecuteResult: %v", string(out))

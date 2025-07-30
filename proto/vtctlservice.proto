@@ -82,8 +82,8 @@ service Vtctld {
   rpc CreateKeyspace(vtctldata.CreateKeyspaceRequest) returns (vtctldata.CreateKeyspaceResponse) {};
   // CreateShard creates the specified shard in the topology.
   rpc CreateShard(vtctldata.CreateShardRequest) returns (vtctldata.CreateShardResponse) {};
-  // CreateVirtualKeyspace creates a virtual keyspace that maps to a physical keyspace.
-  rpc CreateVirtualKeyspace(vtctldata.CreateVirtualKeyspaceRequest) returns (vtctldata.CreateVirtualKeyspaceResponse) {};
+  // CreateVirtualShard creates a virtual shard that maps to a physical shard.
+  rpc CreateVirtualShard(vtctldata.CreateVirtualShardRequest) returns (vtctldata.CreateVirtualShardResponse) {};
   // DeleteCellInfo deletes the CellInfo for the provided cell. The cell cannot
   // be referenced by any Shard record in the topology.
   rpc DeleteCellInfo(vtctldata.DeleteCellInfoRequest) returns (vtctldata.DeleteCellInfoResponse) {};
@@ -94,8 +94,6 @@ service Vtctld {
   // Otherwise, the keyspace must be empty (have no shards), or DeleteKeyspace
   // returns an error.
   rpc DeleteKeyspace(vtctldata.DeleteKeyspaceRequest) returns (vtctldata.DeleteKeyspaceResponse) {};
-  // DeleteVirtualKeyspace deletes the specified virtual keyspace from the topology.
-  rpc DeleteVirtualKeyspace(vtctldata.DeleteVirtualKeyspaceRequest) returns (vtctldata.DeleteVirtualKeyspaceResponse) {};
   // DeleteShards deletes the specified shards from the topology. In recursive
   // mode, it also deletes all tablets belonging to the shard. Otherwise, the
   // shard must be empty (have no tablets) or DeleteShards returns an error for
@@ -187,10 +185,6 @@ service Vtctld {
   rpc GetVersion(vtctldata.GetVersionRequest) returns (vtctldata.GetVersionResponse) {};
   // GetVSchema returns the vschema for a keyspace.
   rpc GetVSchema(vtctldata.GetVSchemaRequest) returns (vtctldata.GetVSchemaResponse) {};
-  // GetVirtualKeyspace returns information about the given virtual keyspace from the topology.
-  rpc GetVirtualKeyspace(vtctldata.GetVirtualKeyspaceRequest) returns (vtctldata.GetVirtualKeyspaceResponse) {};
-  // ListVirtualKeyspaces returns information about all virtual keyspaces in the topology.
-  rpc ListVirtualKeyspaces(vtctldata.ListVirtualKeyspacesRequest) returns (vtctldata.ListVirtualKeyspacesResponse) {};
 
   // GetWorkflows returns a list of workflows for the given keyspace.
   rpc GetWorkflows(vtctldata.GetWorkflowsRequest) returns (vtctldata.GetWorkflowsResponse) {};

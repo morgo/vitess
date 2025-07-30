@@ -255,8 +255,8 @@ message Workflow {
   // These are additional (optional) settings for vreplication workflows. Previously we used to add it to the
   // binlogdata.BinlogSource proto object. More details in go/vt/sidecardb/schema/vreplication.sql.
   WorkflowOptions options = 10;
-  // Virtual keyspace information for workflows that operate on virtual keyspaces
-  VirtualKeyspace virtual_keyspace = 11;
+  // Virtual shard information for workflows that operate on virtual shards
+  VirtualShard virtual_shard = 11;
 
   message ReplicationLocation {
     string keyspace = 1;
@@ -322,7 +322,7 @@ message Workflow {
     }
   }
 
-  message VirtualKeyspace {
+  message VirtualShard {
     string logical_keyspace = 1;
     string physical_keyspace = 2;
     map<string, string> schema_mapping = 3;
@@ -639,51 +639,28 @@ message CreateKeyspaceResponse {
   Keyspace keyspace = 1;
 }
 
-message CreateVirtualKeyspaceRequest {
-  // Name is the name of the virtual keyspace to create.
-  string name = 1;
-  // PhysicalKeyspace is the name of the physical keyspace that will host
-  // this virtual keyspace.
-  string physical_keyspace = 2;
-  // SchemaName is the MySQL schema name to use for this virtual keyspace.
-  // If empty, defaults to "vt_" + name.
-  string schema_name = 3;
+message CreateVirtualShardRequest {
+  // VirtualKeyspace is the name of the virtual keyspace.
+  string virtual_keyspace = 1;
+  // VirtualShard is the name of the virtual shard to create.
+  string virtual_shard = 2;
+  // PhysicalKeyspace is the name of the physical keyspace that hosts the data.
+  string physical_keyspace = 3;
+  // PhysicalShard is the name of the physical shard that hosts the data.
+  string physical_shard = 4;
+  // SchemaName is the MySQL schema name to use for this virtual shard.
+  // If empty, defaults to "vt_" + virtual_keyspace + "_" + virtual_shard.
+  string schema_name = 5;
 }
 
-message CreateVirtualKeyspaceResponse {
-  // VirtualKeyspace is the newly-created virtual keyspace.
-  topodata.VirtualKeyspace virtual_keyspace = 1;
+message CreateVirtualShardResponse {
+  // Shard is the newly-created virtual shard.
+  Shard shard = 1;
 }
 
 
 
-message GetVirtualKeyspaceRequest {
-  // Name is the name of the virtual keyspace to retrieve.
-  string name = 1;
-}
 
-message GetVirtualKeyspaceResponse {
-  // VirtualKeyspace is the virtual keyspace information.
-  topodata.VirtualKeyspace virtual_keyspace = 1;
-}
-
-message ListVirtualKeyspacesRequest {
-}
-
-message ListVirtualKeyspacesResponse {
-  // VirtualKeyspaces is the list of all virtual keyspaces.
-  repeated topodata.VirtualKeyspace virtual_keyspaces = 1;
-}
-
-message DeleteVirtualKeyspaceRequest {
-  // Name is the name of the virtual keyspace to delete.
-  string name = 1;
-  // Force allows deletion even if the virtual keyspace has data.
-  bool force = 2;
-}
-
-message DeleteVirtualKeyspaceResponse {
-}
 
 
 

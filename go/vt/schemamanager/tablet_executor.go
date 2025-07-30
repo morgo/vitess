@@ -106,91 +106,86 @@ func (exec *TabletExecutor) hasProvidedUUIDs() bool {
 	return len(exec.uuids) != 0
 }
 
-// getPhysicalKeyspace returns the physical keyspace for the given keyspace.
-// If the keyspace is virtual, it returns the underlying physical keyspace.
-// If the keyspace is not virtual, it returns the keyspace itself.
-func (exec *TabletExecutor) getPhysicalKeyspace(ctx context.Context, keyspace string) (string, error) {
-	vkInfo, err := exec.ts.GetVirtualKeyspace(ctx, keyspace)
-	if err == nil {
-		// This is a virtual keyspace, return the physical keyspace
-		return vkInfo.PhysicalKeyspace, nil
-	} else if topo.IsErrType(err, topo.NoNode) {
-		// Not a virtual keyspace, return the keyspace itself
-		return keyspace, nil
-	} else {
-		// Some other error occurred
-		return "", fmt.Errorf("error checking virtual keyspace %s: %v", keyspace, err)
-	}
-}
-
-// getVirtualKeyspaceInfo returns the virtual keyspace information if the keyspace is virtual.
-// Returns nil if the keyspace is not virtual.
-func (exec *TabletExecutor) getVirtualKeyspaceInfo(ctx context.Context, keyspace string) (*topo.VirtualKeyspaceInfo, error) {
-	vkInfo, vkErr := exec.ts.GetVirtualKeyspace(ctx, keyspace)
-	if vkErr == nil {
-		// This is a virtual keyspace
-		return vkInfo, nil
-	} else if topo.IsErrType(vkErr, topo.NoNode) {
-		// Not a virtual keyspace
-		return nil, nil
-	} else {
-		// Some other error occurred
-		return nil, fmt.Errorf("error checking virtual keyspace %s: %v", keyspace, vkErr)
-	}
-}
-
 // Open opens a connection to the primary for every shard
 // If virtual:
-// - Use DbNameOverride to set the schema name of the virtual keyspace.
+// - Use DbNameOverride to set the schema name of the virtual shard.
 func (exec *TabletExecutor) Open(ctx context.Context, keyspace string) error {
 	if !exec.isClosed {
 		return nil
 	}
 	exec.keyspace = keyspace
-	_, err := exec.ts.FindAllShardsInKeyspace(ctx, keyspace, nil)
+	shards, err := exec.ts.FindAllShardsInKeyspace(ctx, keyspace, nil)
 	if err != nil {
-		return fmt.Errorf("error finding shards in keyspace %s: %v", keyspace, err)
-	}
-
-	// Check if this is a virtual keyspace and get the physical keyspace for shard discovery
-	var dbNameOverride string
-	var shards map[string]*topo.ShardInfo
-	vkInfo, err := exec.getVirtualKeyspaceInfo(ctx, keyspace)
-	if err != nil {
-		return fmt.Errorf("error getting virtual keyspace info for %s: %v", keyspace, err)
-	}
-	if vkInfo != nil {
-		// Set the DbNameOverride to the schema name of the virtual keyspace
-		// We load the shards of the physical keyspace
-		// TODO: not entirely accurate if there are multiple shards.
-		dbNameOverride = vkInfo.SchemaName
-		shards, err = exec.ts.FindAllShardsInKeyspace(ctx, vkInfo.PhysicalKeyspace, nil)
-		if err != nil {
-			return fmt.Errorf("error finding shards in physical keyspace %s: %v", vkInfo.PhysicalKeyspace, err)
-		}
-		exec.logger.Printf("Using DbNameOverride %s for virtual keyspace %s", dbNameOverride, keyspace)
-	} else {
-		// Not a virtual keyspace, use the original keyspace
-		shards, err = exec.ts.FindAllShardsInKeyspace(ctx, keyspace, nil)
-		if err != nil {
-			return fmt.Errorf("error finding shards in keyspace %s: %v", keyspace, err)
-		}
+		return fmt.Errorf("unable to get shards for keyspace: %s, error: %v", keyspace, err)
 	}
 	exec.tablets = make([]*topodatapb.Tablet, 0, len(shards))
 	for shardName, shardInfo := range shards {
 		if !shardInfo.HasPrimary() {
 			return fmt.Errorf("shard: %s does not have a primary", shardName)
 		}
-		tabletInfo, err := exec.ts.GetTablet(ctx, shardInfo.PrimaryAlias)
+
+		// Check if this is a virtual shard first
+		isVirtual, err := topo.IsVirtualShard(ctx, exec.ts, keyspace, shardName)
 		if err != nil {
-			return fmt.Errorf("unable to get primary tablet info, keyspace: %s, shard: %s, error: %v", keyspace, shardName, err)
+			return fmt.Errorf("unable to check if shard is virtual, keyspace: %s, shard: %s, error: %v", keyspace, shardName, err)
 		}
-		// Before adding the shard to the exec.tablets list, if it's virtual
-		// we need to set the DbNameOverride to the schema name of the virtual keyspace.
+
+		var primaryTabletInfo *topo.TabletInfo
+		var dbNameOverride string
+
+		if isVirtual {
+			// For virtual shards, we need to get the physical primary tablet
+			physicalKeyspace, physicalShard, err := topo.GetPhysicalShardInfo(ctx, exec.ts, keyspace, shardName)
+			if err != nil {
+				return fmt.Errorf("unable to get physical shard info for virtual shard %s/%s: %v", keyspace, shardName, err)
+			}
+
+			// Get the physical shard info
+			physicalShardInfo, err := exec.ts.GetShard(ctx, physicalKeyspace, physicalShard)
+			if err != nil {
+				return fmt.Errorf("unable to get physical shard info, keyspace: %s, shard: %s, error: %v", physicalKeyspace, physicalShard, err)
+			}
+
+			if !physicalShardInfo.HasPrimary() {
+				return fmt.Errorf("physical shard: %s/%s does not have a primary", physicalKeyspace, physicalShard)
+			}
+
+			// Get the physical primary tablet
+			primaryTabletInfo, err = exec.ts.GetTablet(ctx, physicalShardInfo.PrimaryAlias)
+			if err != nil {
+				return fmt.Errorf("unable to get physical primary tablet info, keyspace: %s, shard: %s, error: %v", physicalKeyspace, physicalShard, err)
+			}
+
+			// Get the database name override from the virtual tablets
+			virtualTablets, err := exec.ts.GetTabletMapForShard(ctx, keyspace, shardName)
+			if err != nil {
+				return fmt.Errorf("unable to get virtual tablets for shard %s/%s: %v", keyspace, shardName, err)
+			}
+
+			for _, virtualTablet := range virtualTablets {
+				if virtualTablet.Type == topodatapb.TabletType_VIRTUAL {
+					dbNameOverride = virtualTablet.GetDbNameOverride()
+					break
+				}
+			}
+
+			if dbNameOverride == "" {
+				return fmt.Errorf("no DbNameOverride found for virtual shard %s/%s", keyspace, shardName)
+			}
+		} else {
+			// For regular shards, get the primary tablet directly
+			primaryTabletInfo, err = exec.ts.GetTablet(ctx, shardInfo.PrimaryAlias)
+			if err != nil {
+				return fmt.Errorf("unable to get primary tablet info, keyspace: %s, shard: %s, error: %v", keyspace, shardName, err)
+			}
+		}
+
+		// Set the database name override if we have one
 		if dbNameOverride != "" {
-			tabletInfo.Tablet.DbNameOverride = dbNameOverride
+			primaryTabletInfo.Tablet.DbNameOverride = dbNameOverride
 		}
-		exec.tablets = append(exec.tablets, tabletInfo.Tablet)
+
+		exec.tablets = append(exec.tablets, primaryTabletInfo.Tablet)
 	}
 	if len(exec.tablets) == 0 {
 		return fmt.Errorf("keyspace: %s does not contain any primary tablets", keyspace)
@@ -636,6 +631,7 @@ func (exec *TabletExecutor) executeOneTablet(
 
 	var results []*querypb.QueryResult
 	var err error
+
 	if viaQueryService {
 		result, reserr := exec.tmc.ExecuteQuery(ctx, tablet, &tabletmanagerdatapb.ExecuteQueryRequest{
 			Query:   []byte(sql),
@@ -652,6 +648,12 @@ func (exec *TabletExecutor) executeOneTablet(
 				return
 			}
 		}
+
+		// If we have a DbNameOverride, prefix the SQL with USE statement
+		if tablet.DbNameOverride != "" {
+			sql = fmt.Sprintf("USE %s; %s", tablet.DbNameOverride, sql)
+		}
+
 		request := &tabletmanagerdatapb.ExecuteMultiFetchAsDbaRequest{
 			Sql:     []byte(sql),
 			MaxRows: 10,

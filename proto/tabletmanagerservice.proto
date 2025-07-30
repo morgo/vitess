@@ -221,6 +221,6 @@ service TabletManager {
   // GetThrottlerStatus gets the status of a tablet throttler
   rpc GetThrottlerStatus(tabletmanagerdata.GetThrottlerStatusRequest) returns (tabletmanagerdata.GetThrottlerStatusResponse) {};
 
-  // AddVirtualKeyspace adds a virtual keyspace to the tablet
-  rpc AddVirtualKeyspace(tabletmanagerdata.AddVirtualKeyspaceRequest) returns (tabletmanagerdata.AddVirtualKeyspaceResponse) {};
+  // AddVirtualShard adds a virtual shard to the tablet
+  rpc AddVirtualShard(tabletmanagerdata.AddVirtualShardRequest) returns (tabletmanagerdata.AddVirtualShardResponse) {};
 }

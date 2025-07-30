@@ -203,8 +203,8 @@ func (vre *Engine) InitDBConfigWithKeyspace(physicalKeyspace string) error {
 	return nil
 }
 
-// AddVirtualKeyspace adds a virtual keyspace to the engine's schema mapping.
-func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, dbName string) error {
+// AddVirtualShard adds a virtual shard's keyspace to the engine's schema mapping.
+func (vre *Engine) AddVirtualShard(virtualKeyspace, virtualShard, dbName string) error {
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 
@@ -214,7 +214,7 @@ func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, dbName string) error {
 
 	// Check if virtual keyspace already exists
 	if _, exists := vre.schemaMap[virtualKeyspace]; exists {
-		return fmt.Errorf("virtual keyspace %s already exists", virtualKeyspace)
+		return nil // already done.
 	}
 
 	// Add the mapping
@@ -236,7 +236,7 @@ func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, dbName string) error {
 	}{
 		filtered: func() binlogplayer.DBClient {
 			client := vre.dbClientFactoryFiltered()
-			// Set the client to use the specific schema for this virtual keyspace
+			// Set the client to use the specific schema for this virtual shard
 			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
 				schemaClient.SetDBName(dbName)
 			}
@@ -244,7 +244,7 @@ func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, dbName string) error {
 		},
 		dba: func() binlogplayer.DBClient {
 			client := vre.dbClientFactoryDba()
-			// Set the client to use the specific schema for this virtual keyspace
+			// Set the client to use the specific schema for this virtual shard
 			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
 				schemaClient.SetDBName(dbName)
 			}
@@ -252,47 +252,38 @@ func (vre *Engine) AddVirtualKeyspace(virtualKeyspace, dbName string) error {
 		},
 	}
 
-	log.Infof("Added virtual keyspace %s with schema %s to VReplication engine", virtualKeyspace, dbName)
+	log.Infof("Added virtual shard %s with schema %s to VReplication engine", virtualKeyspace, dbName)
 	return nil
 }
 
-// RemoveVirtualKeyspace removes a virtual keyspace from the engine's schema mapping.
-func (vre *Engine) RemoveVirtualKeyspace(virtualKeyspace string) error {
+// RemoveVirtualShard removes a virtual shard from the engine's schema mapping.
+func (vre *Engine) RemoveVirtualShard(virtualKeyspace, virtualShard string) error {
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 
-	// Check if it's the physical keyspace
-	if virtualKeyspace == vre.physicalKeyspace {
-		return fmt.Errorf("cannot remove physical keyspace %s", virtualKeyspace)
-	}
-
-	// Check if virtual keyspace exists
-	if _, exists := vre.schemaMap[virtualKeyspace]; !exists {
-		return fmt.Errorf("virtual keyspace %s does not exist", virtualKeyspace)
-	}
-
-	// Remove the mapping
-	delete(vre.schemaMap, virtualKeyspace)
+	// We don't remove the schema.
+	// From the schema cache.
 
 	// Remove schema-specific client factories
 	if vre.schemaClientFactories != nil {
 		delete(vre.schemaClientFactories, virtualKeyspace)
 	}
 
-	// Stop any controllers associated with this virtual keyspace
-	vre.stopControllersForVirtualKeyspace(virtualKeyspace)
+	// Stop any controllers associated with this virtual shard
+	vre.stopControllersForVirtualShard(virtualKeyspace, virtualShard)
 
-	log.Infof("Removed virtual keyspace %s from VReplication engine", virtualKeyspace)
+	log.Infof("Removed virtual shard %s from VReplication engine", virtualShard)
 	return nil
 }
 
-// stopControllersForVirtualKeyspace stops all controllers that are targeting the specified virtual keyspace
-func (vre *Engine) stopControllersForVirtualKeyspace(virtualKeyspace string) {
+// stopControllersForVirtualShard stops all controllers that are targeting the specified virtual shard
+func (vre *Engine) stopControllersForVirtualShard(virtualKeyspace, virtualShard string) {
 	var controllersToStop []int32
 
-	// Find controllers targeting this virtual keyspace
+	// Find controllers targeting this virtual shard
 	for id, ct := range vre.controllers {
 		if ct.targetKeyspace == virtualKeyspace {
+			// TODO: Add shard-level matching when controller has shard information
 			controllersToStop = append(controllersToStop, id)
 		}
 	}
@@ -300,59 +291,59 @@ func (vre *Engine) stopControllersForVirtualKeyspace(virtualKeyspace string) {
 	// Stop the controllers
 	for _, id := range controllersToStop {
 		if ct := vre.controllers[id]; ct != nil {
-			log.Infof("Stopping controller %d for virtual keyspace %s", id, virtualKeyspace)
+			log.Infof("Stopping controller %d for virtual shard %s/%s", id, virtualKeyspace, virtualShard)
 			ct.Stop()
 			delete(vre.controllers, id)
 		}
 	}
 }
 
-// OnVirtualKeyspaceCreated is called when a new virtual keyspace is created.
-// This method integrates with the virtual keyspace lifecycle to automatically
-// register the new keyspace and optionally create replication streams.
-func (vre *Engine) OnVirtualKeyspaceCreated(ctx context.Context, virtualKeyspace, physicalKeyspace, dbName string) error {
-	log.Infof("Virtual keyspace created: %s (physical: %s, schema: %s)", virtualKeyspace, physicalKeyspace, dbName)
+// OnVirtualShardCreated is called when a new virtual shard is created.
+// This method integrates with the virtual shard lifecycle to automatically
+// register the new shard and optionally create replication streams.
+func (vre *Engine) OnVirtualShardCreated(ctx context.Context, virtualKeyspace, virtualShard, physicalKeyspace, physicalShard, dbName string) error {
+	log.Infof("Virtual shard created: %s/%s (physical: %s/%s, schema: %s)", virtualKeyspace, virtualShard, physicalKeyspace, physicalShard, dbName)
 
-	// Add the virtual keyspace to our schema mapping
-	if err := vre.AddVirtualKeyspace(virtualKeyspace, dbName); err != nil {
-		return fmt.Errorf("failed to add virtual keyspace %s: %v", virtualKeyspace, err)
+	// Add the virtual shard to our schema mapping
+	if err := vre.AddVirtualShard(virtualKeyspace, virtualShard, dbName); err != nil {
+		return fmt.Errorf("failed to add virtual shard %s/%s: %v", virtualKeyspace, virtualShard, err)
 	}
 
 	// TODO: Implement stream auto-creation logic
 	// This would involve:
-	// 1. Finding existing streams for the physical keyspace
-	// 2. Creating corresponding streams for the virtual keyspace
-	// 3. Inheriting configuration from physical keyspace streams
+	// 1. Finding existing streams for the physical shard
+	// 2. Creating corresponding streams for the virtual shard
+	// 3. Inheriting configuration from physical shard streams
 	// 4. Handling initial data synchronization
 
 	return nil
 }
 
-// OnVirtualKeyspaceDeleted is called when a virtual keyspace is deleted.
-// This method integrates with the virtual keyspace lifecycle to automatically
+// OnVirtualShardDeleted is called when a virtual shard is deleted.
+// This method integrates with the virtual shard lifecycle to automatically
 // clean up associated replication streams and schema mappings.
-func (vre *Engine) OnVirtualKeyspaceDeleted(ctx context.Context, virtualKeyspace string) error {
-	log.Infof("Virtual keyspace deleted: %s", virtualKeyspace)
+func (vre *Engine) OnVirtualShardDeleted(ctx context.Context, virtualKeyspace, virtualShard string) error {
+	log.Infof("Virtual shard deleted: %s/%s", virtualKeyspace, virtualShard)
 
-	// Remove the virtual keyspace from our schema mapping
+	// Remove the virtual shard from our schema mapping
 	// This will also stop associated controllers
-	if err := vre.RemoveVirtualKeyspace(virtualKeyspace); err != nil {
-		// Log the error but don't fail - the keyspace might not have been registered
-		log.Warningf("Failed to remove virtual keyspace %s: %v", virtualKeyspace, err)
+	if err := vre.RemoveVirtualShard(virtualKeyspace, virtualShard); err != nil {
+		// Log the error but don't fail - the shard might not have been registered
+		log.Warningf("Failed to remove virtual shard %s/%s: %v", virtualKeyspace, virtualShard, err)
 	}
 
 	// TODO: Implement stream cleanup logic
 	// This would involve:
-	// 1. Finding all streams targeting the virtual keyspace
+	// 1. Finding all streams targeting the virtual shard
 	// 2. Stopping and deleting the streams
 	// 3. Cleaning up associated metadata (copy_state, etc.)
 
 	return nil
 }
 
-// CreateVirtualKeyspaceStreams creates replication streams for a new virtual keyspace
-// by inheriting configuration from the physical keyspace streams.
-func (vre *Engine) CreateVirtualKeyspaceStreams(ctx context.Context, virtualKeyspace, physicalKeyspace string) error {
+// CreateVirtualShardStreams creates replication streams for a new virtual shard
+// by inheriting configuration from the physical shard streams.
+func (vre *Engine) CreateVirtualShardStreams(ctx context.Context, virtualKeyspace, virtualShard, physicalKeyspace, physicalShard string) error {
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 
@@ -360,38 +351,40 @@ func (vre *Engine) CreateVirtualKeyspaceStreams(ctx context.Context, virtualKeys
 		return fmt.Errorf("vreplication engine is not open")
 	}
 
-	// Find streams for the physical keyspace
+	// Find streams for the physical shard
 	var physicalStreams []int32
 	for id, ct := range vre.controllers {
 		if ct.targetKeyspace == physicalKeyspace {
+			// TODO: Add shard-level matching when controller has shard information
 			physicalStreams = append(physicalStreams, id)
 		}
 	}
 
 	if len(physicalStreams) == 0 {
-		log.Infof("No streams found for physical keyspace %s, skipping stream creation for virtual keyspace %s", physicalKeyspace, virtualKeyspace)
+		log.Infof("No streams found for physical shard %s/%s, skipping stream creation for virtual shard %s/%s", physicalKeyspace, physicalShard, virtualKeyspace, virtualShard)
 		return nil
 	}
 
 	// TODO: Implement stream creation logic
 	// This would involve:
-	// 1. Reading configuration from physical keyspace streams
-	// 2. Creating new vreplication entries for the virtual keyspace
-	// 3. Starting new controllers for the virtual keyspace streams
+	// 1. Reading configuration from physical shard streams
+	// 2. Creating new vreplication entries for the virtual shard
+	// 3. Starting new controllers for the virtual shard streams
 	// 4. Handling initial synchronization
 
-	log.Infof("Would create %d streams for virtual keyspace %s based on physical keyspace %s", len(physicalStreams), virtualKeyspace, physicalKeyspace)
+	log.Infof("Would create %d streams for virtual shard %s/%s based on physical shard %s/%s", len(physicalStreams), virtualKeyspace, virtualShard, physicalKeyspace, physicalShard)
 	return nil
 }
 
-// GetVirtualKeyspaceStreams returns all stream IDs that are targeting the specified virtual keyspace
-func (vre *Engine) GetVirtualKeyspaceStreams(virtualKeyspace string) []int32 {
+// GetVirtualShardStreams returns all stream IDs that are targeting the specified virtual shard
+func (vre *Engine) GetVirtualShardStreams(virtualKeyspace, virtualShard string) []int32 {
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 
 	var streams []int32
 	for id, ct := range vre.controllers {
 		if ct.targetKeyspace == virtualKeyspace {
+			// TODO: Add shard-level matching when controller has shard information
 			streams = append(streams, id)
 		}
 	}

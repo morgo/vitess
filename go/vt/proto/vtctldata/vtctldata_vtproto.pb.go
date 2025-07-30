@@ -454,11 +454,11 @@ func (m *Workflow_Stream) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *Workflow_VirtualKeyspace) CloneVT() *Workflow_VirtualKeyspace {
+func (m *Workflow_VirtualShard) CloneVT() *Workflow_VirtualShard {
 	if m == nil {
-		return (*Workflow_VirtualKeyspace)(nil)
+		return (*Workflow_VirtualShard)(nil)
 	}
-	r := new(Workflow_VirtualKeyspace)
+	r := new(Workflow_VirtualShard)
 	r.LogicalKeyspace = m.LogicalKeyspace
 	r.PhysicalKeyspace = m.PhysicalKeyspace
 	if rhs := m.SchemaMapping; rhs != nil {
@@ -475,7 +475,7 @@ func (m *Workflow_VirtualKeyspace) CloneVT() *Workflow_VirtualKeyspace {
 	return r
 }
 
-func (m *Workflow_VirtualKeyspace) CloneMessageVT() proto.Message {
+func (m *Workflow_VirtualShard) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -493,7 +493,7 @@ func (m *Workflow) CloneVT() *Workflow {
 	r.MaxVReplicationTransactionLag = m.MaxVReplicationTransactionLag
 	r.DeferSecondaryKeys = m.DeferSecondaryKeys
 	r.Options = m.Options.CloneVT()
-	r.VirtualKeyspace = m.VirtualKeyspace.CloneVT()
+	r.VirtualShard = m.VirtualShard.CloneVT()
 	if rhs := m.ShardStreams; rhs != nil {
 		tmpContainer := make(map[string]*Workflow_ShardStream, len(rhs))
 		for k, v := range rhs {
@@ -1250,13 +1250,15 @@ func (m *CreateKeyspaceResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *CreateVirtualKeyspaceRequest) CloneVT() *CreateVirtualKeyspaceRequest {
+func (m *CreateVirtualShardRequest) CloneVT() *CreateVirtualShardRequest {
 	if m == nil {
-		return (*CreateVirtualKeyspaceRequest)(nil)
+		return (*CreateVirtualShardRequest)(nil)
 	}
-	r := new(CreateVirtualKeyspaceRequest)
-	r.Name = m.Name
+	r := new(CreateVirtualShardRequest)
+	r.VirtualKeyspace = m.VirtualKeyspace
+	r.VirtualShard = m.VirtualShard
 	r.PhysicalKeyspace = m.PhysicalKeyspace
+	r.PhysicalShard = m.PhysicalShard
 	r.SchemaName = m.SchemaName
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -1265,16 +1267,16 @@ func (m *CreateVirtualKeyspaceRequest) CloneVT() *CreateVirtualKeyspaceRequest {
 	return r
 }
 
-func (m *CreateVirtualKeyspaceRequest) CloneMessageVT() proto.Message {
+func (m *CreateVirtualShardRequest) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *CreateVirtualKeyspaceResponse) CloneVT() *CreateVirtualKeyspaceResponse {
+func (m *CreateVirtualShardResponse) CloneVT() *CreateVirtualShardResponse {
 	if m == nil {
-		return (*CreateVirtualKeyspaceResponse)(nil)
+		return (*CreateVirtualShardResponse)(nil)
 	}
-	r := new(CreateVirtualKeyspaceResponse)
-	r.VirtualKeyspace = m.VirtualKeyspace.CloneVT()
+	r := new(CreateVirtualShardResponse)
+	r.Shard = m.Shard.CloneVT()
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -1282,114 +1284,7 @@ func (m *CreateVirtualKeyspaceResponse) CloneVT() *CreateVirtualKeyspaceResponse
 	return r
 }
 
-func (m *CreateVirtualKeyspaceResponse) CloneMessageVT() proto.Message {
-	return m.CloneVT()
-}
-
-func (m *GetVirtualKeyspaceRequest) CloneVT() *GetVirtualKeyspaceRequest {
-	if m == nil {
-		return (*GetVirtualKeyspaceRequest)(nil)
-	}
-	r := new(GetVirtualKeyspaceRequest)
-	r.Name = m.Name
-	if len(m.unknownFields) > 0 {
-		r.unknownFields = make([]byte, len(m.unknownFields))
-		copy(r.unknownFields, m.unknownFields)
-	}
-	return r
-}
-
-func (m *GetVirtualKeyspaceRequest) CloneMessageVT() proto.Message {
-	return m.CloneVT()
-}
-
-func (m *GetVirtualKeyspaceResponse) CloneVT() *GetVirtualKeyspaceResponse {
-	if m == nil {
-		return (*GetVirtualKeyspaceResponse)(nil)
-	}
-	r := new(GetVirtualKeyspaceResponse)
-	r.VirtualKeyspace = m.VirtualKeyspace.CloneVT()
-	if len(m.unknownFields) > 0 {
-		r.unknownFields = make([]byte, len(m.unknownFields))
-		copy(r.unknownFields, m.unknownFields)
-	}
-	return r
-}
-
-func (m *GetVirtualKeyspaceResponse) CloneMessageVT() proto.Message {
-	return m.CloneVT()
-}
-
-func (m *ListVirtualKeyspacesRequest) CloneVT() *ListVirtualKeyspacesRequest {
-	if m == nil {
-		return (*ListVirtualKeyspacesRequest)(nil)
-	}
-	r := new(ListVirtualKeyspacesRequest)
-	if len(m.unknownFields) > 0 {
-		r.unknownFields = make([]byte, len(m.unknownFields))
-		copy(r.unknownFields, m.unknownFields)
-	}
-	return r
-}
-
-func (m *ListVirtualKeyspacesRequest) CloneMessageVT() proto.Message {
-	return m.CloneVT()
-}
-
-func (m *ListVirtualKeyspacesResponse) CloneVT() *ListVirtualKeyspacesResponse {
-	if m == nil {
-		return (*ListVirtualKeyspacesResponse)(nil)
-	}
-	r := new(ListVirtualKeyspacesResponse)
-	if rhs := m.VirtualKeyspaces; rhs != nil {
-		tmpContainer := make([]*topodata.VirtualKeyspace, len(rhs))
-		for k, v := range rhs {
-			tmpContainer[k] = v.CloneVT()
-		}
-		r.VirtualKeyspaces = tmpContainer
-	}
-	if len(m.unknownFields) > 0 {
-		r.unknownFields = make([]byte, len(m.unknownFields))
-		copy(r.unknownFields, m.unknownFields)
-	}
-	return r
-}
-
-func (m *ListVirtualKeyspacesResponse) CloneMessageVT() proto.Message {
-	return m.CloneVT()
-}
-
-func (m *DeleteVirtualKeyspaceRequest) CloneVT() *DeleteVirtualKeyspaceRequest {
-	if m == nil {
-		return (*DeleteVirtualKeyspaceRequest)(nil)
-	}
-	r := new(DeleteVirtualKeyspaceRequest)
-	r.Name = m.Name
-	r.Force = m.Force
-	if len(m.unknownFields) > 0 {
-		r.unknownFields = make([]byte, len(m.unknownFields))
-		copy(r.unknownFields, m.unknownFields)
-	}
-	return r
-}
-
-func (m *DeleteVirtualKeyspaceRequest) CloneMessageVT() proto.Message {
-	return m.CloneVT()
-}
-
-func (m *DeleteVirtualKeyspaceResponse) CloneVT() *DeleteVirtualKeyspaceResponse {
-	if m == nil {
-		return (*DeleteVirtualKeyspaceResponse)(nil)
-	}
-	r := new(DeleteVirtualKeyspaceResponse)
-	if len(m.unknownFields) > 0 {
-		r.unknownFields = make([]byte, len(m.unknownFields))
-		copy(r.unknownFields, m.unknownFields)
-	}
-	return r
-}
-
-func (m *DeleteVirtualKeyspaceResponse) CloneMessageVT() proto.Message {
+func (m *CreateVirtualShardResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -7755,7 +7650,7 @@ func (m *Workflow_Stream) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *Workflow_VirtualKeyspace) MarshalVT() (dAtA []byte, err error) {
+func (m *Workflow_VirtualShard) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -7768,12 +7663,12 @@ func (m *Workflow_VirtualKeyspace) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *Workflow_VirtualKeyspace) MarshalToVT(dAtA []byte) (int, error) {
+func (m *Workflow_VirtualShard) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *Workflow_VirtualKeyspace) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *Workflow_VirtualShard) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -7851,8 +7746,8 @@ func (m *Workflow) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.VirtualKeyspace != nil {
-		size, err := m.VirtualKeyspace.MarshalToSizedBufferVT(dAtA[:i])
+	if m.VirtualShard != nil {
+		size, err := m.VirtualShard.MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
 			return 0, err
 		}
@@ -10016,7 +9911,7 @@ func (m *CreateKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
-func (m *CreateVirtualKeyspaceRequest) MarshalVT() (dAtA []byte, err error) {
+func (m *CreateVirtualShardRequest) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -10029,12 +9924,12 @@ func (m *CreateVirtualKeyspaceRequest) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CreateVirtualKeyspaceRequest) MarshalToVT(dAtA []byte) (int, error) {
+func (m *CreateVirtualShardRequest) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *CreateVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *CreateVirtualShardRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -10051,26 +9946,40 @@ func (m *CreateVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int,
 		copy(dAtA[i:], m.SchemaName)
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SchemaName)))
 		i--
-		dAtA[i] = 0x1a
+		dAtA[i] = 0x2a
+	}
+	if len(m.PhysicalShard) > 0 {
+		i -= len(m.PhysicalShard)
+		copy(dAtA[i:], m.PhysicalShard)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.PhysicalShard)))
+		i--
+		dAtA[i] = 0x22
 	}
 	if len(m.PhysicalKeyspace) > 0 {
 		i -= len(m.PhysicalKeyspace)
 		copy(dAtA[i:], m.PhysicalKeyspace)
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.PhysicalKeyspace)))
 		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.VirtualShard) > 0 {
+		i -= len(m.VirtualShard)
+		copy(dAtA[i:], m.VirtualShard)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.VirtualShard)))
+		i--
 		dAtA[i] = 0x12
 	}
-	if len(m.Name) > 0 {
-		i -= len(m.Name)
-		copy(dAtA[i:], m.Name)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Name)))
+	if len(m.VirtualKeyspace) > 0 {
+		i -= len(m.VirtualKeyspace)
+		copy(dAtA[i:], m.VirtualKeyspace)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.VirtualKeyspace)))
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *CreateVirtualKeyspaceResponse) MarshalVT() (dAtA []byte, err error) {
+func (m *CreateVirtualShardResponse) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -10083,12 +9992,12 @@ func (m *CreateVirtualKeyspaceResponse) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CreateVirtualKeyspaceResponse) MarshalToVT(dAtA []byte) (int, error) {
+func (m *CreateVirtualShardResponse) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *CreateVirtualKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *CreateVirtualShardResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -10100,8 +10009,8 @@ func (m *CreateVirtualKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.VirtualKeyspace != nil {
-		size, err := m.VirtualKeyspace.MarshalToSizedBufferVT(dAtA[:i])
+	if m.Shard != nil {
+		size, err := m.Shard.MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
 			return 0, err
 		}
@@ -10109,250 +10018,6 @@ func (m *CreateVirtualKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
 		i--
 		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *GetVirtualKeyspaceRequest) MarshalVT() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *GetVirtualKeyspaceRequest) MarshalToVT(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVT(dAtA[:size])
-}
-
-func (m *GetVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
-	}
-	if len(m.Name) > 0 {
-		i -= len(m.Name)
-		copy(dAtA[i:], m.Name)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Name)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *GetVirtualKeyspaceResponse) MarshalVT() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *GetVirtualKeyspaceResponse) MarshalToVT(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVT(dAtA[:size])
-}
-
-func (m *GetVirtualKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
-	}
-	if m.VirtualKeyspace != nil {
-		size, err := m.VirtualKeyspace.MarshalToSizedBufferVT(dAtA[:i])
-		if err != nil {
-			return 0, err
-		}
-		i -= size
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *ListVirtualKeyspacesRequest) MarshalVT() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ListVirtualKeyspacesRequest) MarshalToVT(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVT(dAtA[:size])
-}
-
-func (m *ListVirtualKeyspacesRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *ListVirtualKeyspacesResponse) MarshalVT() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ListVirtualKeyspacesResponse) MarshalToVT(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVT(dAtA[:size])
-}
-
-func (m *ListVirtualKeyspacesResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
-	}
-	if len(m.VirtualKeyspaces) > 0 {
-		for iNdEx := len(m.VirtualKeyspaces) - 1; iNdEx >= 0; iNdEx-- {
-			size, err := m.VirtualKeyspaces[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
-			i--
-			dAtA[i] = 0xa
-		}
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *DeleteVirtualKeyspaceRequest) MarshalVT() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *DeleteVirtualKeyspaceRequest) MarshalToVT(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVT(dAtA[:size])
-}
-
-func (m *DeleteVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
-	}
-	if m.Force {
-		i--
-		if m.Force {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x10
-	}
-	if len(m.Name) > 0 {
-		i -= len(m.Name)
-		copy(dAtA[i:], m.Name)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Name)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *DeleteVirtualKeyspaceResponse) MarshalVT() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *DeleteVirtualKeyspaceResponse) MarshalToVT(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVT(dAtA[:size])
-}
-
-func (m *DeleteVirtualKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
 	}
 	return len(dAtA) - i, nil
 }
@@ -23671,7 +23336,7 @@ func (m *Workflow_Stream) SizeVT() (n int) {
 	return n
 }
 
-func (m *Workflow_VirtualKeyspace) SizeVT() (n int) {
+func (m *Workflow_VirtualShard) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -23749,8 +23414,8 @@ func (m *Workflow) SizeVT() (n int) {
 		l = m.Options.SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if m.VirtualKeyspace != nil {
-		l = m.VirtualKeyspace.SizeVT()
+	if m.VirtualShard != nil {
+		l = m.VirtualShard.SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
@@ -24528,17 +24193,25 @@ func (m *CreateKeyspaceResponse) SizeVT() (n int) {
 	return n
 }
 
-func (m *CreateVirtualKeyspaceRequest) SizeVT() (n int) {
+func (m *CreateVirtualShardRequest) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.Name)
+	l = len(m.VirtualKeyspace)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.VirtualShard)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	l = len(m.PhysicalKeyspace)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.PhysicalShard)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -24550,97 +24223,16 @@ func (m *CreateVirtualKeyspaceRequest) SizeVT() (n int) {
 	return n
 }
 
-func (m *CreateVirtualKeyspaceResponse) SizeVT() (n int) {
+func (m *CreateVirtualShardResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.VirtualKeyspace != nil {
-		l = m.VirtualKeyspace.SizeVT()
+	if m.Shard != nil {
+		l = m.Shard.SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	n += len(m.unknownFields)
-	return n
-}
-
-func (m *GetVirtualKeyspaceRequest) SizeVT() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Name)
-	if l > 0 {
-		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
-	}
-	n += len(m.unknownFields)
-	return n
-}
-
-func (m *GetVirtualKeyspaceResponse) SizeVT() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.VirtualKeyspace != nil {
-		l = m.VirtualKeyspace.SizeVT()
-		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
-	}
-	n += len(m.unknownFields)
-	return n
-}
-
-func (m *ListVirtualKeyspacesRequest) SizeVT() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	n += len(m.unknownFields)
-	return n
-}
-
-func (m *ListVirtualKeyspacesResponse) SizeVT() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m.VirtualKeyspaces) > 0 {
-		for _, e := range m.VirtualKeyspaces {
-			l = e.SizeVT()
-			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
-		}
-	}
-	n += len(m.unknownFields)
-	return n
-}
-
-func (m *DeleteVirtualKeyspaceRequest) SizeVT() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Name)
-	if l > 0 {
-		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
-	}
-	if m.Force {
-		n += 2
-	}
-	n += len(m.unknownFields)
-	return n
-}
-
-func (m *DeleteVirtualKeyspaceResponse) SizeVT() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
 	n += len(m.unknownFields)
 	return n
 }
@@ -33929,7 +33521,7 @@ func (m *Workflow_Stream) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *Workflow_VirtualKeyspace) UnmarshalVT(dAtA []byte) error {
+func (m *Workflow_VirtualShard) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -33952,10 +33544,10 @@ func (m *Workflow_VirtualKeyspace) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Workflow_VirtualKeyspace: wiretype end group for non-group")
+			return fmt.Errorf("proto: Workflow_VirtualShard: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Workflow_VirtualKeyspace: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Workflow_VirtualShard: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -34593,7 +34185,7 @@ func (m *Workflow) UnmarshalVT(dAtA []byte) error {
 			iNdEx = postIndex
 		case 11:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field VirtualKeyspace", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field VirtualShard", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -34620,10 +34212,10 @@ func (m *Workflow) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.VirtualKeyspace == nil {
-				m.VirtualKeyspace = &Workflow_VirtualKeyspace{}
+			if m.VirtualShard == nil {
+				m.VirtualShard = &Workflow_VirtualShard{}
 			}
-			if err := m.VirtualKeyspace.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.VirtualShard.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -40077,7 +39669,7 @@ func (m *CreateKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *CreateVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
+func (m *CreateVirtualShardRequest) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -40100,15 +39692,15 @@ func (m *CreateVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: CreateVirtualKeyspaceRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: CreateVirtualShardRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: CreateVirtualKeyspaceRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: CreateVirtualShardRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field VirtualKeyspace", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -40136,9 +39728,41 @@ func (m *CreateVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Name = string(dAtA[iNdEx:postIndex])
+			m.VirtualKeyspace = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field VirtualShard", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.VirtualShard = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PhysicalKeyspace", wireType)
 			}
@@ -40170,7 +39794,39 @@ func (m *CreateVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 			}
 			m.PhysicalKeyspace = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 3:
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PhysicalShard", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PhysicalShard = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SchemaName", wireType)
 			}
@@ -40224,7 +39880,7 @@ func (m *CreateVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *CreateVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
+func (m *CreateVirtualShardResponse) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -40247,15 +39903,15 @@ func (m *CreateVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: CreateVirtualKeyspaceResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: CreateVirtualShardResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: CreateVirtualKeyspaceResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: CreateVirtualShardResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field VirtualKeyspace", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Shard", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -40282,473 +39938,13 @@ func (m *CreateVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.VirtualKeyspace == nil {
-				m.VirtualKeyspace = &topodata.VirtualKeyspace{}
+			if m.Shard == nil {
+				m.Shard = &Shard{}
 			}
-			if err := m.VirtualKeyspace.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Shard.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *GetVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: GetVirtualKeyspaceRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: GetVirtualKeyspaceRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Name = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *GetVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: GetVirtualKeyspaceResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: GetVirtualKeyspaceResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field VirtualKeyspace", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.VirtualKeyspace == nil {
-				m.VirtualKeyspace = &topodata.VirtualKeyspace{}
-			}
-			if err := m.VirtualKeyspace.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ListVirtualKeyspacesRequest) UnmarshalVT(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ListVirtualKeyspacesRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ListVirtualKeyspacesRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ListVirtualKeyspacesResponse) UnmarshalVT(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ListVirtualKeyspacesResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ListVirtualKeyspacesResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field VirtualKeyspaces", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.VirtualKeyspaces = append(m.VirtualKeyspaces, &topodata.VirtualKeyspace{})
-			if err := m.VirtualKeyspaces[len(m.VirtualKeyspaces)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *DeleteVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: DeleteVirtualKeyspaceRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: DeleteVirtualKeyspaceRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Name = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Force", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.Force = bool(v != 0)
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *DeleteVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: DeleteVirtualKeyspaceResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: DeleteVirtualKeyspaceResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

@@ -75,17 +75,17 @@ done
 # and for a primary tablet to be elected in the shard and become healthy/serving.
 wait_for_healthy_shard main 0 || exit 1
 
-# Create virtual keyspace 'commerce' on the physical keyspace 'main'
-# TODO: support --schema-name
-echo "Creating virtual keyspace 'commerce' on physical keyspace 'main'..."
-vtctldclient CreateVirtualKeyspace \
-	commerce main || fail "Failed to create virtual keyspace 'commerce'"
+# Create keyspace 'commerce' using normal CreateKeyspace
+# Keyspaces themselves are virtual. It's when we create our first shard that
+# the steps are different.
+echo "Creating keyspace 'commerce'..."
+vtctldclient CreateKeyspace --sidecar-db-name="${SIDECAR_DB_NAME}" --durability-policy=semi_sync commerce || fail "Failed to create keyspace 'commerce'"
 
-# TODO: I will figure out how to automatically rebuild the keyspace graph later.
-vtctldclient RebuildKeyspaceGraph --cells=zone1 commerce
+# Create virtual shard 0 for commerce that maps to main shard 0
+echo "Creating virtual shard 'commerce/0' on physical shard 'main/0'..."
+vtctldclient CreateVirtualShard commerce 0 main 0 || fail "Failed to create virtual shard 'commerce/0'"
 
-echo "Virtual keyspace 'commerce' setup complete!"
-
+echo "Virtual shard 'commerce/0' setup complete!"
 
 # create the schema
 vtctldclient ApplySchema --sql-file create_commerce_schema.sql commerce || fail "Failed to apply schema for the commerce keyspace"

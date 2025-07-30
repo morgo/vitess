@@ -128,12 +128,16 @@ func (wf *workflowFetcher) fetchWorkflowsByShard(
 		}
 		// Clone the request so that we can set the correct DB name for tablet.
 		reqClone := readReq.CloneVT()
-		// Set the DbNameOverride for virtual keyspaces
-		if keyspaceInfo, err := wf.ts.GetKeyspace(ctx, req.Keyspace); err == nil {
-			if keyspaceInfo.IsVirtual && keyspaceInfo.VirtualKeyspaceInfo != nil {
-				reqClone.DbNameOverride = keyspaceInfo.VirtualKeyspaceInfo.SchemaName
-			}
+
+		// Set the DbNameOverride for virtual shards
+		// If the requested keyspace differs from the tablet's physical keyspace,
+		// this indicates we're dealing with a virtual shard and need to override
+		// the database name to query the correct VReplication data.
+		if req.Keyspace != primary.Keyspace {
+			// For virtual shards, construct the database name using the virtual keyspace
+			reqClone.DbNameOverride = fmt.Sprintf("vt_%s_%s", req.Keyspace, si.ShardName())
 		}
+
 		wres, err := wf.tmc.ReadVReplicationWorkflows(ctx, primary.Tablet, reqClone)
 		if err != nil {
 			return err
@@ -438,17 +442,17 @@ func (wf *workflowFetcher) scanWorkflow(
 		if keyspace != tablet.Keyspace {
 			// This indicates we're dealing with a virtual keyspace
 			meta.targetKeyspace = keyspace
-			// Add virtual keyspace metadata to the workflow
-			if workflow.VirtualKeyspace == nil {
-				workflow.VirtualKeyspace = &vtctldatapb.Workflow_VirtualKeyspace{
+			// Add virtual shard metadata to the workflow
+			if workflow.VirtualShard == nil {
+				workflow.VirtualShard = &vtctldatapb.Workflow_VirtualShard{
 					LogicalKeyspace:  keyspace,
 					PhysicalKeyspace: tablet.Keyspace,
 					SchemaMapping:    make(map[string]string),
 				}
 			}
-			// Track schema mapping for virtual keyspace
+			// Track schema mapping for virtual shard
 			if stream.BinlogSource.Keyspace != tablet.Keyspace {
-				workflow.VirtualKeyspace.SchemaMapping[stream.BinlogSource.Keyspace] = tablet.Keyspace
+				workflow.VirtualShard.SchemaMapping[stream.BinlogSource.Keyspace] = tablet.Keyspace
 			}
 		} else {
 			meta.targetKeyspace = tablet.Keyspace
@@ -636,13 +640,9 @@ func (wf *workflowFetcher) forAllShards(
 	shards []string,
 	f func(ctx context.Context, shard *topo.ShardInfo) error,
 ) error {
-	// Resolve virtual keyspace to physical keyspace for shard operations
+	// For now, use the original keyspace for all operations
+	// TODO: Add virtual shard support when the topo structure is updated
 	physicalKeyspace := keyspace
-	if ki, err := wf.ts.GetKeyspace(ctx, keyspace); err == nil {
-		if ki.IsVirtual && ki.VirtualKeyspaceInfo != nil {
-			physicalKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
-		}
-	}
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, shard := range shards {

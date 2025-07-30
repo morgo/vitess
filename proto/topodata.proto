@@ -304,64 +304,6 @@ message Keyspace {
   // used for various system metadata that is stored in each
   // tablet's mysqld instance.
   string sidecar_db_name = 10;
-
-  // is_virtual indicates if this keyspace is a virtual keyspace.
-  // Virtual keyspaces map to a schema on a physical keyspace's tablets.
-  bool is_virtual = 11;
-
-  // virtual_keyspace_info contains additional information for virtual keyspaces.
-  // This field is only set when is_virtual is true.
-  VirtualKeyspaceInfo virtual_keyspace_info = 12;
-}
-
-// VirtualKeyspaceInfo contains information specific to virtual keyspaces.
-message VirtualKeyspaceInfo {
-  // physical_keyspace is the name of the physical keyspace that hosts
-  // this virtual keyspace
-  string physical_keyspace = 1;
-  
-  // schema_name is the MySQL schema name used for this virtual keyspace
-  // on the physical tablets. If empty, defaults to "vt_" + name.
-  string schema_name = 2;
-  
-  // created_at is when this virtual keyspace was created
-  vttime.Time created_at = 3;
-}
-
-// VirtualKeyspace represents a virtual keyspace that maps to a schema
-// on a physical keyspace's tablets.
-message VirtualKeyspace {
-  // name is the name of the virtual keyspace
-  string name = 1;
-  
-  // physical_keyspace is the name of the physical keyspace that hosts
-  // this virtual keyspace
-  string physical_keyspace = 2;
-  
-  // schema_name is the MySQL schema name used for this virtual keyspace
-  // on the physical tablets. If empty, defaults to "vt_" + name.
-  string schema_name = 3;
-  
-  // created_at is when this virtual keyspace was created
-  vttime.Time created_at = 4;
-}
-
-// VirtualTabletRegistration tracks which tablets are registered to host
-// virtual keyspaces.
-message VirtualTabletRegistration {
-  // physical_keyspace is the physical keyspace this tablet belongs to
-  string physical_keyspace = 1;
-  
-  // max_assignments is the maximum number of virtual keyspaces this
-  // tablet can host
-  int32 max_assignments = 2;
-  
-  // virtual_keyspaces is the list of virtual keyspaces currently
-  // assigned to this tablet
-  repeated string virtual_keyspaces = 3;
-  
-  // registered_at is when this tablet was registered for virtual usage
-  vttime.Time registered_at = 4;
 }
 
 // ShardReplication describes the MySQL replication relationships

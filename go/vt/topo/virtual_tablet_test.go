@@ -94,21 +94,3 @@ func TestVirtualTabletHelpers(t *testing.T) {
 	_, err = GetSchemaName(physicalTablet)
 	assert.Error(t, err)
 }
-
-func TestCreateVirtualKeyspaceShard(t *testing.T) {
-	// This test would normally test CreateVirtualKeyspaceShard but we can't import memorytopo
-	// in the same package due to import cycles. The functionality is tested in integration tests.
-	t.Skip("Skipping due to import cycle - tested in integration tests")
-}
-
-func TestGetOrCreateVirtualKeyspaceShard(t *testing.T) {
-	// This test would normally test GetOrCreateVirtualKeyspaceShard but we can't import memorytopo
-	// in the same package due to import cycles. The functionality is tested in integration tests.
-	t.Skip("Skipping due to import cycle - tested in integration tests")
-}
-
-func TestCreateVirtualKeyspaceShardErrors(t *testing.T) {
-	// This test would normally test CreateVirtualKeyspaceShard error cases but we can't import memorytopo
-	// in the same package due to import cycles. The functionality is tested in integration tests.
-	t.Skip("Skipping due to import cycle - tested in integration tests")
-}

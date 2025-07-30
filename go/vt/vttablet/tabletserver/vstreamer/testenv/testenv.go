@@ -216,17 +216,18 @@ func (te *Env) SetVSchema(vs string) error {
 	return te.TopoServ.RebuildSrvVSchema(ctx, te.Cells)
 }
 
-// CreateVirtualKeyspace creates a virtual keyspace (additional schema) for testing.
-func (te *Env) CreateVirtualKeyspace(virtualKeyspaceName string) error {
+// CreateVirtualShard creates a virtual shard (additional schema) for testing.
+func (te *Env) CreateVirtualShard(virtualKeyspaceName, virtualShardName string) error {
 	ctx := context.Background()
 
-	// Create the database/schema
-	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", virtualKeyspaceName)
+	// Create the database/schema - use a unique name for the virtual shard
+	schemaName := fmt.Sprintf("%s_%s", virtualKeyspaceName, virtualShardName)
+	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", schemaName)
 	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
-		return fmt.Errorf("failed to create virtual keyspace database %s: %v", virtualKeyspaceName, err)
+		return fmt.Errorf("failed to create virtual shard database %s: %v", schemaName, err)
 	}
 
-	// Create keyspace in topology
+	// Create keyspace in topology if it doesn't exist
 	if err := te.TopoServ.CreateKeyspace(ctx, virtualKeyspaceName, &topodatapb.Keyspace{}); err != nil {
 		// Ignore if keyspace already exists
 		if !topo.IsErrType(err, topo.NodeExists) {
@@ -235,7 +236,7 @@ func (te *Env) CreateVirtualKeyspace(virtualKeyspaceName string) error {
 	}
 
 	// Create shard for the virtual keyspace
-	if err := te.TopoServ.CreateShard(ctx, virtualKeyspaceName, te.ShardName); err != nil {
+	if err := te.TopoServ.CreateShard(ctx, virtualKeyspaceName, virtualShardName); err != nil {
 		// Ignore if shard already exists
 		if !topo.IsErrType(err, topo.NodeExists) {
 			return fmt.Errorf("failed to create shard for virtual keyspace: %v", err)
@@ -245,8 +246,8 @@ func (te *Env) CreateVirtualKeyspace(virtualKeyspaceName string) error {
 	return nil
 }
 
-// SetVirtualKeyspaceVSchema sets the vschema for a virtual keyspace.
-func (te *Env) SetVirtualKeyspaceVSchema(keyspaceName, vs string) error {
+// SetVirtualShardVSchema sets the vschema for a virtual shard.
+func (te *Env) SetVirtualShardVSchema(keyspaceName, vs string) error {
 	ctx := context.Background()
 	var kspb vschemapb.Keyspace
 	if err := json2.UnmarshalPB([]byte(vs), &kspb); err != nil {
@@ -263,14 +264,15 @@ func (te *Env) SetVirtualKeyspaceVSchema(keyspaceName, vs string) error {
 	return te.TopoServ.RebuildSrvVSchema(ctx, te.Cells)
 }
 
-// DropVirtualKeyspace drops a virtual keyspace.
-func (te *Env) DropVirtualKeyspace(virtualKeyspaceName string) error {
+// DropVirtualShard drops a virtual shard.
+func (te *Env) DropVirtualShard(virtualKeyspaceName, virtualShardName string) error {
 	ctx := context.Background()
 
 	// Drop the database/schema
-	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", virtualKeyspaceName)
+	schemaName := fmt.Sprintf("%s_%s", virtualKeyspaceName, virtualShardName)
+	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", schemaName)
 	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
-		return fmt.Errorf("failed to drop virtual keyspace database %s: %v", virtualKeyspaceName, err)
+		return fmt.Errorf("failed to drop virtual shard database %s: %v", schemaName, err)
 	}
 
 	// Clean up topology (optional, as this might be used by other components)

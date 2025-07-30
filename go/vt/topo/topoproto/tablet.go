@@ -275,8 +275,8 @@ func MySQLIP(tablet *topodatapb.Tablet) (string, error) {
 
 // TabletDbName is usually implied by keyspace. Having the shard
 // information in the database name complicates mysql replication.
-// For virtual keyspaces, it uses the DbNameOverride field which should
-// contain the virtual keyspace database name (e.g., vt_commerce_0).
+// For virtual shards, it uses the DbNameOverride field which should
+// contain the virtual shard database name (e.g., vt_commerce_0).
 func TabletDbName(tablet *topodatapb.Tablet) string {
 	if tablet.DbNameOverride != "" {
 		return tablet.DbNameOverride

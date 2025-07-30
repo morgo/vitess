@@ -187,8 +187,8 @@ type VtctldClient interface {
 	CreateKeyspace(ctx context.Context, in *vtctldata.CreateKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.CreateKeyspaceResponse, error)
 	// CreateShard creates the specified shard in the topology.
 	CreateShard(ctx context.Context, in *vtctldata.CreateShardRequest, opts ...grpc.CallOption) (*vtctldata.CreateShardResponse, error)
-	// CreateVirtualKeyspace creates a virtual keyspace that maps to a physical keyspace.
-	CreateVirtualKeyspace(ctx context.Context, in *vtctldata.CreateVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.CreateVirtualKeyspaceResponse, error)
+	// CreateVirtualShard creates a virtual shard that maps to a physical shard.
+	CreateVirtualShard(ctx context.Context, in *vtctldata.CreateVirtualShardRequest, opts ...grpc.CallOption) (*vtctldata.CreateVirtualShardResponse, error)
 	// DeleteCellInfo deletes the CellInfo for the provided cell. The cell cannot
 	// be referenced by any Shard record in the topology.
 	DeleteCellInfo(ctx context.Context, in *vtctldata.DeleteCellInfoRequest, opts ...grpc.CallOption) (*vtctldata.DeleteCellInfoResponse, error)
@@ -199,8 +199,6 @@ type VtctldClient interface {
 	// Otherwise, the keyspace must be empty (have no shards), or DeleteKeyspace
 	// returns an error.
 	DeleteKeyspace(ctx context.Context, in *vtctldata.DeleteKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.DeleteKeyspaceResponse, error)
-	// DeleteVirtualKeyspace deletes the specified virtual keyspace from the topology.
-	DeleteVirtualKeyspace(ctx context.Context, in *vtctldata.DeleteVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.DeleteVirtualKeyspaceResponse, error)
 	// DeleteShards deletes the specified shards from the topology. In recursive
 	// mode, it also deletes all tablets belonging to the shard. Otherwise, the
 	// shard must be empty (have no tablets) or DeleteShards returns an error for
@@ -292,10 +290,6 @@ type VtctldClient interface {
 	GetVersion(ctx context.Context, in *vtctldata.GetVersionRequest, opts ...grpc.CallOption) (*vtctldata.GetVersionResponse, error)
 	// GetVSchema returns the vschema for a keyspace.
 	GetVSchema(ctx context.Context, in *vtctldata.GetVSchemaRequest, opts ...grpc.CallOption) (*vtctldata.GetVSchemaResponse, error)
-	// GetVirtualKeyspace returns information about the given virtual keyspace from the topology.
-	GetVirtualKeyspace(ctx context.Context, in *vtctldata.GetVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.GetVirtualKeyspaceResponse, error)
-	// ListVirtualKeyspaces returns information about all virtual keyspaces in the topology.
-	ListVirtualKeyspaces(ctx context.Context, in *vtctldata.ListVirtualKeyspacesRequest, opts ...grpc.CallOption) (*vtctldata.ListVirtualKeyspacesResponse, error)
 	// GetWorkflows returns a list of workflows for the given keyspace.
 	GetWorkflows(ctx context.Context, in *vtctldata.GetWorkflowsRequest, opts ...grpc.CallOption) (*vtctldata.GetWorkflowsResponse, error)
 	// InitShardPrimary sets the initial primary for a shard. Will make all other
@@ -718,9 +712,9 @@ func (c *vtctldClient) CreateShard(ctx context.Context, in *vtctldata.CreateShar
 	return out, nil
 }
 
-func (c *vtctldClient) CreateVirtualKeyspace(ctx context.Context, in *vtctldata.CreateVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.CreateVirtualKeyspaceResponse, error) {
-	out := new(vtctldata.CreateVirtualKeyspaceResponse)
-	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/CreateVirtualKeyspace", in, out, opts...)
+func (c *vtctldClient) CreateVirtualShard(ctx context.Context, in *vtctldata.CreateVirtualShardRequest, opts ...grpc.CallOption) (*vtctldata.CreateVirtualShardResponse, error) {
+	out := new(vtctldata.CreateVirtualShardResponse)
+	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/CreateVirtualShard", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -748,15 +742,6 @@ func (c *vtctldClient) DeleteCellsAlias(ctx context.Context, in *vtctldata.Delet
 func (c *vtctldClient) DeleteKeyspace(ctx context.Context, in *vtctldata.DeleteKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.DeleteKeyspaceResponse, error) {
 	out := new(vtctldata.DeleteKeyspaceResponse)
 	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/DeleteKeyspace", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *vtctldClient) DeleteVirtualKeyspace(ctx context.Context, in *vtctldata.DeleteVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.DeleteVirtualKeyspaceResponse, error) {
-	out := new(vtctldata.DeleteVirtualKeyspaceResponse)
-	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/DeleteVirtualKeyspace", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1099,24 +1084,6 @@ func (c *vtctldClient) GetVersion(ctx context.Context, in *vtctldata.GetVersionR
 func (c *vtctldClient) GetVSchema(ctx context.Context, in *vtctldata.GetVSchemaRequest, opts ...grpc.CallOption) (*vtctldata.GetVSchemaResponse, error) {
 	out := new(vtctldata.GetVSchemaResponse)
 	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/GetVSchema", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *vtctldClient) GetVirtualKeyspace(ctx context.Context, in *vtctldata.GetVirtualKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.GetVirtualKeyspaceResponse, error) {
-	out := new(vtctldata.GetVirtualKeyspaceResponse)
-	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/GetVirtualKeyspace", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *vtctldClient) ListVirtualKeyspaces(ctx context.Context, in *vtctldata.ListVirtualKeyspacesRequest, opts ...grpc.CallOption) (*vtctldata.ListVirtualKeyspacesResponse, error) {
-	out := new(vtctldata.ListVirtualKeyspacesResponse)
-	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/ListVirtualKeyspaces", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1813,8 +1780,8 @@ type VtctldServer interface {
 	CreateKeyspace(context.Context, *vtctldata.CreateKeyspaceRequest) (*vtctldata.CreateKeyspaceResponse, error)
 	// CreateShard creates the specified shard in the topology.
 	CreateShard(context.Context, *vtctldata.CreateShardRequest) (*vtctldata.CreateShardResponse, error)
-	// CreateVirtualKeyspace creates a virtual keyspace that maps to a physical keyspace.
-	CreateVirtualKeyspace(context.Context, *vtctldata.CreateVirtualKeyspaceRequest) (*vtctldata.CreateVirtualKeyspaceResponse, error)
+	// CreateVirtualShard creates a virtual shard that maps to a physical shard.
+	CreateVirtualShard(context.Context, *vtctldata.CreateVirtualShardRequest) (*vtctldata.CreateVirtualShardResponse, error)
 	// DeleteCellInfo deletes the CellInfo for the provided cell. The cell cannot
 	// be referenced by any Shard record in the topology.
 	DeleteCellInfo(context.Context, *vtctldata.DeleteCellInfoRequest) (*vtctldata.DeleteCellInfoResponse, error)
@@ -1825,8 +1792,6 @@ type VtctldServer interface {
 	// Otherwise, the keyspace must be empty (have no shards), or DeleteKeyspace
 	// returns an error.
 	DeleteKeyspace(context.Context, *vtctldata.DeleteKeyspaceRequest) (*vtctldata.DeleteKeyspaceResponse, error)
-	// DeleteVirtualKeyspace deletes the specified virtual keyspace from the topology.
-	DeleteVirtualKeyspace(context.Context, *vtctldata.DeleteVirtualKeyspaceRequest) (*vtctldata.DeleteVirtualKeyspaceResponse, error)
 	// DeleteShards deletes the specified shards from the topology. In recursive
 	// mode, it also deletes all tablets belonging to the shard. Otherwise, the
 	// shard must be empty (have no tablets) or DeleteShards returns an error for
@@ -1918,10 +1883,6 @@ type VtctldServer interface {
 	GetVersion(context.Context, *vtctldata.GetVersionRequest) (*vtctldata.GetVersionResponse, error)
 	// GetVSchema returns the vschema for a keyspace.
 	GetVSchema(context.Context, *vtctldata.GetVSchemaRequest) (*vtctldata.GetVSchemaResponse, error)
-	// GetVirtualKeyspace returns information about the given virtual keyspace from the topology.
-	GetVirtualKeyspace(context.Context, *vtctldata.GetVirtualKeyspaceRequest) (*vtctldata.GetVirtualKeyspaceResponse, error)
-	// ListVirtualKeyspaces returns information about all virtual keyspaces in the topology.
-	ListVirtualKeyspaces(context.Context, *vtctldata.ListVirtualKeyspacesRequest) (*vtctldata.ListVirtualKeyspacesResponse, error)
 	// GetWorkflows returns a list of workflows for the given keyspace.
 	GetWorkflows(context.Context, *vtctldata.GetWorkflowsRequest) (*vtctldata.GetWorkflowsResponse, error)
 	// InitShardPrimary sets the initial primary for a shard. Will make all other
@@ -2181,8 +2142,8 @@ func (UnimplementedVtctldServer) CreateKeyspace(context.Context, *vtctldata.Crea
 func (UnimplementedVtctldServer) CreateShard(context.Context, *vtctldata.CreateShardRequest) (*vtctldata.CreateShardResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateShard not implemented")
 }
-func (UnimplementedVtctldServer) CreateVirtualKeyspace(context.Context, *vtctldata.CreateVirtualKeyspaceRequest) (*vtctldata.CreateVirtualKeyspaceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateVirtualKeyspace not implemented")
+func (UnimplementedVtctldServer) CreateVirtualShard(context.Context, *vtctldata.CreateVirtualShardRequest) (*vtctldata.CreateVirtualShardResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateVirtualShard not implemented")
 }
 func (UnimplementedVtctldServer) DeleteCellInfo(context.Context, *vtctldata.DeleteCellInfoRequest) (*vtctldata.DeleteCellInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteCellInfo not implemented")
@@ -2192,9 +2153,6 @@ func (UnimplementedVtctldServer) DeleteCellsAlias(context.Context, *vtctldata.De
 }
 func (UnimplementedVtctldServer) DeleteKeyspace(context.Context, *vtctldata.DeleteKeyspaceRequest) (*vtctldata.DeleteKeyspaceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteKeyspace not implemented")
-}
-func (UnimplementedVtctldServer) DeleteVirtualKeyspace(context.Context, *vtctldata.DeleteVirtualKeyspaceRequest) (*vtctldata.DeleteVirtualKeyspaceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteVirtualKeyspace not implemented")
 }
 func (UnimplementedVtctldServer) DeleteShards(context.Context, *vtctldata.DeleteShardsRequest) (*vtctldata.DeleteShardsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteShards not implemented")
@@ -2309,12 +2267,6 @@ func (UnimplementedVtctldServer) GetVersion(context.Context, *vtctldata.GetVersi
 }
 func (UnimplementedVtctldServer) GetVSchema(context.Context, *vtctldata.GetVSchemaRequest) (*vtctldata.GetVSchemaResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetVSchema not implemented")
-}
-func (UnimplementedVtctldServer) GetVirtualKeyspace(context.Context, *vtctldata.GetVirtualKeyspaceRequest) (*vtctldata.GetVirtualKeyspaceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualKeyspace not implemented")
-}
-func (UnimplementedVtctldServer) ListVirtualKeyspaces(context.Context, *vtctldata.ListVirtualKeyspacesRequest) (*vtctldata.ListVirtualKeyspacesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListVirtualKeyspaces not implemented")
 }
 func (UnimplementedVtctldServer) GetWorkflows(context.Context, *vtctldata.GetWorkflowsRequest) (*vtctldata.GetWorkflowsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetWorkflows not implemented")
@@ -2881,20 +2833,20 @@ func _Vtctld_CreateShard_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Vtctld_CreateVirtualKeyspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(vtctldata.CreateVirtualKeyspaceRequest)
+func _Vtctld_CreateVirtualShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(vtctldata.CreateVirtualShardRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(VtctldServer).CreateVirtualKeyspace(ctx, in)
+		return srv.(VtctldServer).CreateVirtualShard(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/vtctlservice.Vtctld/CreateVirtualKeyspace",
+		FullMethod: "/vtctlservice.Vtctld/CreateVirtualShard",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VtctldServer).CreateVirtualKeyspace(ctx, req.(*vtctldata.CreateVirtualKeyspaceRequest))
+		return srv.(VtctldServer).CreateVirtualShard(ctx, req.(*vtctldata.CreateVirtualShardRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2949,24 +2901,6 @@ func _Vtctld_DeleteKeyspace_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VtctldServer).DeleteKeyspace(ctx, req.(*vtctldata.DeleteKeyspaceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Vtctld_DeleteVirtualKeyspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(vtctldata.DeleteVirtualKeyspaceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(VtctldServer).DeleteVirtualKeyspace(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/vtctlservice.Vtctld/DeleteVirtualKeyspace",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VtctldServer).DeleteVirtualKeyspace(ctx, req.(*vtctldata.DeleteVirtualKeyspaceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3651,42 +3585,6 @@ func _Vtctld_GetVSchema_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VtctldServer).GetVSchema(ctx, req.(*vtctldata.GetVSchemaRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Vtctld_GetVirtualKeyspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(vtctldata.GetVirtualKeyspaceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(VtctldServer).GetVirtualKeyspace(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/vtctlservice.Vtctld/GetVirtualKeyspace",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VtctldServer).GetVirtualKeyspace(ctx, req.(*vtctldata.GetVirtualKeyspaceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Vtctld_ListVirtualKeyspaces_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(vtctldata.ListVirtualKeyspacesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(VtctldServer).ListVirtualKeyspaces(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/vtctlservice.Vtctld/ListVirtualKeyspaces",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VtctldServer).ListVirtualKeyspaces(ctx, req.(*vtctldata.ListVirtualKeyspacesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -4994,8 +4892,8 @@ var Vtctld_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Vtctld_CreateShard_Handler,
 		},
 		{
-			MethodName: "CreateVirtualKeyspace",
-			Handler:    _Vtctld_CreateVirtualKeyspace_Handler,
+			MethodName: "CreateVirtualShard",
+			Handler:    _Vtctld_CreateVirtualShard_Handler,
 		},
 		{
 			MethodName: "DeleteCellInfo",
@@ -5008,10 +4906,6 @@ var Vtctld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteKeyspace",
 			Handler:    _Vtctld_DeleteKeyspace_Handler,
-		},
-		{
-			MethodName: "DeleteVirtualKeyspace",
-			Handler:    _Vtctld_DeleteVirtualKeyspace_Handler,
 		},
 		{
 			MethodName: "DeleteShards",
@@ -5164,14 +5058,6 @@ var Vtctld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetVSchema",
 			Handler:    _Vtctld_GetVSchema_Handler,
-		},
-		{
-			MethodName: "GetVirtualKeyspace",
-			Handler:    _Vtctld_GetVirtualKeyspace_Handler,
-		},
-		{
-			MethodName: "ListVirtualKeyspaces",
-			Handler:    _Vtctld_ListVirtualKeyspaces_Handler,
 		},
 		{
 			MethodName: "GetWorkflows",

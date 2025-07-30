@@ -850,41 +850,46 @@ func (vc *VCursorImpl) markSavepoint(ctx context.Context, needsRollbackOnParialE
 	return nil
 }
 
-// ResolveVirtualKeyspaceTarget resolves virtual keyspace targets to their physical counterparts.
-// This function checks if the keyspace is a virtual keyspace and if so, resolves it to the
-// physical keyspace and updates the target accordingly.
-func (vc *VCursorImpl) ResolveVirtualKeyspaceTarget(ctx context.Context, rss []*srvtopo.ResolvedShard) ([]*srvtopo.ResolvedShard, error) {
+// ResolveVirtualShardTarget resolves virtual shard targets to their physical counterparts.
+// This function checks if the shard is a virtual shard and if so, resolves it to the
+// physical shard and updates the target accordingly.
+func (vc *VCursorImpl) ResolveVirtualShardTarget(ctx context.Context, rss []*srvtopo.ResolvedShard) ([]*srvtopo.ResolvedShard, error) {
 	if vc.topoServer == nil {
 		return rss, nil
 	}
 
-	// Check if any of the resolved shards are for virtual keyspaces
+	// Check if any of the resolved shards are virtual shards
 	for i, rs := range rss {
-		// Check if this keyspace is a virtual keyspace by looking for VIRTUAL tablets
+		// Check if this keyspace exists in vschema
 		if vc.vschema.Keyspaces[rs.Target.Keyspace] == nil {
 			continue // Skip if keyspace not in vschema
 		}
 
-		// Try to get virtual keyspace information
-		virtualKeyspaceInfo, err := vc.topoServer.GetVirtualKeyspace(ctx, rs.Target.Keyspace)
+		// Check if this shard is a virtual shard by looking for VIRTUAL tablets
+		isVirtual, err := topo.IsVirtualShard(ctx, vc.topoServer, rs.Target.Keyspace, rs.Target.Shard)
 		if err != nil {
-			// If it's not a virtual keyspace, continue with the original target
-			if topo.IsErrType(err, topo.NoNode) {
-				continue
-			}
-			return nil, err
+			// If we can't determine if it's virtual, continue with the original target
+			continue
 		}
 
-		// This is a virtual keyspace, resolve it to the physical keyspace
-		physicalKeyspace := virtualKeyspaceInfo.PhysicalKeyspace
-		if physicalKeyspace == "" {
-			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "virtual keyspace %s has no physical keyspace configured", rs.Target.Keyspace)
+		if !isVirtual {
+			continue // Not a virtual shard, use original target
 		}
 
-		// Create a new resolved shard with the physical keyspace
+		// This is a virtual shard, get the physical shard information
+		physicalKeyspace, physicalShard, err := topo.GetPhysicalShardInfo(ctx, vc.topoServer, rs.Target.Keyspace, rs.Target.Shard)
+		if err != nil {
+			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "failed to get physical shard info for virtual shard %s/%s: %v", rs.Target.Keyspace, rs.Target.Shard, err)
+		}
+
+		if physicalKeyspace == "" || physicalShard == "" {
+			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "virtual shard %s/%s has no physical shard configured", rs.Target.Keyspace, rs.Target.Shard)
+		}
+
+		// Create a new resolved shard with the physical keyspace and shard
 		newTarget := &querypb.Target{
 			Keyspace:   physicalKeyspace,
-			Shard:      rs.Target.Shard,
+			Shard:      physicalShard,
 			TabletType: rs.Target.TabletType,
 		}
 
@@ -899,8 +904,8 @@ func (vc *VCursorImpl) ResolveVirtualKeyspaceTarget(ctx context.Context, rss []*
 
 // ExecuteMultiShard is part of the engine.VCursor interface.
 func (vc *VCursorImpl) ExecuteMultiShard(ctx context.Context, primitive engine.Primitive, rss []*srvtopo.ResolvedShard, queries []*querypb.BoundQuery, rollbackOnError, canAutocommit, fetchLastInsertID bool) (*sqltypes.Result, []error) {
-	// Resolve virtual keyspace targets to physical ones
-	resolvedRss, err := vc.ResolveVirtualKeyspaceTarget(ctx, rss)
+	// Resolve virtual shard targets to physical ones
+	resolvedRss, err := vc.ResolveVirtualShardTarget(ctx, rss)
 	if err != nil {
 		return nil, []error{err}
 	}
@@ -925,8 +930,8 @@ func (vc *VCursorImpl) ExecuteMultiShard(ctx context.Context, primitive engine.P
 func (vc *VCursorImpl) StreamExecuteMulti(ctx context.Context, primitive engine.Primitive, query string, rss []*srvtopo.ResolvedShard, bindVars []map[string]*querypb.BindVariable, rollbackOnError, autocommit, fetchLastInsertID bool, callback func(reply *sqltypes.Result) error) []error {
 	callback = vc.wrapCallback(callback, primitive)
 
-	// Resolve virtual keyspace targets to physical ones
-	resolvedRss, err := vc.ResolveVirtualKeyspaceTarget(ctx, rss)
+	// Resolve virtual shard targets to physical ones
+	resolvedRss, err := vc.ResolveVirtualShardTarget(ctx, rss)
 	if err != nil {
 		return []error{err}
 	}

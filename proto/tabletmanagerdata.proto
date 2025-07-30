@@ -235,7 +235,7 @@ message ApplySchemaRequest {
   // DisableForeignKeyChecks will result in setting foreign_key_checks to off before applying the schema.
   bool disable_foreign_key_checks = 8;
   // DbNameOverride allows overriding the database name to use for the schema change.
-  // This is primarily used for virtual keyspaces where the schema should be applied
+  // This is primarily used for virtual shards where the schema should be applied
   // to a specific database name rather than the default tablet database.
   string db_name_override = 9;
 }
@@ -628,7 +628,7 @@ message CreateVReplicationWorkflowRequest {
   bool stop_after_copy = 10;
   string options = 11;
   // DbNameOverride allows overriding the database name to use for the vreplication workflow.
-  // This is primarily used for virtual keyspaces where the workflow should operate
+  // This is primarily used for virtual shards where the workflow should operate
   // on a specific database name rather than the default tablet database.
   string db_name_override = 12;
 }
@@ -645,7 +645,7 @@ message DeleteTableDataRequest {
   // BatchSize is the number of rows to delete in a single batch.
   int64 batch_size = 2;
   // DbNameOverride allows overriding the database name to use for the delete operation.
-  // This is primarily used for virtual keyspaces where the operation should be performed
+  // This is primarily used for virtual shards where the operation should be performed
   // on a specific database name rather than the default tablet database.
   string db_name_override = 3;
 }
@@ -656,7 +656,7 @@ message DeleteTableDataResponse {
 message DeleteVReplicationWorkflowRequest {
   string workflow = 1;
   // DbNameOverride allows overriding the database name to use for the delete operation.
-  // This is primarily used for virtual keyspaces where the operation should be performed
+  // This is primarily used for virtual shards where the operation should be performed
   // on a specific database name rather than the default tablet database.
   string db_name_override = 2;
 }
@@ -667,7 +667,7 @@ message DeleteVReplicationWorkflowResponse {
 
 message HasVReplicationWorkflowsRequest {
   // DbNameOverride allows overriding the database name to use for the check.
-  // This is primarily used for virtual keyspaces where the check should be performed
+  // This is primarily used for virtual shards where the check should be performed
   // on a specific database name rather than the default tablet database.
   string db_name_override = 1;
 }
@@ -684,7 +684,7 @@ message ReadVReplicationWorkflowsRequest {
   repeated binlogdata.VReplicationWorkflowState exclude_states = 5;
   bool exclude_frozen = 6;
   // DbNameOverride allows overriding the database name to use for the read operation.
-  // This is primarily used for virtual keyspaces where the operation should be performed
+  // This is primarily used for virtual shards where the operation should be performed
   // on a specific database name rather than the default tablet database.
   string db_name_override = 7;
 }
@@ -696,7 +696,7 @@ message ReadVReplicationWorkflowsResponse {
 message ReadVReplicationWorkflowRequest {
   string workflow = 1;
   // DbNameOverride allows overriding the database name to use for the read operation.
-  // This is primarily used for virtual keyspaces where the operation should be performed
+  // This is primarily used for virtual shards where the operation should be performed
   // on a specific database name rather than the default tablet database.
   string db_name_override = 2;
 }
@@ -841,7 +841,7 @@ message UpdateVReplicationWorkflowsRequest {
   optional string message = 5;
   optional string stop_position = 6;
   // DbNameOverride allows overriding the database name to use for the update operation.
-  // This is primarily used for virtual keyspaces where the operation should be performed
+  // This is primarily used for virtual shards where the operation should be performed
   // on a specific database name rather than the default tablet database.
   string db_name_override = 7;
 }
@@ -1031,11 +1031,13 @@ message GetMaxValueForSequencesResponse {
   map<string, int64> max_values_by_sequence_table = 1;
 }
 
-message AddVirtualKeyspaceRequest {
+message AddVirtualShardRequest {
   string virtual_keyspace = 1;
-  string physical_keyspace = 2;
-  string schema_name = 3;
+  string virtual_shard = 2;
+  string physical_keyspace = 3;
+  string physical_shard = 4;
+  string schema_name = 5;
 }
 
-message AddVirtualKeyspaceResponse {
+message AddVirtualShardResponse {
 }

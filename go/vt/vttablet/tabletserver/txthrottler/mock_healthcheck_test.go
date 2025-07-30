@@ -249,18 +249,18 @@ func (mr *MockHealthCheckMockRecorder) Unsubscribe(c any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unsubscribe", reflect.TypeOf((*MockHealthCheck)(nil).Unsubscribe), c)
 }
 
-// GetHealthyTabletStatsForVirtualKeyspace mocks base method.
-func (m *MockHealthCheck) GetHealthyTabletStatsForVirtualKeyspace(virtualKeyspace, physicalKeyspace string, target *query.Target) []*discovery.TabletHealth {
+// GetHealthyTabletStatsForVirtualShard mocks base method.
+func (m *MockHealthCheck) GetHealthyTabletStatsForVirtualShard(virtualKeyspace, virtualShard, physicalKeyspace, physicalShard string, target *query.Target) []*discovery.TabletHealth {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetHealthyTabletStatsForVirtualKeyspace", virtualKeyspace, physicalKeyspace, target)
+	ret := m.ctrl.Call(m, "GetHealthyTabletStatsForVirtualShard", virtualKeyspace, virtualShard, physicalKeyspace, physicalShard, target)
 	ret0, _ := ret[0].([]*discovery.TabletHealth)
 	return ret0
 }
 
-// GetHealthyTabletStatsForVirtualKeyspace indicates an expected call of GetHealthyTabletStatsForVirtualKeyspace.
-func (mr *MockHealthCheckMockRecorder) GetHealthyTabletStatsForVirtualKeyspace(virtualKeyspace, physicalKeyspace, target any) *gomock.Call {
+// GetHealthyTabletStatsForVirtualShard indicates an expected call of GetHealthyTabletStatsForVirtualShard.
+func (mr *MockHealthCheckMockRecorder) GetHealthyTabletStatsForVirtualShard(virtualKeyspace, virtualShard, physicalKeyspace, physicalShard, target any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHealthyTabletStatsForVirtualKeyspace", reflect.TypeOf((*MockHealthCheck)(nil).GetHealthyTabletStatsForVirtualKeyspace), virtualKeyspace, physicalKeyspace, target)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHealthyTabletStatsForVirtualShard", reflect.TypeOf((*MockHealthCheck)(nil).GetHealthyTabletStatsForVirtualShard), virtualKeyspace, virtualShard, physicalKeyspace, physicalShard, target)
 }
 
 // WaitForAllServingTablets mocks base method.

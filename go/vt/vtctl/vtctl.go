@@ -491,30 +491,6 @@ var commands = []commandGroup{
 				params: "[--topo_type=etcd2|consul|zookeeper] [--topo_server=topo_url] [--topo_root=root_topo_node> [--unmount] [--list] [--show]  [<cluster_name>]",
 				help:   "Add/Remove/Display/List external cluster(s) to this vitess cluster",
 			},
-			{
-				name:   "CreateVirtualKeyspace",
-				method: commandCreateVirtualKeyspace,
-				params: "[--schema_name=<schema_name>] <virtual_keyspace_name> <physical_keyspace_name>",
-				help:   "Creates a virtual keyspace that maps to a physical keyspace. Virtual keyspaces allow multiple logical keyspaces to share the same physical tablet infrastructure.",
-			},
-			{
-				name:   "DeleteVirtualKeyspace",
-				method: commandDeleteVirtualKeyspace,
-				params: "<virtual_keyspace_name>",
-				help:   "Deletes the specified virtual keyspace from the topology. This removes the virtual keyspace mapping but does not affect the underlying physical keyspace or its tablets.",
-			},
-			{
-				name:   "GetVirtualKeyspace",
-				method: commandGetVirtualKeyspace,
-				params: "<virtual_keyspace_name>",
-				help:   "Returns information about the given virtual keyspace from the topology.",
-			},
-			{
-				name:   "ListVirtualKeyspaces",
-				method: commandListVirtualKeyspaces,
-				params: "",
-				help:   "Returns information about all virtual keyspaces in the topology.",
-			},
 		},
 	},
 	{
@@ -4140,87 +4116,4 @@ func queryResultForTabletResults(results map[string]*sqltypes.Result) *sqltypes.
 		}
 	}
 	return qr
-}
-
-// Virtual Keyspace Commands
-
-func commandCreateVirtualKeyspace(ctx context.Context, wr *wrangler.Wrangler, subFlags *pflag.FlagSet, args []string) error {
-	schemaName := subFlags.String("schema_name", "", "MySQL schema name for the virtual keyspace. If empty, defaults to 'vt_' + virtual_keyspace_name")
-	if err := subFlags.Parse(args); err != nil {
-		return err
-	}
-	if subFlags.NArg() != 2 {
-		return fmt.Errorf("the <virtual_keyspace_name> and <physical_keyspace_name> arguments are required for the CreateVirtualKeyspace command")
-	}
-
-	virtualKeyspaceName := subFlags.Arg(0)
-	physicalKeyspaceName := subFlags.Arg(1)
-
-	resp, err := wr.VtctldServer().CreateVirtualKeyspace(ctx, &vtctldatapb.CreateVirtualKeyspaceRequest{
-		Name:             virtualKeyspaceName,
-		PhysicalKeyspace: physicalKeyspaceName,
-		SchemaName:       *schemaName,
-	})
-	if err != nil {
-		return err
-	}
-
-	return printJSON(wr.Logger(), resp.VirtualKeyspace)
-}
-
-func commandDeleteVirtualKeyspace(ctx context.Context, wr *wrangler.Wrangler, subFlags *pflag.FlagSet, args []string) error {
-	if err := subFlags.Parse(args); err != nil {
-		return err
-	}
-	if subFlags.NArg() != 1 {
-		return fmt.Errorf("the <virtual_keyspace_name> argument is required for the DeleteVirtualKeyspace command")
-	}
-
-	virtualKeyspaceName := subFlags.Arg(0)
-
-	_, err := wr.VtctldServer().DeleteVirtualKeyspace(ctx, &vtctldatapb.DeleteVirtualKeyspaceRequest{
-		Name: virtualKeyspaceName,
-	})
-	if err != nil {
-		return err
-	}
-
-	wr.Logger().Printf("Successfully deleted virtual keyspace %s\n", virtualKeyspaceName)
-	return nil
-}
-
-func commandGetVirtualKeyspace(ctx context.Context, wr *wrangler.Wrangler, subFlags *pflag.FlagSet, args []string) error {
-	if err := subFlags.Parse(args); err != nil {
-		return err
-	}
-	if subFlags.NArg() != 1 {
-		return fmt.Errorf("the <virtual_keyspace_name> argument is required for the GetVirtualKeyspace command")
-	}
-
-	virtualKeyspaceName := subFlags.Arg(0)
-
-	resp, err := wr.VtctldServer().GetVirtualKeyspace(ctx, &vtctldatapb.GetVirtualKeyspaceRequest{
-		Name: virtualKeyspaceName,
-	})
-	if err != nil {
-		return err
-	}
-
-	return printJSON(wr.Logger(), resp.VirtualKeyspace)
-}
-
-func commandListVirtualKeyspaces(ctx context.Context, wr *wrangler.Wrangler, subFlags *pflag.FlagSet, args []string) error {
-	if err := subFlags.Parse(args); err != nil {
-		return err
-	}
-	if subFlags.NArg() != 0 {
-		return fmt.Errorf("the ListVirtualKeyspaces command does not take any arguments")
-	}
-
-	resp, err := wr.VtctldServer().ListVirtualKeyspaces(ctx, &vtctldatapb.ListVirtualKeyspacesRequest{})
-	if err != nil {
-		return err
-	}
-
-	return printJSON(wr.Logger(), resp.VirtualKeyspaces)
 }

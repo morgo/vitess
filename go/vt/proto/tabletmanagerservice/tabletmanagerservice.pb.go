@@ -43,7 +43,7 @@ var File_tabletmanagerservice_proto protoreflect.FileDescriptor
 
 const file_tabletmanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1atabletmanagerservice.proto\x12\x14tabletmanagerservice\x1a\x17tabletmanagerdata.proto2\x8f>\n" +
+	"\x1atabletmanagerservice.proto\x12\x14tabletmanagerservice\x1a\x17tabletmanagerdata.proto2\x86>\n" +
 	"\rTabletManager\x12I\n" +
 	"\x04Ping\x12\x1e.tabletmanagerdata.PingRequest\x1a\x1f.tabletmanagerdata.PingResponse\"\x00\x12L\n" +
 	"\x05Sleep\x12\x1f.tabletmanagerdata.SleepRequest\x1a .tabletmanagerdata.SleepResponse\"\x00\x12^\n" +
@@ -117,8 +117,8 @@ const file_tabletmanagerservice_proto_rawDesc = "" +
 	"\x06Backup\x12 .tabletmanagerdata.BackupRequest\x1a!.tabletmanagerdata.BackupResponse\"\x000\x01\x12r\n" +
 	"\x11RestoreFromBackup\x12+.tabletmanagerdata.RestoreFromBackupRequest\x1a,.tabletmanagerdata.RestoreFromBackupResponse\"\x000\x01\x12g\n" +
 	"\x0eCheckThrottler\x12(.tabletmanagerdata.CheckThrottlerRequest\x1a).tabletmanagerdata.CheckThrottlerResponse\"\x00\x12s\n" +
-	"\x12GetThrottlerStatus\x12,.tabletmanagerdata.GetThrottlerStatusRequest\x1a-.tabletmanagerdata.GetThrottlerStatusResponse\"\x00\x12s\n" +
-	"\x12AddVirtualKeyspace\x12,.tabletmanagerdata.AddVirtualKeyspaceRequest\x1a-.tabletmanagerdata.AddVirtualKeyspaceResponse\"\x00B3Z1vitess.io/vitess/go/vt/proto/tabletmanagerserviceb\x06proto3"
+	"\x12GetThrottlerStatus\x12,.tabletmanagerdata.GetThrottlerStatusRequest\x1a-.tabletmanagerdata.GetThrottlerStatusResponse\"\x00\x12j\n" +
+	"\x0fAddVirtualShard\x12).tabletmanagerdata.AddVirtualShardRequest\x1a*.tabletmanagerdata.AddVirtualShardResponse\"\x00B3Z1vitess.io/vitess/go/vt/proto/tabletmanagerserviceb\x06proto3"
 
 var file_tabletmanagerservice_proto_goTypes = []any{
 	(*tabletmanagerdata.PingRequest)(nil),                             // 0: tabletmanagerdata.PingRequest
@@ -190,7 +190,7 @@ var file_tabletmanagerservice_proto_goTypes = []any{
 	(*tabletmanagerdata.RestoreFromBackupRequest)(nil),                // 66: tabletmanagerdata.RestoreFromBackupRequest
 	(*tabletmanagerdata.CheckThrottlerRequest)(nil),                   // 67: tabletmanagerdata.CheckThrottlerRequest
 	(*tabletmanagerdata.GetThrottlerStatusRequest)(nil),               // 68: tabletmanagerdata.GetThrottlerStatusRequest
-	(*tabletmanagerdata.AddVirtualKeyspaceRequest)(nil),               // 69: tabletmanagerdata.AddVirtualKeyspaceRequest
+	(*tabletmanagerdata.AddVirtualShardRequest)(nil),                  // 69: tabletmanagerdata.AddVirtualShardRequest
 	(*tabletmanagerdata.PingResponse)(nil),                            // 70: tabletmanagerdata.PingResponse
 	(*tabletmanagerdata.SleepResponse)(nil),                           // 71: tabletmanagerdata.SleepResponse
 	(*tabletmanagerdata.ExecuteHookResponse)(nil),                     // 72: tabletmanagerdata.ExecuteHookResponse
@@ -260,7 +260,7 @@ var file_tabletmanagerservice_proto_goTypes = []any{
 	(*tabletmanagerdata.RestoreFromBackupResponse)(nil),               // 136: tabletmanagerdata.RestoreFromBackupResponse
 	(*tabletmanagerdata.CheckThrottlerResponse)(nil),                  // 137: tabletmanagerdata.CheckThrottlerResponse
 	(*tabletmanagerdata.GetThrottlerStatusResponse)(nil),              // 138: tabletmanagerdata.GetThrottlerStatusResponse
-	(*tabletmanagerdata.AddVirtualKeyspaceResponse)(nil),              // 139: tabletmanagerdata.AddVirtualKeyspaceResponse
+	(*tabletmanagerdata.AddVirtualShardResponse)(nil),                 // 139: tabletmanagerdata.AddVirtualShardResponse
 }
 var file_tabletmanagerservice_proto_depIdxs = []int32{
 	0,   // 0: tabletmanagerservice.TabletManager.Ping:input_type -> tabletmanagerdata.PingRequest
@@ -332,7 +332,7 @@ var file_tabletmanagerservice_proto_depIdxs = []int32{
 	66,  // 66: tabletmanagerservice.TabletManager.RestoreFromBackup:input_type -> tabletmanagerdata.RestoreFromBackupRequest
 	67,  // 67: tabletmanagerservice.TabletManager.CheckThrottler:input_type -> tabletmanagerdata.CheckThrottlerRequest
 	68,  // 68: tabletmanagerservice.TabletManager.GetThrottlerStatus:input_type -> tabletmanagerdata.GetThrottlerStatusRequest
-	69,  // 69: tabletmanagerservice.TabletManager.AddVirtualKeyspace:input_type -> tabletmanagerdata.AddVirtualKeyspaceRequest
+	69,  // 69: tabletmanagerservice.TabletManager.AddVirtualShard:input_type -> tabletmanagerdata.AddVirtualShardRequest
 	70,  // 70: tabletmanagerservice.TabletManager.Ping:output_type -> tabletmanagerdata.PingResponse
 	71,  // 71: tabletmanagerservice.TabletManager.Sleep:output_type -> tabletmanagerdata.SleepResponse
 	72,  // 72: tabletmanagerservice.TabletManager.ExecuteHook:output_type -> tabletmanagerdata.ExecuteHookResponse
@@ -402,7 +402,7 @@ var file_tabletmanagerservice_proto_depIdxs = []int32{
 	136, // 136: tabletmanagerservice.TabletManager.RestoreFromBackup:output_type -> tabletmanagerdata.RestoreFromBackupResponse
 	137, // 137: tabletmanagerservice.TabletManager.CheckThrottler:output_type -> tabletmanagerdata.CheckThrottlerResponse
 	138, // 138: tabletmanagerservice.TabletManager.GetThrottlerStatus:output_type -> tabletmanagerdata.GetThrottlerStatusResponse
-	139, // 139: tabletmanagerservice.TabletManager.AddVirtualKeyspace:output_type -> tabletmanagerdata.AddVirtualKeyspaceResponse
+	139, // 139: tabletmanagerservice.TabletManager.AddVirtualShard:output_type -> tabletmanagerdata.AddVirtualShardResponse
 	70,  // [70:140] is the sub-list for method output_type
 	0,   // [0:70] is the sub-list for method input_type
 	0,   // [0:0] is the sub-list for extension type_name

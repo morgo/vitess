@@ -18,7 +18,6 @@ package workflow
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"vitess.io/vitess/go/vt/topo"
@@ -130,28 +129,6 @@ func (r *switcher) cancelMigration(ctx context.Context, sm *StreamMigrator) erro
 }
 
 func (r *switcher) lockKeyspace(ctx context.Context, keyspace, action string, opts ...topo.LockOption) (context.Context, func(*error), error) {
-	return r.lockKeyspaceWithVirtualContext(ctx, keyspace, action, opts...)
-}
-
-// lockKeyspaceWithVirtualContext provides virtual keyspace-aware locking
-func (r *switcher) lockKeyspaceWithVirtualContext(ctx context.Context, keyspace, action string, opts ...topo.LockOption) (context.Context, func(*error), error) {
-	// Check if this is a virtual keyspace
-	keyspaceInfo, err := r.s.ts.GetKeyspace(ctx, keyspace)
-	if err != nil {
-		// If we can't get keyspace info, fall back to regular locking
-		return r.s.ts.LockKeyspace(ctx, keyspace, action, opts...)
-	}
-
-	if keyspaceInfo.IsVirtual && keyspaceInfo.VirtualKeyspaceInfo != nil {
-		// For virtual keyspaces, we need to lock the physical keyspace with virtual context
-		physicalKeyspace := keyspaceInfo.VirtualKeyspaceInfo.PhysicalKeyspace
-		virtualAction := fmt.Sprintf("%s (virtual keyspace: %s)", action, keyspace)
-
-		// Lock the physical keyspace with virtual keyspace context
-		return r.s.ts.LockKeyspace(ctx, physicalKeyspace, virtualAction, opts...)
-	}
-
-	// For regular keyspaces, use standard locking
 	return r.s.ts.LockKeyspace(ctx, keyspace, action, opts...)
 }
 

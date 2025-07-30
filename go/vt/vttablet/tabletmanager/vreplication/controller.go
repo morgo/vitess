@@ -52,10 +52,12 @@ const (
 	TerminalErrorIndicator = "terminal error"
 )
 
-// VirtualKeyspaceInfo contains information about virtual keyspace mapping
-type VirtualKeyspaceInfo struct {
+// VirtualShardInfo contains information about virtual shard mapping
+type VirtualShardInfo struct {
 	LogicalKeyspace  string            // The virtual keyspace name
+	LogicalShard     string            // The virtual shard name
 	PhysicalKeyspace string            // The actual physical keyspace
+	PhysicalShard    string            // The actual physical shard
 	SchemaMapping    map[string]string // Source to target schema mappings
 }
 
@@ -78,8 +80,8 @@ type controller struct {
 	targetKeyspace string
 	targetSchema   string
 
-	// Virtual keyspace information for monitoring
-	virtualKeyspaceInfo *VirtualKeyspaceInfo
+	// Virtual shard information for monitoring
+	virtualShardInfo *VirtualShardInfo
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -152,12 +154,14 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 	if targetKeyspace, ok := params["target_keyspace"]; ok && targetKeyspace != "" {
 		ct.targetKeyspace = targetKeyspace
 
-		// Check if this is a virtual keyspace
+		// Check if this is a virtual shard
 		if schema, err := vre.GetSchemaForKeyspace(targetKeyspace); err == nil {
 			ct.targetSchema = schema
-			ct.virtualKeyspaceInfo = &VirtualKeyspaceInfo{
+			ct.virtualShardInfo = &VirtualShardInfo{
 				LogicalKeyspace:  targetKeyspace,
+				LogicalShard:     "0", // TODO: Extract from params if available
 				PhysicalKeyspace: vre.GetPhysicalKeyspace(),
+				PhysicalShard:    "0", // TODO: Extract from params if available
 				SchemaMapping:    map[string]string{targetKeyspace: schema},
 			}
 		} else {
@@ -170,11 +174,13 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 		if targetKeyspace, err := vre.GetKeyspaceForSchema(ct.targetSchema); err == nil {
 			ct.targetKeyspace = targetKeyspace
 
-			// Check if this is a virtual keyspace (different from physical keyspace)
+			// Check if this is a virtual shard (different from physical keyspace)
 			if targetKeyspace != vre.GetPhysicalKeyspace() {
-				ct.virtualKeyspaceInfo = &VirtualKeyspaceInfo{
+				ct.virtualShardInfo = &VirtualShardInfo{
 					LogicalKeyspace:  targetKeyspace,
+					LogicalShard:     "0", // TODO: Extract from params if available
 					PhysicalKeyspace: vre.GetPhysicalKeyspace(),
+					PhysicalShard:    "0", // TODO: Extract from params if available
 					SchemaMapping:    map[string]string{targetKeyspace: ct.targetSchema},
 				}
 			}
@@ -215,17 +221,25 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 			tabletTypesStr = v
 		}
 
-		// For Virtual Keyspaces, we need to look for tablets in the physical keyspace
+		// For Virtual Shards, we need to look for tablets in the physical keyspace
 		sourceKeyspace := ct.source.Keyspace
-		ki, err := ts.GetKeyspace(ctx, ct.source.Keyspace)
-		if err == nil && ki.IsVirtual {
-			sourceKeyspace = ki.VirtualKeyspaceInfo.PhysicalKeyspace
-			log.Infof("DEBUG: VReplication controller: Virtual source keyspace detected: %s -> %s (shard: %s)",
-				ct.source.Keyspace, sourceKeyspace, ct.source.Shard)
+		// Check if this is a virtual shard and resolve to physical keyspace
+		isVirtual, err := topo.IsVirtualShard(ctx, ts, ct.source.Keyspace, ct.source.Shard)
+		if err == nil && isVirtual {
+			physicalKeyspace, physicalShard, err := topo.GetPhysicalShardInfo(ctx, ts, ct.source.Keyspace, ct.source.Shard)
+			if err == nil {
+				sourceKeyspace = physicalKeyspace
+				// Update the source shard to the physical shard for tablet picker
+				ct.source.Shard = physicalShard
+				log.Infof("DEBUG: VReplication controller: Virtual source shard detected: %s/%s -> %s/%s",
+					ct.source.Keyspace, ct.source.Shard, sourceKeyspace, physicalShard)
+			} else {
+				log.Infof("DEBUG: VReplication controller: Failed to resolve virtual shard %s/%s: %v", ct.source.Keyspace, ct.source.Shard, err)
+			}
 		} else if err != nil {
-			log.Infof("DEBUG: VReplication controller: Failed to get keyspace info for %s: %v", ct.source.Keyspace, err)
+			log.Infof("DEBUG: VReplication controller: Failed to check if shard is virtual for %s/%s: %v", ct.source.Keyspace, ct.source.Shard, err)
 		} else {
-			log.Infof("DEBUG: VReplication controller: Physical source keyspace: %s (shard: %s)", sourceKeyspace, ct.source.Shard)
+			log.Infof("DEBUG: VReplication controller: Physical source keyspace/shard: %s/%s", sourceKeyspace, ct.source.Shard)
 		}
 
 		log.Infof("DEBUG: VReplication controller: creating tablet picker for source keyspace/shard %v/%v with cell: %v and tabletTypes: %v", sourceKeyspace, ct.source.Shard, cell, tabletTypesStr)

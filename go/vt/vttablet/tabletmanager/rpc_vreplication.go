@@ -459,6 +459,7 @@ func (tm *TabletManager) ReadVReplicationWorkflow(ctx context.Context, req *tabl
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("DEBUG: Running generated query %#v, dbName=%s, req.DbNameOverride=%s", stmt, dbName, req.DbNameOverride)
 	res, err := tm.VREngine.Exec(stmt)
 	if err != nil {
 		return nil, err

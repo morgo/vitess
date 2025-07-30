@@ -68,6 +68,8 @@ func (r *DefaultTabletResolver) ResolveTablet(ctx context.Context, tablet *topod
 			topoproto.TabletAliasString(tablet.Alias), topoproto.TabletAliasString(physicalTabletAlias))
 	}
 
+	// The dbname is stored in the VIRTUAL tablet's tags
+	physicalTabletInfo.DbNameOverride = tablet.GetDbNameOverride()
 	return physicalTabletInfo.Tablet, nil
 }
 
@@ -119,23 +121,19 @@ func GetPhysicalTabletAlias(virtualTablet *topodatapb.Tablet) (*topodatapb.Table
 	return physicalTabletAlias, nil
 }
 
-// GetVirtualKeyspaceName extracts the virtual keyspace name from a VIRTUAL tablet's tags.
+// GetVirtualKeyspaceName extracts the virtual keyspace name from a VIRTUAL tablet's keyspace field.
+// For virtual shards, the virtual keyspace is just the tablet's keyspace.
 func GetVirtualKeyspaceName(virtualTablet *topodatapb.Tablet) (string, error) {
 	if !IsVirtualType(virtualTablet.Type) {
 		return "", vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "tablet %s is not a VIRTUAL tablet",
 			topoproto.TabletAliasString(virtualTablet.Alias))
 	}
 
-	virtualKeyspace, ok := virtualTablet.Tags["virtual_keyspace"]
-	if !ok {
-		return "", vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "VIRTUAL tablet %s missing virtual_keyspace tag",
-			topoproto.TabletAliasString(virtualTablet.Alias))
-	}
-
-	return virtualKeyspace, nil
+	return virtualTablet.Keyspace, nil
 }
 
 // GetSchemaName extracts the schema name from a VIRTUAL tablet's tags.
+// This represents the MySQL schema name used for this virtual shard.
 func GetSchemaName(virtualTablet *topodatapb.Tablet) (string, error) {
 	if !IsVirtualType(virtualTablet.Type) {
 		return "", vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "tablet %s is not a VIRTUAL tablet",

@@ -279,7 +279,7 @@ func (dc *MockDBClient) SupportsCapability(capability capabilities.FlavorCapabil
 	return false, nil
 }
 
-// SetDBName sets the database name for virtual keyspace support
+// SetDBName sets the database name for virtual shard support
 func (dc *MockDBClient) SetDBName(dbName string) {
 	// No-op for mock client
 }

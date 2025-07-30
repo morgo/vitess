@@ -241,10 +241,6 @@ type HealthCheck interface {
 	// synchronization
 	GetHealthyTabletStats(target *query.Target) []*TabletHealth
 
-	// GetHealthyTabletStatsForVirtualKeyspace returns healthy tablets for a virtual keyspace
-	// by using the physical keyspace for tablet lookup
-	GetHealthyTabletStatsForVirtualKeyspace(virtualKeyspace, physicalKeyspace string, target *query.Target) []*TabletHealth
-
 	// GetTabletHealth results the TabletHealth of the tablet that matches the given alias
 	GetTabletHealth(kst KeyspaceShardTabletType, alias *topodata.TabletAlias) (*TabletHealth, error)
 
@@ -267,17 +263,6 @@ var _ HealthCheck = (*HealthCheckImpl)(nil)
 // because tabletStatsCache is intended to be per-cell
 func KeyFromTarget(target *query.Target) KeyspaceShardTabletType {
 	return KeyspaceShardTabletType(fmt.Sprintf("%s.%s.%s", target.Keyspace, target.Shard, topoproto.TabletTypeLString(target.TabletType)))
-}
-
-// keyFromVirtualTarget creates a key for virtual keyspace targets by using the physical keyspace
-// This allows virtual keyspaces to share the same tablet health tracking as their physical keyspace
-func keyFromVirtualTarget(virtualKeyspace, physicalKeyspace string, target *query.Target) KeyspaceShardTabletType {
-	// For virtual keyspaces, we use the physical keyspace for health tracking
-	// but we need to maintain the virtual keyspace identity for routing
-	if physicalKeyspace != "" && virtualKeyspace != physicalKeyspace {
-		return KeyspaceShardTabletType(fmt.Sprintf("%s.%s.%s", physicalKeyspace, target.Shard, topoproto.TabletTypeLString(target.TabletType)))
-	}
-	return KeyFromTarget(target)
 }
 
 // HealthCheckImpl performs health checking and stores the results.
@@ -427,6 +412,12 @@ func NewHealthCheck(
 func (hc *HealthCheckImpl) AddTablet(tablet *topodata.Tablet) {
 	// check whether grpc port is present on tablet, if not return
 	if tablet.PortMap["grpc"] == 0 {
+		return
+	}
+
+	// Skip health checking for VIRTUAL tablets - they don't run actual services
+	if tablet.Type == topodata.TabletType_VIRTUAL {
+		hc.logger().Infof("Skipping health check for VIRTUAL tablet: %v", tablet)
 		return
 	}
 
@@ -803,56 +794,33 @@ func (hc *HealthCheckImpl) GetHealthyTabletStats(target *query.Target) []*Tablet
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
-	// First try to get tablets directly for the target keyspace
+	// First try to get tablets directly for the target keyspace/shard
 	tablets := hc.healthy[KeyFromTarget(target)]
 	if len(tablets) > 0 {
 		return append(result, tablets...)
 	}
 
-	// If no tablets found, check if this might be a virtual keyspace
-	// by looking for VIRTUAL tablets in the shard
+	// If no tablets found and we have a topo server, check if this is a virtual shard
 	if hc.ts != nil {
 		ctx := context.Background()
-		keyspace, err := hc.ts.GetKeyspace(ctx, target.Keyspace)
-		if err == nil && keyspace.IsVirtual {
-			// This is a virtual keyspace, look for VIRTUAL tablets
-			virtualKey := KeyspaceShardTabletType(fmt.Sprintf("%s.%s.%s", target.Keyspace, target.Shard, topoproto.TabletTypeLString(target.TabletType)))
-			virtualTablets := hc.healthy[virtualKey]
-
-			// For each VIRTUAL tablet, resolve to its physical tablet
-			for _, vt := range virtualTablets {
-				if vt.Tablet.Type == topodata.TabletType_VIRTUAL {
-					// Extract physical tablet information from VIRTUAL tablet tags
-					if physicalTabletAlias := vt.Tablet.Tags["physical_tablet"]; physicalTabletAlias != "" {
-						// Parse the physical tablet alias
-						if physicalAlias, err := topoproto.ParseTabletAlias(physicalTabletAlias); err == nil {
-							// Get the physical tablet's health info
-							if physicalHealth, err := hc.GetTabletHealthByAlias(physicalAlias); err == nil {
-								result = append(result, physicalHealth)
-							}
-						}
-					}
-				} else {
-					// Not a VIRTUAL tablet, add directly
-					result = append(result, vt)
+		isVirtual, err := topo.IsVirtualShard(ctx, hc.ts, target.Keyspace, target.Shard)
+		if err == nil && isVirtual {
+			// This is a virtual shard, resolve to physical tablets
+			physicalKeyspace, physicalShard, err := topo.GetPhysicalShardInfo(ctx, hc.ts, target.Keyspace, target.Shard)
+			if err == nil {
+				// Get tablets from the physical shard
+				physicalTarget := &query.Target{
+					Keyspace:   physicalKeyspace,
+					Shard:      physicalShard,
+					TabletType: target.TabletType,
 				}
+				physicalTablets := hc.healthy[KeyFromTarget(physicalTarget)]
+				return append(result, physicalTablets...)
 			}
 		}
 	}
 
 	return result
-}
-
-// GetHealthyTabletStatsForVirtualKeyspace returns healthy tablets for a virtual keyspace
-// by using the physical keyspace for tablet lookup
-func (hc *HealthCheckImpl) GetHealthyTabletStatsForVirtualKeyspace(virtualKeyspace, physicalKeyspace string, target *query.Target) []*TabletHealth {
-	var result []*TabletHealth
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-
-	// Use the physical keyspace for tablet lookup
-	key := keyFromVirtualTarget(virtualKeyspace, physicalKeyspace, target)
-	return append(result, hc.healthy[key]...)
 }
 
 // GetTabletStats returns all tablets for the given target.

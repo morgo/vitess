@@ -87,31 +87,14 @@ func RebuildKeyspaceLocked(ctx context.Context, log logutil.Logger, ts *topo.Ser
 		}
 	}
 
-	// For virtual keyspaces, we need to get shards from the physical keyspace
-	var shards map[string]*topo.ShardInfo
-	if ki.IsVirtual {
-		// For virtual keyspaces, get shards from the physical keyspace
-		physicalKeyspace := ki.VirtualKeyspaceInfo.PhysicalKeyspace
-		shards, err = ts.FindAllShardsInKeyspace(ctx, physicalKeyspace, &topo.FindAllShardsInKeyspaceOptions{
-			// Fetch shard records concurrently to speed up the rebuild process.
-			// This call is invoked by the first tablet in a given keyspace or
-			// manually via vtctld, so there is little risk of a thundering herd.
-			Concurrency: 8,
-		})
-		if err != nil {
-			return err
-		}
-	} else {
-		// For physical keyspaces, get shards from the keyspace itself
-		shards, err = ts.FindAllShardsInKeyspace(ctx, keyspace, &topo.FindAllShardsInKeyspaceOptions{
-			// Fetch shard records concurrently to speed up the rebuild process.
-			// This call is invoked by the first tablet in a given keyspace or
-			// manually via vtctld, so there is little risk of a thundering herd.
-			Concurrency: 8,
-		})
-		if err != nil {
-			return err
-		}
+	shards, err := ts.FindAllShardsInKeyspace(ctx, keyspace, &topo.FindAllShardsInKeyspaceOptions{
+		// Fetch shard records concurrently to speed up the rebuild process.
+		// This call is invoked by the first tablet in a given keyspace or
+		// manually via vtctld, so there is little risk of a thundering herd.
+		Concurrency: 8,
+	})
+	if err != nil {
+		return err
 	}
 
 	// This is safe to rebuild as long there are not srvKeyspaces with tablet controls set.

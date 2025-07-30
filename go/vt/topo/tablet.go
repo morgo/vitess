@@ -186,7 +186,7 @@ func NewTabletInfo(tablet *topodatapb.Tablet, version Version) *TabletInfo {
 
 // GetTablet is a high level function to read tablet data.
 // It generates trace spans.
-func (ts *Server) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
+func (ts *Server) getTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
 	conn, err := ts.ConnForCell(ctx, alias.Cell)
 	if err != nil {
 		log.Errorf("unable to get connection for cell %q: %v", alias.Cell, err)
@@ -219,17 +219,17 @@ func (ts *Server) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) 
 // the physical tablet it references.
 func (ts *Server) GetTabletWithoutResolving(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
 	// This is the same as GetTablet since we don't auto-resolve by default
-	return ts.GetTablet(ctx, alias)
+	return ts.getTablet(ctx, alias)
 }
 
-// GetTabletAndResolve gets a tablet and optionally resolves VIRTUAL tablets to their physical counterparts.
-func (ts *Server) GetTabletAndResolve(ctx context.Context, alias *topodatapb.TabletAlias, resolveVirtual bool) (*TabletInfo, error) {
-	tabletInfo, err := ts.GetTablet(ctx, alias)
+// GetTablet gets a tablet and resolves VIRTUAL tablets to their physical counterparts.
+// If you don't want this call GetTabletWithoutResolving instead.
+func (ts *Server) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
+	tabletInfo, err := ts.getTablet(ctx, alias)
 	if err != nil {
 		return nil, err
 	}
-
-	if resolveVirtual && IsVirtualType(tabletInfo.Type) {
+	if IsVirtualType(tabletInfo.Type) {
 		resolver := NewDefaultTabletResolver(ts)
 		physicalTablet, err := resolver.ResolveTablet(ctx, tabletInfo.Tablet)
 		if err != nil {
@@ -242,7 +242,6 @@ func (ts *Server) GetTabletAndResolve(ctx context.Context, alias *topodatapb.Tab
 			Tablet:  physicalTablet,
 		}, nil
 	}
-
 	return tabletInfo, nil
 }
 

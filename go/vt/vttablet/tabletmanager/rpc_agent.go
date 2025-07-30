@@ -178,6 +178,6 @@ type RPCTM interface {
 	CheckThrottler(ctx context.Context, request *tabletmanagerdatapb.CheckThrottlerRequest) (*tabletmanagerdatapb.CheckThrottlerResponse, error)
 	GetThrottlerStatus(ctx context.Context, request *tabletmanagerdatapb.GetThrottlerStatusRequest) (*tabletmanagerdatapb.GetThrottlerStatusResponse, error)
 
-	// Virtual Keyspace
-	AddVirtualKeyspace(ctx context.Context, request *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error)
+	// Virtual Shard
+	AddVirtualShard(ctx context.Context, request *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error)
 }

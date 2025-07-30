@@ -10,9 +10,7 @@ vttablet:
 
 topo:
 
-- Technically what we've implemented so far is Virtual Keyspaces - not virtual shards. The vtctl commands create special keyspaces with different metadata, which really the keyspace command should be the same as before.
-- The special metadata for where it's different should be in the Shard metadata which says its a virtual tablet and then specifies the physical address.
-- Fixing this should help reduce some of the topo code, but importantly it's also a better onboarding scenario because you could have existing keyspaces you want to add virtual shards to.
+- Currently tmc client is called from topo to setup the initial database. I'm not sure if this is correct, I would have thought vtctl calls topo and tmc itself.
 
 vtgate, query serving etc:
 - Need to naturally update the routing to vttablet as we change from dbNameOverride to "target".

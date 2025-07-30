@@ -1492,11 +1492,11 @@ func (fra *fakeRPCTM) GetThrottlerStatus(ctx context.Context, req *tabletmanager
 	panic("implement me")
 }
 
-func (fra *fakeRPCTM) AddVirtualKeyspace(ctx context.Context, req *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (*tabletmanagerdatapb.AddVirtualKeyspaceResponse, error) {
+func (fra *fakeRPCTM) AddVirtualShard(ctx context.Context, req *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error) {
 	if fra.panics {
 		panic(fmt.Errorf("test-triggered panic"))
 	}
-	return &tabletmanagerdatapb.AddVirtualKeyspaceResponse{}, nil
+	return &tabletmanagerdatapb.AddVirtualShardResponse{}, nil
 }
 
 func tmRPCTestRestoreFromBackup(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet, req *tabletmanagerdatapb.RestoreFromBackupRequest) {

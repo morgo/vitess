@@ -1708,7 +1708,7 @@ type ApplySchemaRequest struct {
 	// DisableForeignKeyChecks will result in setting foreign_key_checks to off before applying the schema.
 	DisableForeignKeyChecks bool `protobuf:"varint,8,opt,name=disable_foreign_key_checks,json=disableForeignKeyChecks,proto3" json:"disable_foreign_key_checks,omitempty"`
 	// DbNameOverride allows overriding the database name to use for the schema change.
-	// This is primarily used for virtual keyspaces where the schema should be applied
+	// This is primarily used for virtual shards where the schema should be applied
 	// to a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,9,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -5443,7 +5443,7 @@ type CreateVReplicationWorkflowRequest struct {
 	StopAfterCopy bool   `protobuf:"varint,10,opt,name=stop_after_copy,json=stopAfterCopy,proto3" json:"stop_after_copy,omitempty"`
 	Options       string `protobuf:"bytes,11,opt,name=options,proto3" json:"options,omitempty"`
 	// DbNameOverride allows overriding the database name to use for the vreplication workflow.
-	// This is primarily used for virtual keyspaces where the workflow should operate
+	// This is primarily used for virtual shards where the workflow should operate
 	// on a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,12,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -5617,7 +5617,7 @@ type DeleteTableDataRequest struct {
 	// BatchSize is the number of rows to delete in a single batch.
 	BatchSize int64 `protobuf:"varint,2,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
 	// DbNameOverride allows overriding the database name to use for the delete operation.
-	// This is primarily used for virtual keyspaces where the operation should be performed
+	// This is primarily used for virtual shards where the operation should be performed
 	// on a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,3,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -5715,7 +5715,7 @@ type DeleteVReplicationWorkflowRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Workflow string                 `protobuf:"bytes,1,opt,name=workflow,proto3" json:"workflow,omitempty"`
 	// DbNameOverride allows overriding the database name to use for the delete operation.
-	// This is primarily used for virtual keyspaces where the operation should be performed
+	// This is primarily used for virtual shards where the operation should be performed
 	// on a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,2,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -5813,7 +5813,7 @@ func (x *DeleteVReplicationWorkflowResponse) GetResult() *query.QueryResult {
 type HasVReplicationWorkflowsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// DbNameOverride allows overriding the database name to use for the check.
-	// This is primarily used for virtual keyspaces where the check should be performed
+	// This is primarily used for virtual shards where the check should be performed
 	// on a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,1,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -5910,7 +5910,7 @@ type ReadVReplicationWorkflowsRequest struct {
 	ExcludeStates    []binlogdata.VReplicationWorkflowState `protobuf:"varint,5,rep,packed,name=exclude_states,json=excludeStates,proto3,enum=binlogdata.VReplicationWorkflowState" json:"exclude_states,omitempty"`
 	ExcludeFrozen    bool                                   `protobuf:"varint,6,opt,name=exclude_frozen,json=excludeFrozen,proto3" json:"exclude_frozen,omitempty"`
 	// DbNameOverride allows overriding the database name to use for the read operation.
-	// This is primarily used for virtual keyspaces where the operation should be performed
+	// This is primarily used for virtual shards where the operation should be performed
 	// on a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,7,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -6044,7 +6044,7 @@ type ReadVReplicationWorkflowRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Workflow string                 `protobuf:"bytes,1,opt,name=workflow,proto3" json:"workflow,omitempty"`
 	// DbNameOverride allows overriding the database name to use for the read operation.
-	// This is primarily used for virtual keyspaces where the operation should be performed
+	// This is primarily used for virtual shards where the operation should be performed
 	// on a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,2,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -7021,7 +7021,7 @@ type UpdateVReplicationWorkflowsRequest struct {
 	Message          *string                               `protobuf:"bytes,5,opt,name=message,proto3,oneof" json:"message,omitempty"`
 	StopPosition     *string                               `protobuf:"bytes,6,opt,name=stop_position,json=stopPosition,proto3,oneof" json:"stop_position,omitempty"`
 	// DbNameOverride allows overriding the database name to use for the update operation.
-	// This is primarily used for virtual keyspaces where the operation should be performed
+	// This is primarily used for virtual shards where the operation should be performed
 	// on a specific database name rather than the default tablet database.
 	DbNameOverride string `protobuf:"bytes,7,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -7919,29 +7919,31 @@ func (x *GetMaxValueForSequencesResponse) GetMaxValuesBySequenceTable() map[stri
 	return nil
 }
 
-type AddVirtualKeyspaceRequest struct {
+type AddVirtualShardRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	VirtualKeyspace  string                 `protobuf:"bytes,1,opt,name=virtual_keyspace,json=virtualKeyspace,proto3" json:"virtual_keyspace,omitempty"`
-	PhysicalKeyspace string                 `protobuf:"bytes,2,opt,name=physical_keyspace,json=physicalKeyspace,proto3" json:"physical_keyspace,omitempty"`
-	SchemaName       string                 `protobuf:"bytes,3,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
+	VirtualShard     string                 `protobuf:"bytes,2,opt,name=virtual_shard,json=virtualShard,proto3" json:"virtual_shard,omitempty"`
+	PhysicalKeyspace string                 `protobuf:"bytes,3,opt,name=physical_keyspace,json=physicalKeyspace,proto3" json:"physical_keyspace,omitempty"`
+	PhysicalShard    string                 `protobuf:"bytes,4,opt,name=physical_shard,json=physicalShard,proto3" json:"physical_shard,omitempty"`
+	SchemaName       string                 `protobuf:"bytes,5,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
-func (x *AddVirtualKeyspaceRequest) Reset() {
-	*x = AddVirtualKeyspaceRequest{}
+func (x *AddVirtualShardRequest) Reset() {
+	*x = AddVirtualShardRequest{}
 	mi := &file_tabletmanagerdata_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AddVirtualKeyspaceRequest) String() string {
+func (x *AddVirtualShardRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AddVirtualKeyspaceRequest) ProtoMessage() {}
+func (*AddVirtualShardRequest) ProtoMessage() {}
 
-func (x *AddVirtualKeyspaceRequest) ProtoReflect() protoreflect.Message {
+func (x *AddVirtualShardRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_tabletmanagerdata_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -7953,52 +7955,66 @@ func (x *AddVirtualKeyspaceRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AddVirtualKeyspaceRequest.ProtoReflect.Descriptor instead.
-func (*AddVirtualKeyspaceRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use AddVirtualShardRequest.ProtoReflect.Descriptor instead.
+func (*AddVirtualShardRequest) Descriptor() ([]byte, []int) {
 	return file_tabletmanagerdata_proto_rawDescGZIP(), []int{149}
 }
 
-func (x *AddVirtualKeyspaceRequest) GetVirtualKeyspace() string {
+func (x *AddVirtualShardRequest) GetVirtualKeyspace() string {
 	if x != nil {
 		return x.VirtualKeyspace
 	}
 	return ""
 }
 
-func (x *AddVirtualKeyspaceRequest) GetPhysicalKeyspace() string {
+func (x *AddVirtualShardRequest) GetVirtualShard() string {
+	if x != nil {
+		return x.VirtualShard
+	}
+	return ""
+}
+
+func (x *AddVirtualShardRequest) GetPhysicalKeyspace() string {
 	if x != nil {
 		return x.PhysicalKeyspace
 	}
 	return ""
 }
 
-func (x *AddVirtualKeyspaceRequest) GetSchemaName() string {
+func (x *AddVirtualShardRequest) GetPhysicalShard() string {
+	if x != nil {
+		return x.PhysicalShard
+	}
+	return ""
+}
+
+func (x *AddVirtualShardRequest) GetSchemaName() string {
 	if x != nil {
 		return x.SchemaName
 	}
 	return ""
 }
 
-type AddVirtualKeyspaceResponse struct {
+type AddVirtualShardResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AddVirtualKeyspaceResponse) Reset() {
-	*x = AddVirtualKeyspaceResponse{}
+func (x *AddVirtualShardResponse) Reset() {
+	*x = AddVirtualShardResponse{}
 	mi := &file_tabletmanagerdata_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AddVirtualKeyspaceResponse) String() string {
+func (x *AddVirtualShardResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AddVirtualKeyspaceResponse) ProtoMessage() {}
+func (*AddVirtualShardResponse) ProtoMessage() {}
 
-func (x *AddVirtualKeyspaceResponse) ProtoReflect() protoreflect.Message {
+func (x *AddVirtualShardResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_tabletmanagerdata_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -8010,8 +8026,8 @@ func (x *AddVirtualKeyspaceResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AddVirtualKeyspaceResponse.ProtoReflect.Descriptor instead.
-func (*AddVirtualKeyspaceResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use AddVirtualShardResponse.ProtoReflect.Descriptor instead.
+func (*AddVirtualShardResponse) Descriptor() ([]byte, []int) {
 	return file_tabletmanagerdata_proto_rawDescGZIP(), []int{150}
 }
 
@@ -9135,13 +9151,15 @@ const file_tabletmanagerdata_proto_rawDesc = "" +
 	"\x1cmax_values_by_sequence_table\x18\x01 \x03(\v2P.tabletmanagerdata.GetMaxValueForSequencesResponse.MaxValuesBySequenceTableEntryR\x18maxValuesBySequenceTable\x1aK\n" +
 	"\x1dMaxValuesBySequenceTableEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\x94\x01\n" +
-	"\x19AddVirtualKeyspaceRequest\x12)\n" +
-	"\x10virtual_keyspace\x18\x01 \x01(\tR\x0fvirtualKeyspace\x12+\n" +
-	"\x11physical_keyspace\x18\x02 \x01(\tR\x10physicalKeyspace\x12\x1f\n" +
-	"\vschema_name\x18\x03 \x01(\tR\n" +
-	"schemaName\"\x1c\n" +
-	"\x1aAddVirtualKeyspaceResponse*>\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xdd\x01\n" +
+	"\x16AddVirtualShardRequest\x12)\n" +
+	"\x10virtual_keyspace\x18\x01 \x01(\tR\x0fvirtualKeyspace\x12#\n" +
+	"\rvirtual_shard\x18\x02 \x01(\tR\fvirtualShard\x12+\n" +
+	"\x11physical_keyspace\x18\x03 \x01(\tR\x10physicalKeyspace\x12%\n" +
+	"\x0ephysical_shard\x18\x04 \x01(\tR\rphysicalShard\x12\x1f\n" +
+	"\vschema_name\x18\x05 \x01(\tR\n" +
+	"schemaName\"\x19\n" +
+	"\x17AddVirtualShardResponse*>\n" +
 	"\x19TabletSelectionPreference\x12\a\n" +
 	"\x03ANY\x10\x00\x12\v\n" +
 	"\aINORDER\x10\x01\x12\v\n" +
@@ -9321,8 +9339,8 @@ var file_tabletmanagerdata_proto_goTypes = []any{
 	(*UpdateSequenceTablesResponse)(nil),            // 148: tabletmanagerdata.UpdateSequenceTablesResponse
 	(*GetMaxValueForSequencesRequest)(nil),          // 149: tabletmanagerdata.GetMaxValueForSequencesRequest
 	(*GetMaxValueForSequencesResponse)(nil),         // 150: tabletmanagerdata.GetMaxValueForSequencesResponse
-	(*AddVirtualKeyspaceRequest)(nil),               // 151: tabletmanagerdata.AddVirtualKeyspaceRequest
-	(*AddVirtualKeyspaceResponse)(nil),              // 152: tabletmanagerdata.AddVirtualKeyspaceResponse
+	(*AddVirtualShardRequest)(nil),                  // 151: tabletmanagerdata.AddVirtualShardRequest
+	(*AddVirtualShardResponse)(nil),                 // 152: tabletmanagerdata.AddVirtualShardResponse
 	nil,                                             // 153: tabletmanagerdata.UserPermission.PrivilegesEntry
 	nil,                                             // 154: tabletmanagerdata.DbPermission.PrivilegesEntry
 	nil,                                             // 155: tabletmanagerdata.ExecuteHookRequest.ExtraEnvEntry

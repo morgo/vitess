@@ -3165,13 +3165,15 @@ func (m *GetMaxValueForSequencesResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *AddVirtualKeyspaceRequest) CloneVT() *AddVirtualKeyspaceRequest {
+func (m *AddVirtualShardRequest) CloneVT() *AddVirtualShardRequest {
 	if m == nil {
-		return (*AddVirtualKeyspaceRequest)(nil)
+		return (*AddVirtualShardRequest)(nil)
 	}
-	r := new(AddVirtualKeyspaceRequest)
+	r := new(AddVirtualShardRequest)
 	r.VirtualKeyspace = m.VirtualKeyspace
+	r.VirtualShard = m.VirtualShard
 	r.PhysicalKeyspace = m.PhysicalKeyspace
+	r.PhysicalShard = m.PhysicalShard
 	r.SchemaName = m.SchemaName
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -3180,15 +3182,15 @@ func (m *AddVirtualKeyspaceRequest) CloneVT() *AddVirtualKeyspaceRequest {
 	return r
 }
 
-func (m *AddVirtualKeyspaceRequest) CloneMessageVT() proto.Message {
+func (m *AddVirtualShardRequest) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *AddVirtualKeyspaceResponse) CloneVT() *AddVirtualKeyspaceResponse {
+func (m *AddVirtualShardResponse) CloneVT() *AddVirtualShardResponse {
 	if m == nil {
-		return (*AddVirtualKeyspaceResponse)(nil)
+		return (*AddVirtualShardResponse)(nil)
 	}
-	r := new(AddVirtualKeyspaceResponse)
+	r := new(AddVirtualShardResponse)
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -3196,7 +3198,7 @@ func (m *AddVirtualKeyspaceResponse) CloneVT() *AddVirtualKeyspaceResponse {
 	return r
 }
 
-func (m *AddVirtualKeyspaceResponse) CloneMessageVT() proto.Message {
+func (m *AddVirtualShardResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -11148,7 +11150,7 @@ func (m *GetMaxValueForSequencesResponse) MarshalToSizedBufferVT(dAtA []byte) (i
 	return len(dAtA) - i, nil
 }
 
-func (m *AddVirtualKeyspaceRequest) MarshalVT() (dAtA []byte, err error) {
+func (m *AddVirtualShardRequest) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -11161,12 +11163,12 @@ func (m *AddVirtualKeyspaceRequest) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *AddVirtualKeyspaceRequest) MarshalToVT(dAtA []byte) (int, error) {
+func (m *AddVirtualShardRequest) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *AddVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *AddVirtualShardRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -11183,12 +11185,26 @@ func (m *AddVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int, er
 		copy(dAtA[i:], m.SchemaName)
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SchemaName)))
 		i--
-		dAtA[i] = 0x1a
+		dAtA[i] = 0x2a
+	}
+	if len(m.PhysicalShard) > 0 {
+		i -= len(m.PhysicalShard)
+		copy(dAtA[i:], m.PhysicalShard)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.PhysicalShard)))
+		i--
+		dAtA[i] = 0x22
 	}
 	if len(m.PhysicalKeyspace) > 0 {
 		i -= len(m.PhysicalKeyspace)
 		copy(dAtA[i:], m.PhysicalKeyspace)
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.PhysicalKeyspace)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.VirtualShard) > 0 {
+		i -= len(m.VirtualShard)
+		copy(dAtA[i:], m.VirtualShard)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.VirtualShard)))
 		i--
 		dAtA[i] = 0x12
 	}
@@ -11202,7 +11218,7 @@ func (m *AddVirtualKeyspaceRequest) MarshalToSizedBufferVT(dAtA []byte) (int, er
 	return len(dAtA) - i, nil
 }
 
-func (m *AddVirtualKeyspaceResponse) MarshalVT() (dAtA []byte, err error) {
+func (m *AddVirtualShardResponse) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -11215,12 +11231,12 @@ func (m *AddVirtualKeyspaceResponse) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *AddVirtualKeyspaceResponse) MarshalToVT(dAtA []byte) (int, error) {
+func (m *AddVirtualShardResponse) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *AddVirtualKeyspaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *AddVirtualShardResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -14130,7 +14146,7 @@ func (m *GetMaxValueForSequencesResponse) SizeVT() (n int) {
 	return n
 }
 
-func (m *AddVirtualKeyspaceRequest) SizeVT() (n int) {
+func (m *AddVirtualShardRequest) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -14140,7 +14156,15 @@ func (m *AddVirtualKeyspaceRequest) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
+	l = len(m.VirtualShard)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	l = len(m.PhysicalKeyspace)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.PhysicalShard)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -14152,7 +14176,7 @@ func (m *AddVirtualKeyspaceRequest) SizeVT() (n int) {
 	return n
 }
 
-func (m *AddVirtualKeyspaceResponse) SizeVT() (n int) {
+func (m *AddVirtualShardResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -32931,7 +32955,7 @@ func (m *GetMaxValueForSequencesResponse) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *AddVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
+func (m *AddVirtualShardRequest) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -32954,10 +32978,10 @@ func (m *AddVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: AddVirtualKeyspaceRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: AddVirtualShardRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AddVirtualKeyspaceRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: AddVirtualShardRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -32994,6 +33018,38 @@ func (m *AddVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field VirtualShard", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.VirtualShard = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PhysicalKeyspace", wireType)
 			}
 			var stringLen uint64
@@ -33024,7 +33080,39 @@ func (m *AddVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 			}
 			m.PhysicalKeyspace = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 3:
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PhysicalShard", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PhysicalShard = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SchemaName", wireType)
 			}
@@ -33078,7 +33166,7 @@ func (m *AddVirtualKeyspaceRequest) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *AddVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
+func (m *AddVirtualShardResponse) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -33101,10 +33189,10 @@ func (m *AddVirtualKeyspaceResponse) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: AddVirtualKeyspaceResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: AddVirtualShardResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AddVirtualKeyspaceResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: AddVirtualShardResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:

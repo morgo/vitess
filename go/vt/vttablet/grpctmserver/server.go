@@ -719,10 +719,10 @@ func (s *server) GetThrottlerStatus(ctx context.Context, request *tabletmanagerd
 	return response, err
 }
 
-func (s *server) AddVirtualKeyspace(ctx context.Context, request *tabletmanagerdatapb.AddVirtualKeyspaceRequest) (response *tabletmanagerdatapb.AddVirtualKeyspaceResponse, err error) {
-	defer s.tm.HandleRPCPanic(ctx, "AddVirtualKeyspace", request, response, true /*verbose*/, &err)
+func (s *server) AddVirtualShard(ctx context.Context, request *tabletmanagerdatapb.AddVirtualShardRequest) (response *tabletmanagerdatapb.AddVirtualShardResponse, err error) {
+	defer s.tm.HandleRPCPanic(ctx, "AddVirtualShard", request, response, true /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
-	response, err = s.tm.AddVirtualKeyspace(ctx, request)
+	response, err = s.tm.AddVirtualShard(ctx, request)
 	return response, err
 }
 
