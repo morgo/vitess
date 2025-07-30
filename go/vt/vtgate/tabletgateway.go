@@ -219,21 +219,18 @@ func (gw *TabletGateway) WaitForTablets(ctx context.Context, tabletTypesToWait [
 	}
 
 	// Finds the targets to look for.
+	// This automatically skips virtual targets.
 	targets, keyspaces, err := srvtopo.FindAllTargetsAndKeyspaces(ctx, gw.srvTopoServer, gw.localCell, discovery.KeyspacesToWatch, tabletTypesToWait)
 	if err != nil {
 		return err
 	}
-
-	// Filter out virtual keyspace targets and keyspaces
-	nonVirtualTargets, nonVirtualKeyspaces, err := gw.filterVirtual(ctx, targets, keyspaces)
+	log.Infof("DEBUG: waiting for healthy serving targets")
+	err = gw.hc.WaitForAllServingTablets(ctx, targets)
 	if err != nil {
 		return err
 	}
+	log.Infof("DEBUG: done waiting for healthy serving targets")
 
-	err = gw.hc.WaitForAllServingTablets(ctx, nonVirtualTargets)
-	if err != nil {
-		return err
-	}
 	// After having waited for all serving tablets. We should also wait for the keyspace event watcher to have seen
 	// the updates and marked all the keyspaces as consistent (if we want to wait for primary tablets).
 	// Otherwise, we could be in a situation where even though the healthchecks have arrived, the keyspace event watcher hasn't finished processing them.
@@ -241,7 +238,9 @@ func (gw *TabletGateway) WaitForTablets(ctx context.Context, tabletTypesToWait [
 	// Waiting for the keyspaces to become consistent ensures that all the primary tablets for all the shards should be serving as seen by the keyspace event watcher
 	// and any disruption from now on, will make sure we start buffering properly.
 	if topoproto.IsTypeInList(topodatapb.TabletType_PRIMARY, tabletTypesToWait) && gw.kev != nil {
-		return gw.kev.WaitForConsistentKeyspaces(ctx, nonVirtualKeyspaces)
+		log.Infof("DEBUG: waiting for consistent keyspaces: %v", keyspaces)
+		err := gw.kev.WaitForConsistentKeyspaces(ctx, keyspaces)
+		return err
 	}
 	return nil
 }
@@ -415,7 +414,6 @@ func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, 
 
 		startTime := time.Now()
 		var canRetry bool
-
 		canRetry, err = inner(ctx, target, th.Conn)
 		gw.updateStats(target, startTime, err)
 		if canRetry {
@@ -511,65 +509,4 @@ func NewShardError(in error, target *querypb.Target) error {
 		return vterrors.Wrapf(in, "target: %s.%s.%s", target.Keyspace, target.Shard, topoproto.TabletTypeLString(target.TabletType))
 	}
 	return in
-}
-
-// filterVirtual filters out virtual shards from targets and keyspaces lists.
-// It returns the non-virtual targets and keyspaces, making the health check system
-// agnostic to virtual shards since they don't have real tablets.
-func (gw *TabletGateway) filterVirtual(ctx context.Context, targets []*querypb.Target, keyspaces []string) ([]*querypb.Target, []string, error) {
-	topoServer, err := gw.srvTopoServer.GetTopoServer()
-	if err != nil {
-		// If we can't get the topo server, use all targets and keyspaces to be safe
-		return targets, keyspaces, nil
-	}
-
-	var nonVirtualTargets []*querypb.Target
-	var nonVirtualKeyspaces []string
-	virtualShardSet := make(map[string]bool)
-
-	// Filter targets
-	for _, target := range targets {
-		isVirtual, err := topo.IsVirtualShard(ctx, topoServer, target.Keyspace, target.Shard)
-		if err != nil || !isVirtual {
-			// Include non-virtual shards and shards we can't determine
-			nonVirtualTargets = append(nonVirtualTargets, target)
-		} else {
-			log.Infof("Skipping virtual shard %s/%s from tablet health check", target.Keyspace, target.Shard)
-			virtualShardSet[target.Keyspace] = true
-		}
-	}
-
-	// Filter keyspaces
-	for _, ks := range keyspaces {
-		if virtualShardSet[ks] {
-			log.Infof("Skipping virtual keyspace %s from consistency check", ks)
-			continue
-		}
-
-		// Double-check if we haven't already determined this keyspace has virtual shards
-		// For now, we check if any shard in the keyspace is virtual
-		shards, err := topoServer.GetShardNames(ctx, ks)
-		if err != nil {
-			// Include keyspaces we can't determine
-			nonVirtualKeyspaces = append(nonVirtualKeyspaces, ks)
-			continue
-		}
-
-		hasVirtualShards := false
-		for _, shard := range shards {
-			isVirtual, err := topo.IsVirtualShard(ctx, topoServer, ks, shard)
-			if err == nil && isVirtual {
-				hasVirtualShards = true
-				break
-			}
-		}
-
-		if !hasVirtualShards {
-			nonVirtualKeyspaces = append(nonVirtualKeyspaces, ks)
-		} else {
-			log.Infof("Skipping keyspace %s with virtual shards from consistency check", ks)
-		}
-	}
-
-	return nonVirtualTargets, nonVirtualKeyspaces, nil
 }

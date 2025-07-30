@@ -416,6 +416,8 @@ func (hc *HealthCheckImpl) AddTablet(tablet *topodata.Tablet) {
 	}
 
 	// Skip health checking for VIRTUAL tablets - they don't run actual services
+	// TODO: verify this actually works, as the caller may have already
+	// resolved tablet to be the physical location.
 	if tablet.Type == topodata.TabletType_VIRTUAL {
 		hc.logger().Infof("Skipping health check for VIRTUAL tablet: %v", tablet)
 		return
@@ -793,34 +795,7 @@ func (hc *HealthCheckImpl) GetHealthyTabletStats(target *query.Target) []*Tablet
 	var result []*TabletHealth
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-
-	// First try to get tablets directly for the target keyspace/shard
-	tablets := hc.healthy[KeyFromTarget(target)]
-	if len(tablets) > 0 {
-		return append(result, tablets...)
-	}
-
-	// If no tablets found and we have a topo server, check if this is a virtual shard
-	if hc.ts != nil {
-		ctx := context.Background()
-		isVirtual, err := topo.IsVirtualShard(ctx, hc.ts, target.Keyspace, target.Shard)
-		if err == nil && isVirtual {
-			// This is a virtual shard, resolve to physical tablets
-			physicalKeyspace, physicalShard, err := topo.GetPhysicalShardInfo(ctx, hc.ts, target.Keyspace, target.Shard)
-			if err == nil {
-				// Get tablets from the physical shard
-				physicalTarget := &query.Target{
-					Keyspace:   physicalKeyspace,
-					Shard:      physicalShard,
-					TabletType: target.TabletType,
-				}
-				physicalTablets := hc.healthy[KeyFromTarget(physicalTarget)]
-				return append(result, physicalTablets...)
-			}
-		}
-	}
-
-	return result
+	return append(result, hc.healthy[KeyFromTarget(target)]...)
 }
 
 // GetTabletStats returns all tablets for the given target.

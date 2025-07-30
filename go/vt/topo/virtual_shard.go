@@ -212,7 +212,9 @@ func (ts *Server) addVirtualShardToPhysicalTablet(ctx context.Context, physicalT
 // IsVirtualShard returns true if the shard is a virtual shard.
 // We identify virtual shards by checking if there are VIRTUAL tablets in the shard.
 func IsVirtualShard(ctx context.Context, ts *Server, keyspace, shard string) (bool, error) {
-	tablets, err := ts.GetTabletMapForShard(ctx, keyspace, shard)
+	// We need to use GetTabletMapForShardWithoutResolving to avoid automatic
+	// resolution of VIRTUAL tablets to their physical counterparts
+	tablets, err := ts.GetTabletMapForShardWithoutResolving(ctx, keyspace, shard)
 	if err != nil {
 		return false, err
 	}
@@ -229,7 +231,7 @@ func IsVirtualShard(ctx context.Context, ts *Server, keyspace, shard string) (bo
 // It does this by looking at the VIRTUAL tablets in the shard and extracting the
 // physical shard information from their tags.
 func GetPhysicalShardInfo(ctx context.Context, ts *Server, virtualKeyspace, virtualShard string) (physicalKeyspace, physicalShard string, err error) {
-	tablets, err := ts.GetTabletMapForShard(ctx, virtualKeyspace, virtualShard)
+	tablets, err := ts.GetTabletMapForShardWithoutResolving(ctx, virtualKeyspace, virtualShard)
 	if err != nil {
 		return "", "", err
 	}

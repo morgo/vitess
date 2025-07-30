@@ -639,6 +639,58 @@ func (ts *Server) GetTabletMap(ctx context.Context, tabletAliases []*topodatapb.
 	return tabletMap, returnErr
 }
 
+// GetTabletMapWithoutResolving tries to read all the tablets in the provided list
+// without resolving VIRTUAL tablets to their physical counterparts,
+// and returns them in a map.
+// If error is ErrPartialResult, the results in the map are
+// incomplete, meaning some tablets couldn't be read.
+// The map is indexed by topoproto.TabletAliasString(tablet alias).
+func (ts *Server) GetTabletMapWithoutResolving(ctx context.Context, tabletAliases []*topodatapb.TabletAlias, opt *GetTabletsByCellOptions) (map[string]*TabletInfo, error) {
+	span, ctx := trace.NewSpan(ctx, "topo.GetTabletMapWithoutResolving")
+	span.Annotate("num_tablets", len(tabletAliases))
+	defer span.Finish()
+
+	var (
+		mu        sync.Mutex
+		wg        sync.WaitGroup
+		tabletMap = make(map[string]*TabletInfo)
+		returnErr error
+	)
+
+	for _, tabletAlias := range tabletAliases {
+		if tabletAlias == nil {
+			return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "nil tablet alias in list")
+		}
+		wg.Add(1)
+		go func(tabletAlias *topodatapb.TabletAlias) {
+			defer wg.Done()
+			tabletInfo, err := ts.GetTabletWithoutResolving(ctx, tabletAlias)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				log.Warningf("%v: %v", tabletAlias, err)
+				// There can be data races removing nodes - ignore them for now.
+				// We only need to set this on first error.
+				if returnErr == nil && !IsErrType(err, NoNode) {
+					returnErr = NewError(PartialResult, tabletAlias.GetCell())
+				}
+			} else {
+				if opt != nil && opt.KeyspaceShard != nil {
+					if opt.KeyspaceShard.Keyspace != "" && opt.KeyspaceShard.Keyspace != tabletInfo.Keyspace {
+						return
+					}
+					if opt.KeyspaceShard.Shard != "" && opt.KeyspaceShard.Shard != tabletInfo.Shard {
+						return
+					}
+				}
+				tabletMap[topoproto.TabletAliasString(tabletAlias)] = tabletInfo
+			}
+		}(tabletAlias)
+	}
+	wg.Wait()
+	return tabletMap, returnErr
+}
+
 // GetTabletList tries to read all the tablets in the provided list,
 // and returns them in a list.
 // If error is ErrPartialResult, the results in the list are

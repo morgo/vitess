@@ -36,7 +36,6 @@ import (
 
 // LoadTable creates a Table from the schema info in the database with an optional schema override.
 func LoadTable(conn *connpool.PooledConn, databaseName, tableName, tableType string, comment string, collationEnv *collations.Environment) (*Table, error) {
-	log.Infof("DEBUGZ: LoadTable: %s.%s, type: %s, comment: %s", databaseName, tableName, tableType, comment)
 	ta := NewTable(tableName, NoType)
 	if strings.Contains(tableType, tmutils.TableView) {
 		ta.Type = View

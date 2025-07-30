@@ -9,7 +9,6 @@ vttablet:
 - In vreplication, there's a hardcoded case of specifying the target keyspace. Need to fix it to read from the correct location (may need to extend metadata?). This will be a blocker to adding more tests.
 
 topo:
-
 - Currently tmc client is called from topo to setup the initial database. I'm not sure if this is correct, I would have thought vtctl calls topo and tmc itself.
 
 vtgate, query serving etc:
@@ -19,15 +18,8 @@ vtgate, query serving etc:
 Protobufs:
 - I extended protobufs in a very POC way. Most of these changes were to add a dbNameOverride, but some cases have both a dbNameOverride and a target which is silly. Most of this can be reverted. Where required, we can standardize on target (see vttablet above).
 
-- vtctl:
-- Need to remove create/drop virtual keyspace and instead add/investigate commands for shard-level.
-
-- wrangler:
-- There's some code in wrangler that overlaps with vtctl. I don't think its used, or its used by old API commands. Need to revert my changes for the POC. If it is in use, we can fix for actual shipping.
-
 - examples:
 - We should just create one physical "main" and have all the activity be on it.
-
 
 Not planned:
 - Converting physical shards to virtual.
