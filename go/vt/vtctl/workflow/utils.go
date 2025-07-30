@@ -359,13 +359,10 @@ func getMigrationID(targetKeyspace string, shardTablets []string) (int64, error)
 //
 // It returns ErrNoStreams if there are no targets found for the workflow.
 func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, targetKeyspace string, workflow string) (*TargetInfo, error) {
-	log.Infof("DEBUG: Building targets for workflow %s in keyspace %s\n", workflow, targetKeyspace)
 	targetShards, err := ts.FindAllShardsInKeyspace(ctx, targetKeyspace, nil)
 	if err != nil {
-		log.Infof("DEBUG: error finding shards in keyspace %s: %v", targetKeyspace, err)
 		return nil, err
 	}
-	log.Infof("DEBUG: Found %#v target shards in keyspace %s", targetShards, targetKeyspace)
 	var (
 		frozen          bool
 		optCells        string
@@ -381,10 +378,8 @@ func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManag
 	// two target shards will have vreplication streams, and the other shards in
 	// the target keyspace will not.
 	for targetShardName, targetShard := range targetShards {
-		log.Infof("DEBUG: Processing target shard %s: %#v\n", targetShardName, targetShard)
 		if targetShard.PrimaryAlias == nil {
 			// This can happen if bad inputs are given.
-			log.Infof("DEBUG: error, targetShard.PrimaryAlias is nil for shard %s\n", targetShardName)
 			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "shard %v/%v doesn't have a primary set", targetKeyspace, targetShard)
 		}
 
@@ -397,13 +392,11 @@ func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManag
 			Workflow:       workflow,
 			DbNameOverride: primary.DbNameOverride,
 		})
-		log.Infof("DEBUG: Read vreplication workflow returned err: %#v, wf: %#v\n", err, wf)
 		if err != nil {
 			return nil, err
 		}
 
 		if wf == nil || len(wf.Streams) < 1 {
-			log.Infof("DEBUG: No streams found for workflow %s in keyspace %s on shard %s", workflow, targetKeyspace, targetShardName)
 			continue
 		}
 

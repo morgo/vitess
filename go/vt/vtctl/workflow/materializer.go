@@ -118,19 +118,16 @@ func (mz *materializer) getOptionsJSON() (string, error) {
 }
 
 func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVReplicationWorkflowRequest) error {
-	log.Infof("DEBUGX: Creating vreplication workflow %s in keyspace %s", mz.ms.Workflow, mz.ms.TargetKeyspace)
 	if err := validateNewWorkflow(mz.ctx, mz.ts, mz.tmc, mz.ms.TargetKeyspace, mz.ms.Workflow); err != nil {
 		return err
 	}
 
-	log.Infof("DEBUGX: Building materializer")
 	err := mz.buildMaterializer()
 	if err != nil {
 		return err
 	}
 
 	var workflowSubType binlogdatapb.VReplicationWorkflowSubType
-	log.Infof("DEBUGX: getWorkflowSubType")
 	workflowSubType, err = mz.getWorkflowSubType()
 	if err != nil {
 		return err
@@ -141,11 +138,9 @@ func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVRe
 		return err
 	}
 	req.Options = optionsJSON
-	log.Infof("DEBUGX: deploySchema")
 	if err := mz.deploySchema(); err != nil {
 		return err
 	}
-	log.Infof("DEBUGX: forAllShards")
 	return forAllShards(mz.targetShards, func(target *topo.ShardInfo) error {
 		targetPrimary, err := mz.ts.GetTablet(mz.ctx, target.PrimaryAlias)
 		if err != nil {
@@ -164,14 +159,12 @@ func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVRe
 		// Each tablet needs its own copy of the request as it will have a unique
 		// BinlogSource.
 		tabletReq := req.CloneVT()
-		log.Infof("DEBUGX: generateBinlogSources")
 		tabletReq.BinlogSource, err = mz.generateBinlogSources(target, sourceShards, streamKeyRangesEqual)
 		if err != nil {
 			return err
 		}
 
 		tabletReq.DbNameOverride = req.DbNameOverride
-		log.Infof("DEBUGX: CreateVReplicationWorkflow")
 		_, err = mz.tmc.CreateVReplicationWorkflow(mz.ctx, targetPrimary.Tablet, tabletReq)
 		return err
 	})

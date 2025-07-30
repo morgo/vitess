@@ -1111,15 +1111,12 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			return nil, err
 		}
 	}
-	log.Infof("DEBUG: Getting tables in sourceKs: %s", sourceKeyspace)
 
 	ksTables, err := getTablesInKeyspace(ctx, sourceTopo, s.tmc, sourceKeyspace)
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("DEBUG: DONE getting tables in sourceKs: %s", sourceKeyspace)
 	if len(tables) > 0 {
-		log.Infof("DEBUG: validating tables exist: %v, %#v, %#v", sourceKeyspace, ksTables, tables)
 		err = validateSourceTablesExist(sourceKeyspace, ksTables, tables)
 		if err != nil {
 			return nil, err
@@ -1208,14 +1205,11 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		env:          s.env,
 	}
 
-	log.Infof("DEBUG: Created materializer mz: %#v. Calling createWorkflowStreams", mz)
 	// For virtual shards, we need to determine the correct database name override
 	// TODO: do the correct dbNameOverride for a virtual shard here.
 	// The challenge with this, is that we do not know the shard
 	// that will be used for the workflow, so we cannot use the shard name.
 	dbNameOverride := "vt_" + targetKeyspace + "_0"
-
-	log.Infof("DEBUG: dbNameOverride set to: %s", dbNameOverride)
 
 	err = mz.createWorkflowStreams(&tabletmanagerdatapb.CreateVReplicationWorkflowRequest{
 		Workflow:                  req.Workflow,
@@ -1229,7 +1223,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		DbNameOverride:            dbNameOverride,
 	})
 
-	log.Infof("DEBUG: createWorkflowStreams returned err: %v", err)
 	if err != nil {
 		return nil, err
 	}
@@ -1238,28 +1231,20 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		return !mz.IsMultiTenantMigration() && !mz.isPartial
 	}
 
-	log.Infof("DEBUG: building traffic switcher")
-	// code fails to proceed from here:
 	ts, err := s.buildTrafficSwitcher(ctx, req.GetTargetKeyspace(), req.GetWorkflow())
-	log.Infof("DEBUG: buildTrafficSwitcher returned ts: %v, err: %v", ts, err)
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("DEBUG: creating switcher")
 	sw := &switcher{s: s, ts: ts}
-	log.Infof("DEBUG: switcher created: %v", sw)
 
 	// When creating the workflow, locking the workflow and its target keyspace is sufficient.
 	lockName := fmt.Sprintf("%s/%s", ts.TargetKeyspaceName(), ts.WorkflowName())
-	// TODO: this code is not reachable.
-	log.Infof("DEBUG: creating lock for workflow %s", lockName)
 	ctx, workflowUnlock, lockErr := s.ts.LockName(ctx, lockName, "MoveTablesCreate")
 	if lockErr != nil {
 		ts.Logger().Errorf("Locking the workflow %s failed: %v", lockName, lockErr)
 		return nil, vterrors.Wrapf(lockErr, "failed to lock the %s workflow", lockName)
 	}
 	defer workflowUnlock(&err)
-	log.Infof("DEBUG: calling lock on keyspace for target %s", ts.TargetKeyspaceName())
 	ctx, targetUnlock, lockErr := sw.lockKeyspace(ctx, ts.TargetKeyspaceName(), "MoveTablesCreate")
 	if lockErr != nil {
 		ts.Logger().Errorf("Locking target keyspace %s failed: %v", ts.TargetKeyspaceName(), lockErr)
@@ -1287,23 +1272,19 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			}
 		}
 	}()
-	log.Infof("DEBUGZ: finished locking")
 
 	// Now that the streams have been successfully created, let's put the associated
 	// routing rules and denied tables entries in place.
 	if externalTopo == nil {
-		log.Infof("DEBUGZ: setupInitialRoutingRules")
 		if err := s.setupInitialRoutingRules(ctx, req, mz, tables); err != nil {
 			return nil, err
 		}
 	}
-	log.Infof("DEBUGZ: start isStandardMoveTables")
 	if isStandardMoveTables() { // Non-standard ones do not use shard scoped mechanisms
 		if err := setupInitialDeniedTables(ctx, ts); err != nil {
 			return nil, vterrors.Wrapf(err, "failed to put initial denied tables entries in place on the target shards")
 		}
 	}
-	log.Infof("DEBUGZ: about to rebuildSrvVSchema")
 	if err := s.ts.RebuildSrvVSchema(ctx, nil); err != nil {
 		return nil, err
 	}
@@ -1313,12 +1294,10 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			return nil, err
 		}
 	}
-	log.Infof("DEBUGZ: about to collect target streams")
 	tabletShards, err := s.collectTargetStreams(ctx, mz)
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("DEBUGZ: about to get migration ID, targetKeyspace: %s, tabletShards: %v", targetKeyspace, tabletShards)
 	migrationID, err := getMigrationID(targetKeyspace, tabletShards)
 	if err != nil {
 		return nil, err
@@ -1340,7 +1319,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	}
 
 	if req.AutoStart {
-		log.Infof("DEBUGZ: starting streams")
 		if err := mz.startStreams(ctx); err != nil {
 			return nil, err
 		}
@@ -1349,7 +1327,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	for _, shard := range mz.targetShards {
 		targetShards = append(targetShards, shard.ShardName())
 	}
-	log.Infof("DEBUGZ: about to return workflow status for %s.%s", targetKeyspace, req.Workflow)
 	return s.WorkflowStatus(ctx, &vtctldatapb.WorkflowStatusRequest{
 		Keyspace: targetKeyspace,
 		Workflow: req.Workflow,
@@ -2303,11 +2280,9 @@ func (s *Server) deleteTenantData(ctx context.Context, ts *trafficSwitcher, batc
 }
 
 func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workflowName string, opts ...WorkflowActionOption) (*trafficSwitcher, error) {
-	log.Infof("DEBUGZ: building traffic switcher for workflow %s in keyspace %s", workflowName, targetKeyspace)
 	wopts := processWorkflowActionOptions(opts)
 
 	tgtInfo, err := BuildTargets(ctx, s.ts, s.tmc, targetKeyspace, workflowName)
-	log.Infof("DEBUGZ: tgtInfo: %+v, err: %v", tgtInfo, err)
 	if err != nil {
 		s.Logger().Infof("Error building targets: %s", err)
 		return nil, err
@@ -2330,24 +2305,18 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 		workflowSubType: tgtInfo.WorkflowSubType,
 		options:         tgtInfo.Options,
 	}
-	log.Infof("DEBUGZ: traffic switcher: %+v, err: %v", ts)
 	s.Logger().Infof("Migration ID for workflow %s: %d", workflowName, ts.id)
 	sourceTopo := s.ts
 
 	// Build the sources.
-	log.Infof("DEBUGZ: Starting source building loop, targets count: %d", len(targets))
-	for targetIdx, target := range targets {
-		log.Infof("DEBUGZ: Processing target %d, sources count: %d", targetIdx, len(target.Sources))
-		for sourceIdx, bls := range target.Sources {
-			log.Infof("DEBUGZ: Processing source %d for target %d, keyspace: %s, shard: %s", sourceIdx, targetIdx, bls.Keyspace, bls.Shard)
+	for _, target := range targets {
+		for _, bls := range target.Sources {
 			if ts.sourceKeyspace == "" {
-				log.Infof("DEBUGZ: Setting source keyspace to %s", bls.Keyspace)
 				ts.sourceKeyspace = bls.Keyspace
 				ts.sourceTimeZone = bls.SourceTimeZone
 				ts.targetTimeZone = bls.TargetTimeZone
 				ts.externalCluster = bls.ExternalCluster
 				if ts.externalCluster != "" {
-					log.Infof("DEBUGZ: Opening external cluster: %s", ts.externalCluster)
 					externalTopo, err := s.ts.OpenExternalVitessClusterServer(ctx, ts.externalCluster)
 					if err != nil {
 						return nil, err
@@ -2359,12 +2328,10 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "source keyspaces are mismatched across streams: %v vs %v", ts.sourceKeyspace, bls.Keyspace)
 			}
 
-			log.Infof("DEBUGZ: Checking filters for %s/%s", bls.Keyspace, bls.Shard)
 			if bls.Filter == nil || bls.Filter.Rules == nil {
 				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "missing filters for %s/%s", bls.Keyspace, bls.Shard)
 			}
 
-			log.Infof("DEBUGZ: Processing tables for %s/%s", bls.Keyspace, bls.Shard)
 			if ts.tables == nil {
 				for _, rule := range bls.Filter.Rules {
 					ts.tables = append(ts.tables, rule.Match)
@@ -2388,13 +2355,10 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 			if _, ok := ts.sources[bls.Shard]; ok {
 				continue
 			}
-			// TODO: handle here if the sourcesi is a virtual shard,
-			// in which case we need to resolve it to the physical shard.
 			sourcesi, err := sourceTopo.GetShard(ctx, bls.Keyspace, bls.Shard)
 			if err != nil {
 				return nil, err
 			}
-			log.Infof("DEBUGZ: Found source shard %s/%s with primary alias %v", bls.Keyspace, bls.Shard, sourcesi.PrimaryAlias)
 			if sourcesi.PrimaryAlias == nil {
 				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "source shard %s/%s currently has no primary tablet",
 					bls.Keyspace, bls.Shard)
@@ -3058,14 +3022,12 @@ func (s *Server) switchReads(ctx context.Context, req *vtctldatapb.WorkflowSwitc
 	}
 	defer unlock(&err)
 	confirmKeyspaceLocksHeld := func() error {
-		/*
-			if req.DryRun { // We don't actually take locks
-				return nil
-			}
-			if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
-				return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
-			}
-		*/
+		if req.DryRun { // We don't actually take locks
+			return nil
+		}
+		if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
+			return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
+		}
 		return nil
 	}
 
@@ -3177,17 +3139,15 @@ func (s *Server) switchWrites(ctx context.Context, req *vtctldatapb.WorkflowSwit
 		defer targetUnlock(&err)
 	}
 	confirmKeyspaceLocksHeld := func() error {
-		/*
-			if req.DryRun { // We don't actually take locks
-				return nil
-			}
-			if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
-				return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
-			}
-			if err := topo.CheckKeyspaceLocked(ctx, ts.TargetKeyspaceName()); err != nil {
-				return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.TargetKeyspaceName())
-			}
-		*/
+		if req.DryRun { // We don't actually take locks
+			return nil
+		}
+		if err := topo.CheckKeyspaceLocked(ctx, ts.SourceKeyspaceName()); err != nil {
+			return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.SourceKeyspaceName())
+		}
+		if err := topo.CheckKeyspaceLocked(ctx, ts.TargetKeyspaceName()); err != nil {
+			return vterrors.Wrapf(err, "%s keyspace lock was lost", ts.TargetKeyspaceName())
+		}
 		return nil
 	}
 
