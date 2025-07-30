@@ -984,10 +984,8 @@ type Target struct {
 	// cell is used for routing queries between vtgate and vttablets. It
 	// is not used when Target is part of the Session sent by the client.
 	Cell string `protobuf:"bytes,4,opt,name=cell,proto3" json:"cell,omitempty"`
-	// schema_name is used for virtual keyspaces to specify the target MySQL schema.
-	// For regular keyspaces, this field is empty and the keyspace name is used as the schema.
-	// For virtual keyspaces, this field contains the MySQL schema name to route queries to.
-	SchemaName    string `protobuf:"bytes,5,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
+	// db_name is used for virtual shards to specify the target MySQL schema.
+	DbName        string `protobuf:"bytes,5,opt,name=db_name,json=dbName,proto3" json:"db_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1050,9 +1048,9 @@ func (x *Target) GetCell() string {
 	return ""
 }
 
-func (x *Target) GetSchemaName() string {
+func (x *Target) GetDbName() string {
 	if x != nil {
-		return x.SchemaName
+		return x.DbName
 	}
 	return ""
 }
@@ -5800,15 +5798,14 @@ var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x05query\x1a\x0etopodata.proto\x1a\vvtrpc.proto\"\xa6\x01\n" +
+	"\vquery.proto\x12\x05query\x1a\x0etopodata.proto\x1a\vvtrpc.proto\"\x9e\x01\n" +
 	"\x06Target\x12\x1a\n" +
 	"\bkeyspace\x18\x01 \x01(\tR\bkeyspace\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x125\n" +
 	"\vtablet_type\x18\x03 \x01(\x0e2\x14.topodata.TabletTypeR\n" +
 	"tabletType\x12\x12\n" +
-	"\x04cell\x18\x04 \x01(\tR\x04cell\x12\x1f\n" +
-	"\vschema_name\x18\x05 \x01(\tR\n" +
-	"schemaName\"D\n" +
+	"\x04cell\x18\x04 \x01(\tR\x04cell\x12\x17\n" +
+	"\adb_name\x18\x05 \x01(\tR\x06dbName\"D\n" +
 	"\x0eVTGateCallerID\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x16\n" +
 	"\x06groups\x18\x02 \x03(\tR\x06groups\"\\\n" +

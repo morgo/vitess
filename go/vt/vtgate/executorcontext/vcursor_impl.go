@@ -891,6 +891,7 @@ func (vc *VCursorImpl) ResolveVirtualShardTarget(ctx context.Context, rss []*srv
 			Keyspace:   physicalKeyspace,
 			Shard:      physicalShard,
 			TabletType: rs.Target.TabletType,
+			DbName:     rs.Target.DbName, // set the dbName from the original virtual.
 		}
 
 		rss[i] = &srvtopo.ResolvedShard{

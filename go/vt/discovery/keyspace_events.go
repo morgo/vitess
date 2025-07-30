@@ -359,7 +359,7 @@ func (kss *keyspaceState) onHealthCheck(th *TabletHealth) {
 	// Check if this is a health check event for a physical tablet that backs a virtual shard
 	// in this keyspace. If so, we need to map it to the virtual shard.
 	virtualShard := kss.getVirtualShardForPhysicalTablet(th.Tablet.Alias, th.Target.Keyspace, th.Target.Shard)
-	
+
 	var targetShard string
 	if virtualShard != "" {
 		// This health check is for a physical tablet that backs a virtual shard in this keyspace
@@ -441,40 +441,40 @@ func (kss *keyspaceState) onHealthCheck(th *TabletHealth) {
 func (kss *keyspaceState) getVirtualShardForPhysicalTablet(tabletAlias *topodatapb.TabletAlias, physicalKeyspace, physicalShard string) string {
 	// For virtual shards, we need to check if this health check event is for a physical tablet
 	// that backs a virtual shard in this keyspace.
-	
+
 	// We can identify this by checking if there are any virtual shards in this keyspace
 	// that map to the physical keyspace/shard combination.
-	
+
 	// Get the topology server to check for virtual shards
 	ts, err := kss.kew.ts.GetTopoServer()
 	if err != nil {
 		return ""
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	// Check each shard in this keyspace to see if it's a virtual shard that maps to the physical tablet
 	for shardName := range kss.shards {
 		isVirtual, err := topo.IsVirtualShard(ctx, ts, kss.keyspace, shardName)
 		if err != nil {
 			continue
 		}
-		
+
 		if isVirtual {
 			// Get the physical shard info for this virtual shard
 			physicalKs, physicalSh, err := topo.GetPhysicalShardInfo(ctx, ts, kss.keyspace, shardName)
 			if err != nil {
 				continue
 			}
-			
+
 			// Check if this virtual shard maps to the physical tablet's keyspace/shard
 			if physicalKs == physicalKeyspace && physicalSh == physicalShard {
 				return shardName
 			}
 		}
 	}
-	
+
 	return ""
 }
 
@@ -713,10 +713,10 @@ func newKeyspaceState(ctx context.Context, kew *KeyspaceEventWatcher, cell, keys
 		keyspace: keyspace,
 		shards:   make(map[string]*shardState),
 	}
-	
+
 	// Initialize virtual shards for this keyspace if any exist
 	kss.initializeVirtualShards(ctx)
-	
+
 	kew.ts.WatchSrvKeyspace(ctx, cell, keyspace, kss.onSrvKeyspace)
 	kew.ts.WatchSrvVSchema(ctx, cell, kss.onSrvVSchema)
 	return kss
@@ -730,14 +730,14 @@ func (kss *keyspaceState) initializeVirtualShards(ctx context.Context) {
 		log.Errorf("failed to get topology server for keyspace %s: %v", kss.keyspace, err)
 		return
 	}
-	
+
 	// Get all shards in this keyspace
 	shardNames, err := ts.GetShardNames(ctx, kss.keyspace)
 	if err != nil {
 		// This is expected for new keyspaces, so don't log an error
 		return
 	}
-	
+
 	// Check each shard to see if it's virtual
 	for _, shardName := range shardNames {
 		isVirtual, err := topo.IsVirtualShard(ctx, ts, kss.keyspace, shardName)
@@ -745,7 +745,7 @@ func (kss *keyspaceState) initializeVirtualShards(ctx context.Context) {
 			log.Errorf("failed to check if shard %s/%s is virtual: %v", kss.keyspace, shardName, err)
 			continue
 		}
-		
+
 		if isVirtual {
 			// Initialize a shard state for this virtual shard
 			// We'll mark it as not serving initially - it will become serving
@@ -773,7 +773,7 @@ func (kew *KeyspaceEventWatcher) processHealthCheck(ctx context.Context, th *Tab
 	if kss != nil {
 		kss.onHealthCheck(th)
 	}
-	
+
 	// Additionally, check if this physical tablet backs any virtual keyspaces
 	// and forward the health check event to those virtual keyspaces as well
 	kew.forwardHealthCheckToVirtualKeyspaces(ctx, th)
@@ -791,13 +791,13 @@ func (kew *KeyspaceEventWatcher) forwardHealthCheckToVirtualKeyspaces(ctx contex
 		keyspaces = append(keyspaces, keyspace)
 	}
 	kew.mu.Unlock()
-	
+
 	for _, keyspace := range keyspaces {
 		if keyspace == th.Target.Keyspace {
 			// Skip the physical keyspace - we already processed it
 			continue
 		}
-		
+
 		kss := kew.getKeyspaceStatus(ctx, keyspace)
 		if kss != nil {
 			// Check if this keyspace has any virtual shards backed by this physical tablet

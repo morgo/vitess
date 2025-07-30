@@ -1422,7 +1422,7 @@ func (qre *QueryExecutor) getUDFs(callback func(schemaRes *querypb.GetSchemaResp
 }
 
 // ensureSchemaContext ensures that the connection is using the correct schema
-// for virtual keyspaces. If the target has a schema_name specified, it will
+// for virtual shards. If the target has a db_name specified, it will
 // switch to that schema before executing the query.
 func (qre *QueryExecutor) ensureSchemaContext(ctx context.Context, conn *connpool.Conn) error {
 	// Get the target from the log stats if available
@@ -1432,14 +1432,14 @@ func (qre *QueryExecutor) ensureSchemaContext(ctx context.Context, conn *connpoo
 		target = qre.tsv.sm.Target()
 	}
 
-	// Check if we need to switch schema for virtual keyspaces
-	if target != nil && target.SchemaName != "" {
+	// Check if we need to switch schema for virtual shard
+	if target != nil && target.DbName != "" {
 		// Only switch schema if it's different from the current database
-		if target.SchemaName != qre.tsv.config.DB.DBName {
-			useSQL := fmt.Sprintf("USE `%s`", target.SchemaName)
+		if target.DbName != qre.tsv.config.DB.DBName {
+			useSQL := fmt.Sprintf("USE `%s`", target.DbName)
 			_, err := conn.Exec(ctx, useSQL, 1, false)
 			if err != nil {
-				return vterrors.Wrapf(err, "failed to switch to schema %s for virtual keyspace", target.SchemaName)
+				return vterrors.Wrapf(err, "failed to switch to DbName %s for virtual shard", target.DbName)
 			}
 		}
 	}

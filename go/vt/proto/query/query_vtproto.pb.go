@@ -33,7 +33,7 @@ func (m *Target) CloneVT() *Target {
 	r.Shard = m.Shard
 	r.TabletType = m.TabletType
 	r.Cell = m.Cell
-	r.SchemaName = m.SchemaName
+	r.DbName = m.DbName
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -1564,10 +1564,10 @@ func (m *Target) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if len(m.SchemaName) > 0 {
-		i -= len(m.SchemaName)
-		copy(dAtA[i:], m.SchemaName)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SchemaName)))
+	if len(m.DbName) > 0 {
+		i -= len(m.DbName)
+		copy(dAtA[i:], m.DbName)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DbName)))
 		i--
 		dAtA[i] = 0x2a
 	}
@@ -6051,7 +6051,7 @@ func (m *Target) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	l = len(m.SchemaName)
+	l = len(m.DbName)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -7893,7 +7893,7 @@ func (m *Target) UnmarshalVT(dAtA []byte) error {
 			iNdEx = postIndex
 		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SchemaName", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field DbName", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -7921,7 +7921,7 @@ func (m *Target) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.SchemaName = string(dAtA[iNdEx:postIndex])
+			m.DbName = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
