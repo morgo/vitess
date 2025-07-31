@@ -2648,7 +2648,6 @@ func (m *GetTabletRequest) CloneVT() *GetTabletRequest {
 	}
 	r := new(GetTabletRequest)
 	r.TabletAlias = m.TabletAlias.CloneVT()
-	r.ResolveVirtual = m.ResolveVirtual
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -2686,7 +2685,6 @@ func (m *GetTabletsRequest) CloneVT() *GetTabletsRequest {
 	r.Shard = m.Shard
 	r.Strict = m.Strict
 	r.TabletType = m.TabletType
-	r.ResolveVirtual = m.ResolveVirtual
 	if rhs := m.Cells; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -13507,16 +13505,6 @@ func (m *GetTabletRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.ResolveVirtual {
-		i--
-		if m.ResolveVirtual {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x10
-	}
 	if m.TabletAlias != nil {
 		size, err := m.TabletAlias.MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
@@ -13602,16 +13590,6 @@ func (m *GetTabletsRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
-	}
-	if m.ResolveVirtual {
-		i--
-		if m.ResolveVirtual {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x38
 	}
 	if m.TabletType != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.TabletType))
@@ -25488,9 +25466,6 @@ func (m *GetTabletRequest) SizeVT() (n int) {
 		l = m.TabletAlias.SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if m.ResolveVirtual {
-		n += 2
-	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -25540,9 +25515,6 @@ func (m *GetTabletsRequest) SizeVT() (n int) {
 	}
 	if m.TabletType != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.TabletType))
-	}
-	if m.ResolveVirtual {
-		n += 2
 	}
 	n += len(m.unknownFields)
 	return n
@@ -47856,26 +47828,6 @@ func (m *GetTabletRequest) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResolveVirtual", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.ResolveVirtual = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -48183,26 +48135,6 @@ func (m *GetTabletsRequest) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
-		case 7:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResolveVirtual", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.ResolveVirtual = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

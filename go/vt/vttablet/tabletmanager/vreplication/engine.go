@@ -668,9 +668,7 @@ func (vre *Engine) Exec(query string) (*sqltypes.Result, error) {
 // update _vt.vreplication set state='Stopped', message='testing stop' where id=1
 // Example delete: delete from _vt.vreplication where id=1
 // Example select: select * from _vt.vreplication
-// TODO:This call is failing!
 func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error) {
-	log.Infof("DEBUG: VReplication Engine: acquiring lock")
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 	if !vre.isOpen {
@@ -681,14 +679,10 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 	}
 	defer vre.updateStats()
 
-	log.Infof("DEBUG: VReplication Engine: building controller plan")
 	plan, err := buildControllerPlan(query, vre.env.Parser())
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("DEBUG: VReplication Engine: controller plan query: %#v", plan.query)
-
-	log.Infof("DEBUG: VReplication Engine: getting DB client")
 	dbClient := vre.getDBClient(runAsAdmin)
 	if err := dbClient.Connect(); err != nil {
 		return nil, err
@@ -704,10 +698,8 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 
 	stats := binlogplayer.NewStats()
 	defer stats.Stop()
-	log.Infof("DEBUG: VReplication Engine: plan.opcode: %s", plan.opcode)
 	switch plan.opcode {
 	case insertQuery:
-		log.Infof("DEBUG: VReplication Engine: insert path calling executeFetch")
 		qr, err := dbClient.ExecuteFetch(plan.query, 1)
 		if err != nil {
 			return nil, err
@@ -727,38 +719,30 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 		// auto_increment_increment step is. In a multi-primary
 		// environment, like a Galera cluster, for example,
 		// we will often encounter auto_increment steps > 1.
-		log.Infof("DEBUG: VReplication Engine: insert path calling getAutoIncrementStep")
 		autoIncrementStep, err := vre.getAutoIncrementStep(dbClient)
 		if err != nil {
 			return nil, err
 		}
 		firstID := int32(qr.InsertID)
 		lastID := firstID + int32(autoIncrementStep)*(int32(plan.numInserts)-1)
-		log.Infof("DEBUG: VReplication Engine: insert path starting for loop")
 		for id := firstID; id <= lastID; id += int32(autoIncrementStep) {
 			if ct := vre.controllers[id]; ct != nil {
 				// Unreachable. Just a failsafe.
-				log.Infof("DEBUG: VReplication Engine: for loop in unreachable code")
 				ct.Stop()
 				delete(vre.controllers, id)
 			}
-			log.Infof("DEBUG: VReplication Engine: for loop calling readRow")
 			params, err := readRow(dbClient, id)
 			if err != nil {
 				return nil, err
 			}
-			log.Infof("DEBUG: VReplication Engine: for loop calling newController")
 			ct, err := newController(vre.ctx, params, vre.dbClientFactoryFiltered, vre.mysqld, vre.ts, vre.cell, nil, vre, plan.tabletPickerOptions)
 			if err != nil {
 				return nil, err
 			}
 			vre.controllers[id] = ct
-			log.Infof("DEBUG: VReplication Engine: for loop calling newVDBClient")
 			vdbc := newVDBClient(dbClient, stats, ct.WorkflowConfig.RelayLogMaxSize)
-			log.Infof("DEBUG: VReplication Engine: for loop calling insertLogWithParams")
 			insertLogWithParams(vdbc, LogStreamCreate, id, params)
 		}
-		log.Infof("DEBUG: VReplication Engine: insert path returning")
 		return qr, nil
 	case updateQuery:
 		ids, bv, err := vre.fetchIDs(dbClient, plan.selector)
@@ -852,7 +836,6 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 		// Selects and resharding journal queries are passed through.
 		return dbClient.ExecuteFetch(plan.query, maxRows)
 	}
-	log.Infof("DEBUG: VReplication Engine: panic")
 	panic("unreachable")
 }
 

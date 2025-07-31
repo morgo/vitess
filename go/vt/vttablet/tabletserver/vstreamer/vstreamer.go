@@ -609,8 +609,6 @@ func (vs *vstreamer) parseEvent(ev mysql.BinlogEvent, bufferAndTransmit func(vev
 			return vs.buildSidecarTablePlan(id, tm)
 		}
 
-		// TODO: This line looks like it won't handle the case
-		// where we have multiple schemas (virtual keyspaces)
 		if tm.Database != "" && tm.Database != vs.cp.DBName() {
 			vs.plans[id] = nil
 			return nil, nil
@@ -928,7 +926,6 @@ func (vs *vstreamer) buildTableColumns(tm *mysql.TableMap) ([]*querypb.Field, er
 }
 
 func getExtColInfos(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine, table, database string) (map[string]*extColInfo, error) {
-	log.Infof("getExtColInfos: Querying column information for table '%s' in database/schema '%s'", table, database)
 	extColInfos := make(map[string]*extColInfo)
 	conn, err := cp.Connect(ctx)
 	if err != nil {

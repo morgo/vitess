@@ -50,6 +50,3 @@ func (tm *TabletManager) AddVirtualShard(ctx context.Context, req *tabletmanager
 
 	return &tabletmanagerdatapb.AddVirtualShardResponse{}, nil
 }
-
-// TODO:
-// Add support for DropVirtualShard to remove a virtual shard.

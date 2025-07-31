@@ -128,7 +128,7 @@ const (
 	// to route queries from Vitess users. In this state,
 	// this tablet is dedicated to the process that uses it.
 	TabletType_DRAINED TabletType = 8
-	// VIRTUAL is used for virtual keyspace tablets that reference
+	// VIRTUAL is used for virtual tablets that reference
 	// physical tablets. No actual vttablet process runs with this type.
 	// VIRTUAL tablets are used to create shard entries for virtual keyspaces
 	// while maintaining a clear mapping to the underlying physical tablets.

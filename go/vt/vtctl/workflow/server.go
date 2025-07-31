@@ -148,9 +148,7 @@ func NewServer(env *vtenv.Environment, ts *topo.Server, tmc tmclient.TabletManag
 		env: env,
 	}
 	for _, o := range opts {
-		if o != nil {
-			o.apply(&s.options)
-		}
+		o.apply(&s.options)
 	}
 	if s.options.logger == nil {
 		s.options.logger = logutil.NewConsoleLogger() // Use the default system logger
@@ -1159,7 +1157,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			return nil, err
 		}
 	}
-
 	ms := &vtctldatapb.MaterializeSettings{
 		Workflow:                  req.Workflow,
 		MaterializationIntent:     vtctldatapb.MaterializationIntent_MOVETABLES,
@@ -1176,7 +1173,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		AtomicCopy:                req.AtomicCopy,
 		WorkflowOptions:           req.WorkflowOptions,
 	}
-
 	if req.SourceTimeZone != "" {
 		ms.SourceTimeZone = req.SourceTimeZone
 		ms.TargetTimeZone = "UTC"
@@ -1222,7 +1218,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		StopAfterCopy:             req.StopAfterCopy,
 		DbNameOverride:            dbNameOverride,
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -2281,7 +2276,6 @@ func (s *Server) deleteTenantData(ctx context.Context, ts *trafficSwitcher, batc
 
 func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workflowName string, opts ...WorkflowActionOption) (*trafficSwitcher, error) {
 	wopts := processWorkflowActionOptions(opts)
-
 	tgtInfo, err := BuildTargets(ctx, s.ts, s.tmc, targetKeyspace, workflowName)
 	if err != nil {
 		s.Logger().Infof("Error building targets: %s", err)
@@ -2351,7 +2345,6 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 			if wopts.ignoreSourceKeyspace {
 				continue
 			}
-
 			if _, ok := ts.sources[bls.Shard]; ok {
 				continue
 			}

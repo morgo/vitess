@@ -18,4 +18,4 @@
 
 source ../common/env.sh
 
-vtctldclient DeleteVirtualShards --force --recursive customer/0
+vtctldclient DeleteShards --force --recursive customer/0

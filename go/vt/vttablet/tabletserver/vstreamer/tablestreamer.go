@@ -163,8 +163,6 @@ func (ts *tableStreamer) newRowStreamer(ctx context.Context, dbName string, quer
 	vse.mu.Lock()
 	defer vse.mu.Unlock()
 
-	log.Infof("DEBUG: Creating new rowStreamer for db %s with query: %s", dbName, query)
-
 	rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, query, lastpk, vse.lvschema,
 		send, vse, RowStreamerModeAllTables, ts.snapshotConn, dbName, ts.options)
 

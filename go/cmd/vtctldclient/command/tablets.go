@@ -372,10 +372,6 @@ func commandGetFullStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var getTabletOptions = struct {
-	ResolveVirtual bool
-}{}
-
 func commandGetTablet(cmd *cobra.Command, args []string) error {
 	aliasStr := cmd.Flags().Arg(0)
 	alias, err := topoproto.ParseTabletAlias(aliasStr)
@@ -385,10 +381,7 @@ func commandGetTablet(cmd *cobra.Command, args []string) error {
 
 	cli.FinishedParsing(cmd)
 
-	resp, err := client.GetTablet(commandCtx, &vtctldatapb.GetTabletRequest{
-		TabletAlias:    alias,
-		ResolveVirtual: getTabletOptions.ResolveVirtual,
-	})
+	resp, err := client.GetTablet(commandCtx, &vtctldatapb.GetTabletRequest{TabletAlias: alias})
 	if err != nil {
 		return err
 	}
@@ -411,9 +404,8 @@ var getTabletsOptions = struct {
 
 	TabletAliasStrings []string
 
-	Format         string
-	Strict         bool
-	ResolveVirtual bool
+	Format string
+	Strict bool
 }{}
 
 func commandGetTablets(cmd *cobra.Command, args []string) error {
@@ -453,13 +445,12 @@ func commandGetTablets(cmd *cobra.Command, args []string) error {
 	cli.FinishedParsing(cmd)
 
 	resp, err := client.GetTablets(commandCtx, &vtctldatapb.GetTabletsRequest{
-		TabletAliases:  aliases,
-		Cells:          getTabletsOptions.Cells,
-		TabletType:     getTabletsOptions.TabletType,
-		Keyspace:       getTabletsOptions.Keyspace,
-		Shard:          getTabletsOptions.Shard,
-		Strict:         getTabletsOptions.Strict,
-		ResolveVirtual: getTabletsOptions.ResolveVirtual,
+		TabletAliases: aliases,
+		Cells:         getTabletsOptions.Cells,
+		TabletType:    getTabletsOptions.TabletType,
+		Keyspace:      getTabletsOptions.Keyspace,
+		Shard:         getTabletsOptions.Shard,
+		Strict:        getTabletsOptions.Strict,
 	})
 	if err != nil {
 		return err
@@ -663,7 +654,6 @@ func init() {
 
 	Root.AddCommand(ExecuteHook)
 	Root.AddCommand(GetFullStatus)
-	GetTablet.Flags().BoolVar(&getTabletOptions.ResolveVirtual, "resolve-virtual", false, "Resolve VIRTUAL tablets to their physical counterparts.")
 	Root.AddCommand(GetTablet)
 
 	GetTablets.Flags().StringSliceVarP(&getTabletsOptions.TabletAliasStrings, "tablet-alias", "t", nil, "List of tablet aliases to filter by.")
@@ -673,7 +663,6 @@ func init() {
 	GetTablets.Flags().StringVarP(&getTabletsOptions.Shard, "shard", "s", "", "Shard to filter tablets by.")
 	GetTablets.Flags().StringVar(&getTabletsOptions.Format, "format", "awk", "Output format to use; valid choices are (json, awk).")
 	GetTablets.Flags().BoolVar(&getTabletsOptions.Strict, "strict", false, "Require all cells to return successful tablet data. Without --strict, tablet listings may be partial.")
-	GetTablets.Flags().BoolVar(&getTabletsOptions.ResolveVirtual, "resolve-virtual", false, "Resolve VIRTUAL tablets to their physical counterparts.")
 	Root.AddCommand(GetTablets)
 
 	Root.AddCommand(GetTabletVersion)

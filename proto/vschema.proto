@@ -154,7 +154,6 @@ message SrvVSchema {
   ShardRoutingRules shard_routing_rules = 3;
   KeyspaceRoutingRules keyspace_routing_rules = 4;
   MirrorRules mirror_rules = 5; // mirror rules
-  VirtualKeyspaceRoutingRules virtual_keyspace_routing_rules = 6; // virtual keyspace routing rules
 }
 
 // ShardRoutingRules specify the shard routing rules for the VSchema.
@@ -176,18 +175,6 @@ message KeyspaceRoutingRules {
 message KeyspaceRoutingRule {
   string from_keyspace = 1;
   string to_keyspace = 2;
-}
-
-// VirtualKeyspaceRoutingRules specify the virtual keyspace routing rules for the VSchema.
-message VirtualKeyspaceRoutingRules {
-  repeated VirtualKeyspaceRoutingRule rules = 1;
-}
-
-// VirtualKeyspaceRoutingRule specifies a virtual keyspace routing rule.
-message VirtualKeyspaceRoutingRule {
-  string virtual_keyspace = 1;
-  string physical_keyspace = 2;
-  string schema_name = 3;
 }
 
 // MirrorRules specify the high level mirror rules for the VSchema.

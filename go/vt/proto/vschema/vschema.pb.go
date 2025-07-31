@@ -751,14 +751,13 @@ func (x *Column) GetValues() []string {
 type SrvVSchema struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// keyspaces is a map of keyspace name -> Keyspace object.
-	Keyspaces                   map[string]*Keyspace         `protobuf:"bytes,1,rep,name=keyspaces,proto3" json:"keyspaces,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	RoutingRules                *RoutingRules                `protobuf:"bytes,2,opt,name=routing_rules,json=routingRules,proto3" json:"routing_rules,omitempty"` // table routing rules
-	ShardRoutingRules           *ShardRoutingRules           `protobuf:"bytes,3,opt,name=shard_routing_rules,json=shardRoutingRules,proto3" json:"shard_routing_rules,omitempty"`
-	KeyspaceRoutingRules        *KeyspaceRoutingRules        `protobuf:"bytes,4,opt,name=keyspace_routing_rules,json=keyspaceRoutingRules,proto3" json:"keyspace_routing_rules,omitempty"`
-	MirrorRules                 *MirrorRules                 `protobuf:"bytes,5,opt,name=mirror_rules,json=mirrorRules,proto3" json:"mirror_rules,omitempty"`                                                     // mirror rules
-	VirtualKeyspaceRoutingRules *VirtualKeyspaceRoutingRules `protobuf:"bytes,6,opt,name=virtual_keyspace_routing_rules,json=virtualKeyspaceRoutingRules,proto3" json:"virtual_keyspace_routing_rules,omitempty"` // virtual keyspace routing rules
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	Keyspaces            map[string]*Keyspace  `protobuf:"bytes,1,rep,name=keyspaces,proto3" json:"keyspaces,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	RoutingRules         *RoutingRules         `protobuf:"bytes,2,opt,name=routing_rules,json=routingRules,proto3" json:"routing_rules,omitempty"` // table routing rules
+	ShardRoutingRules    *ShardRoutingRules    `protobuf:"bytes,3,opt,name=shard_routing_rules,json=shardRoutingRules,proto3" json:"shard_routing_rules,omitempty"`
+	KeyspaceRoutingRules *KeyspaceRoutingRules `protobuf:"bytes,4,opt,name=keyspace_routing_rules,json=keyspaceRoutingRules,proto3" json:"keyspace_routing_rules,omitempty"`
+	MirrorRules          *MirrorRules          `protobuf:"bytes,5,opt,name=mirror_rules,json=mirrorRules,proto3" json:"mirror_rules,omitempty"` // mirror rules
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SrvVSchema) Reset() {
@@ -822,13 +821,6 @@ func (x *SrvVSchema) GetKeyspaceRoutingRules() *KeyspaceRoutingRules {
 func (x *SrvVSchema) GetMirrorRules() *MirrorRules {
 	if x != nil {
 		return x.MirrorRules
-	}
-	return nil
-}
-
-func (x *SrvVSchema) GetVirtualKeyspaceRoutingRules() *VirtualKeyspaceRoutingRules {
-	if x != nil {
-		return x.VirtualKeyspaceRoutingRules
 	}
 	return nil
 }
@@ -1035,112 +1027,6 @@ func (x *KeyspaceRoutingRule) GetToKeyspace() string {
 	return ""
 }
 
-// VirtualKeyspaceRoutingRules specify the virtual keyspace routing rules for the VSchema.
-type VirtualKeyspaceRoutingRules struct {
-	state         protoimpl.MessageState        `protogen:"open.v1"`
-	Rules         []*VirtualKeyspaceRoutingRule `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *VirtualKeyspaceRoutingRules) Reset() {
-	*x = VirtualKeyspaceRoutingRules{}
-	mi := &file_vschema_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *VirtualKeyspaceRoutingRules) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*VirtualKeyspaceRoutingRules) ProtoMessage() {}
-
-func (x *VirtualKeyspaceRoutingRules) ProtoReflect() protoreflect.Message {
-	mi := &file_vschema_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use VirtualKeyspaceRoutingRules.ProtoReflect.Descriptor instead.
-func (*VirtualKeyspaceRoutingRules) Descriptor() ([]byte, []int) {
-	return file_vschema_proto_rawDescGZIP(), []int{14}
-}
-
-func (x *VirtualKeyspaceRoutingRules) GetRules() []*VirtualKeyspaceRoutingRule {
-	if x != nil {
-		return x.Rules
-	}
-	return nil
-}
-
-// VirtualKeyspaceRoutingRule specifies a virtual keyspace routing rule.
-type VirtualKeyspaceRoutingRule struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	VirtualKeyspace  string                 `protobuf:"bytes,1,opt,name=virtual_keyspace,json=virtualKeyspace,proto3" json:"virtual_keyspace,omitempty"`
-	PhysicalKeyspace string                 `protobuf:"bytes,2,opt,name=physical_keyspace,json=physicalKeyspace,proto3" json:"physical_keyspace,omitempty"`
-	SchemaName       string                 `protobuf:"bytes,3,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *VirtualKeyspaceRoutingRule) Reset() {
-	*x = VirtualKeyspaceRoutingRule{}
-	mi := &file_vschema_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *VirtualKeyspaceRoutingRule) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*VirtualKeyspaceRoutingRule) ProtoMessage() {}
-
-func (x *VirtualKeyspaceRoutingRule) ProtoReflect() protoreflect.Message {
-	mi := &file_vschema_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use VirtualKeyspaceRoutingRule.ProtoReflect.Descriptor instead.
-func (*VirtualKeyspaceRoutingRule) Descriptor() ([]byte, []int) {
-	return file_vschema_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *VirtualKeyspaceRoutingRule) GetVirtualKeyspace() string {
-	if x != nil {
-		return x.VirtualKeyspace
-	}
-	return ""
-}
-
-func (x *VirtualKeyspaceRoutingRule) GetPhysicalKeyspace() string {
-	if x != nil {
-		return x.PhysicalKeyspace
-	}
-	return ""
-}
-
-func (x *VirtualKeyspaceRoutingRule) GetSchemaName() string {
-	if x != nil {
-		return x.SchemaName
-	}
-	return ""
-}
-
 // MirrorRules specify the high level mirror rules for the VSchema.
 type MirrorRules struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1154,7 +1040,7 @@ type MirrorRules struct {
 
 func (x *MirrorRules) Reset() {
 	*x = MirrorRules{}
-	mi := &file_vschema_proto_msgTypes[16]
+	mi := &file_vschema_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1166,7 +1052,7 @@ func (x *MirrorRules) String() string {
 func (*MirrorRules) ProtoMessage() {}
 
 func (x *MirrorRules) ProtoReflect() protoreflect.Message {
-	mi := &file_vschema_proto_msgTypes[16]
+	mi := &file_vschema_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1179,7 +1065,7 @@ func (x *MirrorRules) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorRules.ProtoReflect.Descriptor instead.
 func (*MirrorRules) Descriptor() ([]byte, []int) {
-	return file_vschema_proto_rawDescGZIP(), []int{16}
+	return file_vschema_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *MirrorRules) GetRules() []*MirrorRule {
@@ -1201,7 +1087,7 @@ type MirrorRule struct {
 
 func (x *MirrorRule) Reset() {
 	*x = MirrorRule{}
-	mi := &file_vschema_proto_msgTypes[17]
+	mi := &file_vschema_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1213,7 +1099,7 @@ func (x *MirrorRule) String() string {
 func (*MirrorRule) ProtoMessage() {}
 
 func (x *MirrorRule) ProtoReflect() protoreflect.Message {
-	mi := &file_vschema_proto_msgTypes[17]
+	mi := &file_vschema_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1226,7 +1112,7 @@ func (x *MirrorRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorRule.ProtoReflect.Descriptor instead.
 func (*MirrorRule) Descriptor() ([]byte, []int) {
-	return file_vschema_proto_rawDescGZIP(), []int{17}
+	return file_vschema_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MirrorRule) GetFromTable() string {
@@ -1314,15 +1200,14 @@ const file_vschema_proto_rawDesc = "" +
 	"\x05scale\x18\a \x01(\x05R\x05scale\x12\x1f\n" +
 	"\bnullable\x18\b \x01(\bH\x00R\bnullable\x88\x01\x01\x12\x16\n" +
 	"\x06values\x18\t \x03(\tR\x06valuesB\v\n" +
-	"\t_nullable\"\xa0\x04\n" +
+	"\t_nullable\"\xb5\x03\n" +
 	"\n" +
 	"SrvVSchema\x12@\n" +
 	"\tkeyspaces\x18\x01 \x03(\v2\".vschema.SrvVSchema.KeyspacesEntryR\tkeyspaces\x12:\n" +
 	"\rrouting_rules\x18\x02 \x01(\v2\x15.vschema.RoutingRulesR\froutingRules\x12J\n" +
 	"\x13shard_routing_rules\x18\x03 \x01(\v2\x1a.vschema.ShardRoutingRulesR\x11shardRoutingRules\x12S\n" +
 	"\x16keyspace_routing_rules\x18\x04 \x01(\v2\x1d.vschema.KeyspaceRoutingRulesR\x14keyspaceRoutingRules\x127\n" +
-	"\fmirror_rules\x18\x05 \x01(\v2\x14.vschema.MirrorRulesR\vmirrorRules\x12i\n" +
-	"\x1evirtual_keyspace_routing_rules\x18\x06 \x01(\v2$.vschema.VirtualKeyspaceRoutingRulesR\x1bvirtualKeyspaceRoutingRules\x1aO\n" +
+	"\fmirror_rules\x18\x05 \x01(\v2\x14.vschema.MirrorRulesR\vmirrorRules\x1aO\n" +
 	"\x0eKeyspacesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
 	"\x05value\x18\x02 \x01(\v2\x11.vschema.KeyspaceR\x05value:\x028\x01\"D\n" +
@@ -1338,14 +1223,7 @@ const file_vschema_proto_rawDesc = "" +
 	"\x13KeyspaceRoutingRule\x12#\n" +
 	"\rfrom_keyspace\x18\x01 \x01(\tR\ffromKeyspace\x12\x1f\n" +
 	"\vto_keyspace\x18\x02 \x01(\tR\n" +
-	"toKeyspace\"X\n" +
-	"\x1bVirtualKeyspaceRoutingRules\x129\n" +
-	"\x05rules\x18\x01 \x03(\v2#.vschema.VirtualKeyspaceRoutingRuleR\x05rules\"\x95\x01\n" +
-	"\x1aVirtualKeyspaceRoutingRule\x12)\n" +
-	"\x10virtual_keyspace\x18\x01 \x01(\tR\x0fvirtualKeyspace\x12+\n" +
-	"\x11physical_keyspace\x18\x02 \x01(\tR\x10physicalKeyspace\x12\x1f\n" +
-	"\vschema_name\x18\x03 \x01(\tR\n" +
-	"schemaName\"8\n" +
+	"toKeyspace\"8\n" +
 	"\vMirrorRules\x12)\n" +
 	"\x05rules\x18\x01 \x03(\v2\x13.vschema.MirrorRuleR\x05rules\"`\n" +
 	"\n" +
@@ -1368,63 +1246,59 @@ func file_vschema_proto_rawDescGZIP() []byte {
 }
 
 var file_vschema_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_vschema_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_vschema_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_vschema_proto_goTypes = []any{
-	(Keyspace_ForeignKeyMode)(0),        // 0: vschema.Keyspace.ForeignKeyMode
-	(*RoutingRules)(nil),                // 1: vschema.RoutingRules
-	(*RoutingRule)(nil),                 // 2: vschema.RoutingRule
-	(*Keyspace)(nil),                    // 3: vschema.Keyspace
-	(*MultiTenantSpec)(nil),             // 4: vschema.MultiTenantSpec
-	(*Vindex)(nil),                      // 5: vschema.Vindex
-	(*Table)(nil),                       // 6: vschema.Table
-	(*ColumnVindex)(nil),                // 7: vschema.ColumnVindex
-	(*AutoIncrement)(nil),               // 8: vschema.AutoIncrement
-	(*Column)(nil),                      // 9: vschema.Column
-	(*SrvVSchema)(nil),                  // 10: vschema.SrvVSchema
-	(*ShardRoutingRules)(nil),           // 11: vschema.ShardRoutingRules
-	(*ShardRoutingRule)(nil),            // 12: vschema.ShardRoutingRule
-	(*KeyspaceRoutingRules)(nil),        // 13: vschema.KeyspaceRoutingRules
-	(*KeyspaceRoutingRule)(nil),         // 14: vschema.KeyspaceRoutingRule
-	(*VirtualKeyspaceRoutingRules)(nil), // 15: vschema.VirtualKeyspaceRoutingRules
-	(*VirtualKeyspaceRoutingRule)(nil),  // 16: vschema.VirtualKeyspaceRoutingRule
-	(*MirrorRules)(nil),                 // 17: vschema.MirrorRules
-	(*MirrorRule)(nil),                  // 18: vschema.MirrorRule
-	nil,                                 // 19: vschema.Keyspace.VindexesEntry
-	nil,                                 // 20: vschema.Keyspace.TablesEntry
-	nil,                                 // 21: vschema.Vindex.ParamsEntry
-	nil,                                 // 22: vschema.SrvVSchema.KeyspacesEntry
-	(query.Type)(0),                     // 23: query.Type
+	(Keyspace_ForeignKeyMode)(0), // 0: vschema.Keyspace.ForeignKeyMode
+	(*RoutingRules)(nil),         // 1: vschema.RoutingRules
+	(*RoutingRule)(nil),          // 2: vschema.RoutingRule
+	(*Keyspace)(nil),             // 3: vschema.Keyspace
+	(*MultiTenantSpec)(nil),      // 4: vschema.MultiTenantSpec
+	(*Vindex)(nil),               // 5: vschema.Vindex
+	(*Table)(nil),                // 6: vschema.Table
+	(*ColumnVindex)(nil),         // 7: vschema.ColumnVindex
+	(*AutoIncrement)(nil),        // 8: vschema.AutoIncrement
+	(*Column)(nil),               // 9: vschema.Column
+	(*SrvVSchema)(nil),           // 10: vschema.SrvVSchema
+	(*ShardRoutingRules)(nil),    // 11: vschema.ShardRoutingRules
+	(*ShardRoutingRule)(nil),     // 12: vschema.ShardRoutingRule
+	(*KeyspaceRoutingRules)(nil), // 13: vschema.KeyspaceRoutingRules
+	(*KeyspaceRoutingRule)(nil),  // 14: vschema.KeyspaceRoutingRule
+	(*MirrorRules)(nil),          // 15: vschema.MirrorRules
+	(*MirrorRule)(nil),           // 16: vschema.MirrorRule
+	nil,                          // 17: vschema.Keyspace.VindexesEntry
+	nil,                          // 18: vschema.Keyspace.TablesEntry
+	nil,                          // 19: vschema.Vindex.ParamsEntry
+	nil,                          // 20: vschema.SrvVSchema.KeyspacesEntry
+	(query.Type)(0),              // 21: query.Type
 }
 var file_vschema_proto_depIdxs = []int32{
 	2,  // 0: vschema.RoutingRules.rules:type_name -> vschema.RoutingRule
-	19, // 1: vschema.Keyspace.vindexes:type_name -> vschema.Keyspace.VindexesEntry
-	20, // 2: vschema.Keyspace.tables:type_name -> vschema.Keyspace.TablesEntry
+	17, // 1: vschema.Keyspace.vindexes:type_name -> vschema.Keyspace.VindexesEntry
+	18, // 2: vschema.Keyspace.tables:type_name -> vschema.Keyspace.TablesEntry
 	0,  // 3: vschema.Keyspace.foreign_key_mode:type_name -> vschema.Keyspace.ForeignKeyMode
 	4,  // 4: vschema.Keyspace.multi_tenant_spec:type_name -> vschema.MultiTenantSpec
-	23, // 5: vschema.MultiTenantSpec.tenant_id_column_type:type_name -> query.Type
-	21, // 6: vschema.Vindex.params:type_name -> vschema.Vindex.ParamsEntry
+	21, // 5: vschema.MultiTenantSpec.tenant_id_column_type:type_name -> query.Type
+	19, // 6: vschema.Vindex.params:type_name -> vschema.Vindex.ParamsEntry
 	7,  // 7: vschema.Table.column_vindexes:type_name -> vschema.ColumnVindex
 	8,  // 8: vschema.Table.auto_increment:type_name -> vschema.AutoIncrement
 	9,  // 9: vschema.Table.columns:type_name -> vschema.Column
-	23, // 10: vschema.Column.type:type_name -> query.Type
-	22, // 11: vschema.SrvVSchema.keyspaces:type_name -> vschema.SrvVSchema.KeyspacesEntry
+	21, // 10: vschema.Column.type:type_name -> query.Type
+	20, // 11: vschema.SrvVSchema.keyspaces:type_name -> vschema.SrvVSchema.KeyspacesEntry
 	1,  // 12: vschema.SrvVSchema.routing_rules:type_name -> vschema.RoutingRules
 	11, // 13: vschema.SrvVSchema.shard_routing_rules:type_name -> vschema.ShardRoutingRules
 	13, // 14: vschema.SrvVSchema.keyspace_routing_rules:type_name -> vschema.KeyspaceRoutingRules
-	17, // 15: vschema.SrvVSchema.mirror_rules:type_name -> vschema.MirrorRules
-	15, // 16: vschema.SrvVSchema.virtual_keyspace_routing_rules:type_name -> vschema.VirtualKeyspaceRoutingRules
-	12, // 17: vschema.ShardRoutingRules.rules:type_name -> vschema.ShardRoutingRule
-	14, // 18: vschema.KeyspaceRoutingRules.rules:type_name -> vschema.KeyspaceRoutingRule
-	16, // 19: vschema.VirtualKeyspaceRoutingRules.rules:type_name -> vschema.VirtualKeyspaceRoutingRule
-	18, // 20: vschema.MirrorRules.rules:type_name -> vschema.MirrorRule
-	5,  // 21: vschema.Keyspace.VindexesEntry.value:type_name -> vschema.Vindex
-	6,  // 22: vschema.Keyspace.TablesEntry.value:type_name -> vschema.Table
-	3,  // 23: vschema.SrvVSchema.KeyspacesEntry.value:type_name -> vschema.Keyspace
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	15, // 15: vschema.SrvVSchema.mirror_rules:type_name -> vschema.MirrorRules
+	12, // 16: vschema.ShardRoutingRules.rules:type_name -> vschema.ShardRoutingRule
+	14, // 17: vschema.KeyspaceRoutingRules.rules:type_name -> vschema.KeyspaceRoutingRule
+	16, // 18: vschema.MirrorRules.rules:type_name -> vschema.MirrorRule
+	5,  // 19: vschema.Keyspace.VindexesEntry.value:type_name -> vschema.Vindex
+	6,  // 20: vschema.Keyspace.TablesEntry.value:type_name -> vschema.Table
+	3,  // 21: vschema.SrvVSchema.KeyspacesEntry.value:type_name -> vschema.Keyspace
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_vschema_proto_init() }
@@ -1439,7 +1313,7 @@ func file_vschema_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vschema_proto_rawDesc), len(file_vschema_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   22,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

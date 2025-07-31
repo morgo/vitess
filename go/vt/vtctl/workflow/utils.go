@@ -68,7 +68,6 @@ func getTablesInKeyspace(ctx context.Context, ts *topo.Server, tmc tmclient.Tabl
 	if primary == nil {
 		return nil, fmt.Errorf("shard does not have a primary: %v", shards[0].ShardName())
 	}
-
 	allTables := []string{"/.*/"}
 
 	ti, err := ts.GetTablet(ctx, primary)
@@ -77,13 +76,11 @@ func getTablesInKeyspace(ctx context.Context, ts *topo.Server, tmc tmclient.Tabl
 	}
 	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, DbNameOverride: ti.Tablet.DbNameOverride}
 	schema, err := tmc.GetSchema(ctx, ti.Tablet, req) // likely fails on this line!
-
 	if err != nil {
 		return nil, err
 	}
 	log.Infof("got table schemas: %+v from source primary %v.", schema, primary)
 	var sourceTables []string
-
 	for _, td := range schema.TableDefinitions {
 		sourceTables = append(sourceTables, td.Name)
 	}
@@ -387,7 +384,6 @@ func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManag
 		if err != nil {
 			return nil, err
 		}
-		// this line is returning an error:
 		wf, err := tmc.ReadVReplicationWorkflow(ctx, primary.Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
 			Workflow:       workflow,
 			DbNameOverride: primary.DbNameOverride,

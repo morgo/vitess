@@ -305,9 +305,6 @@ func (tsv *TabletServer) onlineDDLExecutorToggleTableBuffer(bufferingCtx context
 
 // InitDBConfig initializes the db config variables for TabletServer. You must call this function
 // to complete the creation of TabletServer.
-// TODO: this is only partially correct,
-// since it is specifying the physical keyspace and shard here,
-// not all the virtual keyspaces that may be present.
 func (tsv *TabletServer) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.DBConfigs, mysqld mysqlctl.MysqlDaemon) error {
 	if tsv.sm.State() != StateNotConnected {
 		return vterrors.NewErrorf(vtrpcpb.Code_UNAVAILABLE, vterrors.ServerNotAvailable, "Server isn't available")
@@ -1389,7 +1386,6 @@ func (tsv *TabletServer) VStreamRows(ctx context.Context, request *binlogdatapb.
 		dbName = request.DbName
 	}
 
-	log.Infof("DEBUGZ: VStreamRows dbname: %s, request.Target: %#v request.DbName: %#v row: %v, req: %v", dbName, request.Target, request.DbName, row, request)
 	return tsv.vstreamer.StreamRows(ctx, dbName, request.Query, row, send, request.Options)
 }
 
@@ -1398,7 +1394,6 @@ func (tsv *TabletServer) VStreamTables(ctx context.Context, request *binlogdatap
 	if err := tsv.sm.VerifyTarget(ctx, request.Target); err != nil {
 		return err
 	}
-	log.Infof("DEBUGZ: VStreamTables request: %v", request)
 	// convert request.Target to dbName
 	dbName, err := tsv.getDBName(request.Target)
 	if err != nil {
@@ -1417,7 +1412,6 @@ func (tsv *TabletServer) VStreamResults(ctx context.Context, target *querypb.Tar
 	if err := tsv.sm.VerifyTarget(ctx, target); err != nil {
 		return err
 	}
-	log.Infof("DEBUGZ: VStreamResults target: %v", target)
 	dbName, err := tsv.getDBName(target)
 	if err != nil {
 		return err

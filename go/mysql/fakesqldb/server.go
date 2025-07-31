@@ -845,10 +845,6 @@ func (db *DB) MockQueriesForTable(table string, result *sqltypes.Result) {
 	selectQueryPattern = fmt.Sprintf("select .* from %s where 1 != 1", table)
 	db.AddQueryPattern(selectQueryPattern, result)
 
-	// Add pattern for backtick-quoted table name
-	selectQueryPattern = fmt.Sprintf("select .* from `%s` where 1 != 1", table)
-	db.AddQueryPattern(selectQueryPattern, result)
-
 	// mock query for returning columns from information_schema.columns based on specified result
 	var cols []string
 	for _, field := range result.Fields {
