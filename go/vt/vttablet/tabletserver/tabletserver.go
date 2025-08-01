@@ -1299,9 +1299,8 @@ func (tsv *TabletServer) VStream(ctx context.Context, request *binlogdatapb.VStr
 }
 
 // keyspaceToDBName converts a keyspace name to a database schema name.
-// For virtual keyspaces, it looks up the physical keyspace from the topology server
-// and creates a predictable mapping following the convention: vt_{keyspacename}_{shardID}
-// For the physical keyspace, it uses the configured database name.
+// We don't want to use this! We don't want to live lookup the topo (not that
+// it's doing this correctly). There should be a registry component which can do this mapping!
 func (tsv *TabletServer) keyspaceToDBName(keyspace string, shard string) string {
 	// If this is the physical keyspace (matches the configured target keyspace), use the configured DB name
 	if keyspace == tsv.sm.target.Keyspace {
@@ -1359,6 +1358,10 @@ func (tsv *TabletServer) getDBName(target *querypb.Target) (string, error) {
 		return "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target shard cannot be empty")
 	}
 
+	// TODO: This is where I expect the registry to plugin. If should be able to
+	// convert target.Keyspace/target.Shard to a dbName,
+	// and then we can remove the function keyspaceToDBName, which is not currently
+	// looking up the schemaName in topo, it's just returning the default convention.
 	return tsv.keyspaceToDBName(target.Keyspace, target.Shard), nil
 }
 

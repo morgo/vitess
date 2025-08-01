@@ -85,53 +85,6 @@ func (st *vrStats) register() {
 			return result
 		},
 	)
-
-	// Virtual shard specific metrics
-	stats.NewStringMapFuncWithMultiLabels(
-		"VReplicationVirtualShardInfo",
-		"Virtual shard information for vreplication workflows",
-		[]string{"workflow", "id", "virtual_keyspace", "virtual_shard", "physical_keyspace", "physical_shard"},
-		"status",
-		func() map[string]string {
-			st.mu.Lock()
-			defer st.mu.Unlock()
-			result := make(map[string]string, len(st.controllers))
-			for _, ct := range st.controllers {
-				// Check if this is a virtual shard workflow
-				if ct.virtualShardInfo != nil {
-					key := fmt.Sprintf("%s.%d.%s.%s.%s.%s", ct.workflow, ct.id,
-						ct.virtualShardInfo.LogicalKeyspace,
-						ct.virtualShardInfo.LogicalShard,
-						ct.virtualShardInfo.PhysicalKeyspace,
-						ct.virtualShardInfo.PhysicalShard)
-					result[key] = "active"
-				}
-			}
-			return result
-		},
-	)
-
-	stats.NewGaugesFuncWithMultiLabels(
-		"VReplicationVirtualShardStreamCount",
-		"Number of vreplication streams per virtual shard",
-		[]string{"virtual_keyspace", "virtual_shard", "physical_keyspace", "physical_shard"},
-		func() map[string]int64 {
-			st.mu.Lock()
-			defer st.mu.Unlock()
-			result := make(map[string]int64)
-			for _, ct := range st.controllers {
-				if ct.virtualShardInfo != nil {
-					key := fmt.Sprintf("%s.%s.%s.%s",
-						ct.virtualShardInfo.LogicalKeyspace,
-						ct.virtualShardInfo.LogicalShard,
-						ct.virtualShardInfo.PhysicalKeyspace,
-						ct.virtualShardInfo.PhysicalShard)
-					result[key]++
-				}
-			}
-			return result
-		},
-	)
 	stats.NewGaugesFuncWithMultiLabels(
 		"VReplicationLagSeconds",
 		"vreplication seconds behind primary per stream",

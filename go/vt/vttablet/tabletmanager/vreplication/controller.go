@@ -52,15 +52,6 @@ const (
 	TerminalErrorIndicator = "terminal error"
 )
 
-// VirtualShardInfo contains information about virtual shard mapping
-type VirtualShardInfo struct {
-	LogicalKeyspace  string            // The virtual keyspace name
-	LogicalShard     string            // The virtual shard name
-	PhysicalKeyspace string            // The actual physical keyspace
-	PhysicalShard    string            // The actual physical shard
-	SchemaMapping    map[string]string // Source to target schema mappings
-}
-
 // controller is created by Engine. Members are initialized upfront.
 // There is no mutex within a controller because its members are
 // either read-only or self-synchronized.
@@ -76,12 +67,8 @@ type controller struct {
 	stopPos      string
 	tabletPicker *discovery.TabletPicker
 
-	// Schema context for virtual keyspace support
-	targetKeyspace string
-	targetSchema   string
-
-	// Virtual shard information for monitoring
-	virtualShardInfo *VirtualShardInfo
+	// Schema context for virtual shard support
+	targetSchema string
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -147,48 +134,7 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 		ct.targetSchema = vre.dbName
 	}
 
-	// Set target keyspace from target_keyspace parameter if provided
-	if targetKeyspace, ok := params["target_keyspace"]; ok && targetKeyspace != "" {
-		ct.targetKeyspace = targetKeyspace
-
-		// Check if this is a virtual shard
-		if schema, err := vre.GetSchemaForKeyspace(targetKeyspace); err == nil {
-			ct.targetSchema = schema
-			ct.virtualShardInfo = &VirtualShardInfo{
-				LogicalKeyspace:  targetKeyspace,
-				LogicalShard:     "0", // TODO: Extract from params if available
-				PhysicalKeyspace: vre.GetPhysicalKeyspace(),
-				PhysicalShard:    "0", // TODO: Extract from params if available
-				SchemaMapping:    map[string]string{targetKeyspace: schema},
-			}
-		} else {
-			// Unknown keyspace, fall back to legacy behavior
-			log.Infof("Unknown keyspace %s, falling back to legacy behavior", targetKeyspace)
-			ct.targetSchema = vre.dbName
-		}
-	} else {
-		// Legacy mode - no target_keyspace specified, derive from db_name using reverse lookup
-		if targetKeyspace, err := vre.GetKeyspaceForSchema(ct.targetSchema); err == nil {
-			ct.targetKeyspace = targetKeyspace
-
-			// Check if this is a virtual shard (different from physical keyspace)
-			if targetKeyspace != vre.GetPhysicalKeyspace() {
-				ct.virtualShardInfo = &VirtualShardInfo{
-					LogicalKeyspace:  targetKeyspace,
-					LogicalShard:     "0", // TODO: Extract from params if available
-					PhysicalKeyspace: vre.GetPhysicalKeyspace(),
-					PhysicalShard:    "0", // TODO: Extract from params if available
-					SchemaMapping:    map[string]string{targetKeyspace: ct.targetSchema},
-				}
-			}
-		} else {
-			// Fallback to physical keyspace if reverse lookup fails
-			log.Infof("Could not determine keyspace for schema %s, falling back to physical keyspace: %v", ct.targetSchema, err)
-			ct.targetKeyspace = vre.GetPhysicalKeyspace()
-		}
-	}
-
-	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v, targetKeyspace: %v, targetSchema: %v", ct.id, ct.workflow, cell, tabletTypesStr, ct.targetKeyspace, ct.targetSchema)
+	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v, targetSchema: %v", ct.id, ct.workflow, cell, tabletTypesStr, ct.targetSchema)
 
 	ct.lastWorkflowError = vterrors.NewLastError(fmt.Sprintf("VReplication controller %d for workflow %q", ct.id, ct.workflow), workflowConfig.MaxTimeToRetryError)
 
@@ -375,8 +321,7 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 		defer vsClient.Close(ctx)
 
 		vr := newVReplicator(ct.id, ct.source, vsClient, ct.blpStats, dbClient, ct.mysqld, ct.vre, ct.WorkflowConfig)
-		// Pass schema context to the vreplicator for virtual keyspace support
-		vr.targetKeyspace = ct.targetKeyspace
+		// Pass schema context to the vreplicator for virtual shard support
 		vr.targetSchema = ct.targetSchema
 		err = vr.Replicate(ctx)
 		ct.lastWorkflowError.Record(err)
