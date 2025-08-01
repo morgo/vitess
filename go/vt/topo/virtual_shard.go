@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 
+	"vitess.io/vitess/go/vt/log"
+
 	tabletmanagerdatapb "vitess.io/vitess/go/vt/proto/tabletmanagerdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
@@ -99,7 +101,11 @@ func (ts *Server) CreateVirtualShard(ctx context.Context, virtualKeyspace, virtu
 	for _, physicalTabletInfo := range physicalTablets {
 		virtualTabletAlias, err := ts.createVirtualTablet(ctx, virtualKeyspace, virtualShard, physicalTabletInfo, physicalKeyspace, physicalShard, schemaName)
 		if err != nil {
-			return vterrors.Wrapf(err, "CreateVirtualShard: failed to create virtual tablet for %s", physicalTabletInfo.AliasString())
+			if IsErrType(err, NodeExists) {
+				log.Warningf("CreateVirtualShard: virtual tablet node already exists in topology for %s/%s", virtualKeyspace, virtualShard)
+			} else {
+				return vterrors.Wrapf(err, "CreateVirtualShard: failed to create virtual tablet for %s", physicalTabletInfo.AliasString())
+			}
 		}
 
 		// If this is the primary tablet, set it as the virtual shard's primary
