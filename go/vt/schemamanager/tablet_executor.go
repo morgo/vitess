@@ -571,7 +571,6 @@ func (exec *TabletExecutor) executeOneTablet(
 
 	var results []*querypb.QueryResult
 	var err error
-
 	if viaQueryService {
 		result, reserr := exec.tmc.ExecuteQuery(ctx, tablet, &tabletmanagerdatapb.ExecuteQueryRequest{
 			Query:   []byte(sql),

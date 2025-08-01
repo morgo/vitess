@@ -152,7 +152,6 @@ func NewServer(ctx context.Context, env *vtenv.Environment, name string, topoSer
 // instance of TabletServer will expose its state variables.
 func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, config *tabletenv.TabletConfig, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) *TabletServer {
 	exporter := servenv.NewExporter(name, "Tablet")
-
 	tsv := &TabletServer{
 		exporter:               exporter,
 		stats:                  tabletenv.NewStats(exporter),
@@ -310,9 +309,6 @@ func (tsv *TabletServer) onlineDDLExecutorToggleTableBuffer(bufferingCtx context
 
 // InitDBConfig initializes the db config variables for TabletServer. You must call this function
 // to complete the creation of TabletServer.
-// TODO: this is only partially correct,
-// since it is specifying the physical keyspace and shard here,
-// not all the virtual keyspaces that may be present.
 func (tsv *TabletServer) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.DBConfigs, mysqld mysqlctl.MysqlDaemon) error {
 	if tsv.sm.State() != StateNotConnected {
 		return vterrors.NewErrorf(vtrpcpb.Code_UNAVAILABLE, vterrors.ServerNotAvailable, "Server isn't available")
@@ -1317,9 +1313,8 @@ func (tsv *TabletServer) VStream(ctx context.Context, request *binlogdatapb.VStr
 }
 
 // keyspaceToDBName converts a keyspace name to a database schema name.
-// For virtual keyspaces, it looks up the physical keyspace from the topology server
-// and creates a predictable mapping following the convention: vt_{keyspacename}_{shardID}
-// For the physical keyspace, it uses the configured database name.
+// We don't want to use this! We don't want to live lookup the topo (not that
+// it's doing this correctly). There should be a registry component which can do this mapping!
 func (tsv *TabletServer) keyspaceToDBName(keyspace string, shard string) string {
 	// If this is the physical keyspace (matches the configured target keyspace), use the configured DB name
 	if keyspace == tsv.sm.target.Keyspace {
@@ -1377,6 +1372,10 @@ func (tsv *TabletServer) getDBName(target *querypb.Target) (string, error) {
 		return "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target shard cannot be empty")
 	}
 
+	// TODO: This is where I expect the registry to plugin. If should be able to
+	// convert target.Keyspace/target.Shard to a dbName,
+	// and then we can remove the function keyspaceToDBName, which is not currently
+	// looking up the schemaName in topo, it's just returning the default convention.
 	return tsv.keyspaceToDBName(target.Keyspace, target.Shard), nil
 }
 
@@ -1405,7 +1404,6 @@ func (tsv *TabletServer) VStreamRows(ctx context.Context, request *binlogdatapb.
 		dbName = request.DbName
 	}
 
-	log.Infof("DEBUGZ: VStreamRows dbname: %s, request.Target: %#v request.DbName: %#v row: %v, req: %v", dbName, request.Target, request.DbName, row, request)
 	return tsv.vstreamer.StreamRows(ctx, dbName, request.Query, row, send, request.Options)
 }
 
@@ -1414,7 +1412,6 @@ func (tsv *TabletServer) VStreamTables(ctx context.Context, request *binlogdatap
 	if err := tsv.sm.VerifyTarget(ctx, request.Target); err != nil {
 		return err
 	}
-	log.Infof("DEBUGZ: VStreamTables request: %v", request)
 	// convert request.Target to dbName
 	_, dbName, err := tsv.registry.ResolveTarget(ctx, request.Target)
 	//dbName, err := tsv.getDBName(request.Target)
@@ -1434,7 +1431,6 @@ func (tsv *TabletServer) VStreamResults(ctx context.Context, target *querypb.Tar
 	if err := tsv.sm.VerifyTarget(ctx, target); err != nil {
 		return err
 	}
-	log.Infof("DEBUGZ: VStreamResults target: %v", target)
 	_, dbName, err := tsv.registry.ResolveTarget(ctx, target)
 	//dbName, err := tsv.getDBName(target)
 	if err != nil {

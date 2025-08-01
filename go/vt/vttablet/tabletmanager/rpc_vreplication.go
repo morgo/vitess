@@ -118,10 +118,7 @@ func (tm *TabletManager) CreateVReplicationWorkflow(ctx context.Context, req *ta
 		dbName = req.DbNameOverride
 	}
 
-	log.Infof("DEBUG: Server Received request: %#v", req)
-
 	res := &sqltypes.Result{}
-	log.Infof("DEBUG: Server starting for loop on binlog source")
 	for _, bls := range req.BinlogSource {
 		protoutil.SortBinlogSourceTables(bls)
 		source, err := prototext.Marshal(bls)
@@ -157,7 +154,6 @@ func (tm *TabletManager) CreateVReplicationWorkflow(ctx context.Context, req *ta
 		if err != nil {
 			return nil, err
 		}
-		log.Infof("DEBUG: Server calling VREngine.Exec on stmt: %#v", stmt)
 		streamres, err := tm.VREngine.Exec(stmt)
 
 		if err != nil {
@@ -165,7 +161,6 @@ func (tm *TabletManager) CreateVReplicationWorkflow(ctx context.Context, req *ta
 		}
 		res.RowsAffected += streamres.RowsAffected
 	}
-	log.Infof("DEBUG: Server finished for loop on binlog source, res: %#v", res)
 	return &tabletmanagerdatapb.CreateVReplicationWorkflowResponse{Result: sqltypes.ResultToProto3(res)}, nil
 }
 
@@ -459,7 +454,6 @@ func (tm *TabletManager) ReadVReplicationWorkflow(ctx context.Context, req *tabl
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("DEBUG: Running generated query %#v, dbName=%s, req.DbNameOverride=%s", stmt, dbName, req.DbNameOverride)
 	res, err := tm.VREngine.Exec(stmt)
 	if err != nil {
 		return nil, err
@@ -812,7 +806,6 @@ func (tm *TabletManager) UpdateSequenceTables(ctx context.Context, req *tabletma
 			return nil, err
 		}
 		sequenceTables = append(sequenceTables, sm.BackingTableName)
-
 	}
 	// It is important to reset in-memory sequence counters on the tables,
 	// since it is possible for it to be outdated, this will prevent duplicate

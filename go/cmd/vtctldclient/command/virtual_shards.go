@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/cmd/vtctldclient/cli"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
 )
@@ -29,7 +30,7 @@ import (
 var (
 	// CreateVirtualShard makes a CreateVirtualShard gRPC call to a vtctld.
 	CreateVirtualShard = &cobra.Command{
-		Use:   "CreateVirtualShard <virtual_keyspace> <virtual_shard> <physical_keyspace> <physical_shard>",
+		Use:   "CreateVirtualShard <virtual_keyspace/virtual_shard> <physical_keyspace/physical_shard>",
 		Short: "Creates a virtual shard that maps to a physical shard.",
 		Long: `Creates a virtual shard that maps to a physical shard.
 
@@ -41,7 +42,7 @@ create a separate MySQL schema for isolation.
 
 If --schema-name is not specified, it will be auto-generated as "vt_<virtual_keyspace>_<virtual_shard>".`,
 		DisableFlagsInUseLine: true,
-		Args:                  cobra.ExactArgs(4),
+		Args:                  cobra.ExactArgs(2),
 		RunE:                  commandCreateVirtualShard,
 	}
 )
@@ -51,10 +52,15 @@ var virtualShardSchemaNameFlag string
 func commandCreateVirtualShard(cmd *cobra.Command, args []string) error {
 	cli.FinishedParsing(cmd)
 
-	virtualKeyspace := cmd.Flags().Arg(0)
-	virtualShard := cmd.Flags().Arg(1)
-	physicalKeyspace := cmd.Flags().Arg(2)
-	physicalShard := cmd.Flags().Arg(3)
+	virtualKeyspace, virtualShard, err := topoproto.ParseKeyspaceShard(args[0])
+	if err != nil {
+		return fmt.Errorf("cannot parse virtual keyspace/shard: %w", err)
+	}
+
+	physicalKeyspace, physicalShard, err := topoproto.ParseKeyspaceShard(args[1])
+	if err != nil {
+		return fmt.Errorf("cannot parse physical keyspace/shard: %w", err)
+	}
 
 	req := &vtctldatapb.CreateVirtualShardRequest{
 		VirtualKeyspace:  virtualKeyspace,

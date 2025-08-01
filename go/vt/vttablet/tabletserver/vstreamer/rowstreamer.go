@@ -322,7 +322,7 @@ func (rs *rowStreamer) buildSelect(st *binlogdatapb.MinimalTable) (string, error
 		buf.Myprintf(" where ")
 		addPushdownExpressions()
 	}
-	buf.Myprintf(" order by ")
+	buf.Myprintf(" order by ", sqlparser.NewIdentifierCS(rs.plan.Table.Name))
 	prefix = ""
 	for _, pk := range rs.pkColumns {
 		buf.Myprintf("%s%v", prefix, sqlparser.NewIdentifierCI(rs.plan.Table.Fields[pk].Name))
@@ -351,7 +351,6 @@ func (rs *rowStreamer) streamQuery(send func(*binlogdatapb.VStreamRowsResponse) 
 		err        error
 	)
 	log.Infof("Streaming query: %v\n", rs.sendQuery)
-	log.Infof("DEBUG: streamQuery need to start a lock on %s.%s", rs.dbName, rs.plan.Table.Name)
 	if rs.mode == RowStreamerModeSingleTable {
 		gtid, rotatedLog, err = rs.conn.streamWithSnapshot(rs.ctx, rs.dbName, rs.plan.Table.Name, rs.sendQuery)
 		if err != nil {

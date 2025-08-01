@@ -52,15 +52,6 @@ const (
 	TerminalErrorIndicator = "terminal error"
 )
 
-// VirtualShardInfo contains information about virtual shard mapping
-type VirtualShardInfo struct {
-	LogicalKeyspace  string            // The virtual keyspace name
-	LogicalShard     string            // The virtual shard name
-	PhysicalKeyspace string            // The actual physical keyspace
-	PhysicalShard    string            // The actual physical shard
-	SchemaMapping    map[string]string // Source to target schema mappings
-}
-
 // controller is created by Engine. Members are initialized upfront.
 // There is no mutex within a controller because its members are
 // either read-only or self-synchronized.
@@ -76,12 +67,8 @@ type controller struct {
 	stopPos      string
 	tabletPicker *discovery.TabletPicker
 
-	// Schema context for virtual keyspace support
-	targetKeyspace string
-	targetSchema   string
-
-	// Virtual shard information for monitoring
-	virtualShardInfo *VirtualShardInfo
+	// Schema context for virtual shard support
+	targetSchema string
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -115,7 +102,6 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 	if blpStats == nil {
 		blpStats = binlogplayer.NewStats()
 	}
-	log.Infof("DEBUG: Vreplication controller: calling processWorkflowOptions with params: %v", params)
 	workflowConfig, err := processWorkflowOptions(params)
 	if err != nil {
 		return nil, err
@@ -141,8 +127,6 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 	ct.workflow = params["workflow"]
 
 	// Determine target keyspace and schema for virtual keyspace support
-	log.Infof("DEBUG: Vreplication controller: Determining target keyspace and schema. db_name: %s params: %#v", params["db_name"], params)
-
 	// Set target schema from db_name parameter, fallback to engine's default
 	if dbName, ok := params["db_name"]; ok && dbName != "" {
 		ct.targetSchema = dbName
@@ -150,50 +134,7 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 		ct.targetSchema = vre.dbName
 	}
 
-	// Set target keyspace from target_keyspace parameter if provided
-	if targetKeyspace, ok := params["target_keyspace"]; ok && targetKeyspace != "" {
-		ct.targetKeyspace = targetKeyspace
-
-		// Check if this is a virtual shard
-		if schema, err := vre.GetSchemaForKeyspace(targetKeyspace); err == nil {
-			ct.targetSchema = schema
-			ct.virtualShardInfo = &VirtualShardInfo{
-				LogicalKeyspace:  targetKeyspace,
-				LogicalShard:     "0", // TODO: Extract from params if available
-				PhysicalKeyspace: vre.GetPhysicalKeyspace(),
-				PhysicalShard:    "0", // TODO: Extract from params if available
-				SchemaMapping:    map[string]string{targetKeyspace: schema},
-			}
-		} else {
-			// Unknown keyspace, fall back to legacy behavior
-			log.Infof("Unknown keyspace %s, falling back to legacy behavior", targetKeyspace)
-			ct.targetSchema = vre.dbName
-		}
-	} else {
-		// Legacy mode - no target_keyspace specified, derive from db_name using reverse lookup
-		if targetKeyspace, err := vre.GetKeyspaceForSchema(ct.targetSchema); err == nil {
-			ct.targetKeyspace = targetKeyspace
-
-			// Check if this is a virtual shard (different from physical keyspace)
-			if targetKeyspace != vre.GetPhysicalKeyspace() {
-				ct.virtualShardInfo = &VirtualShardInfo{
-					LogicalKeyspace:  targetKeyspace,
-					LogicalShard:     "0", // TODO: Extract from params if available
-					PhysicalKeyspace: vre.GetPhysicalKeyspace(),
-					PhysicalShard:    "0", // TODO: Extract from params if available
-					SchemaMapping:    map[string]string{targetKeyspace: ct.targetSchema},
-				}
-			}
-		} else {
-			// Fallback to physical keyspace if reverse lookup fails
-			log.Infof("Could not determine keyspace for schema %s, falling back to physical keyspace: %v", ct.targetSchema, err)
-			ct.targetKeyspace = vre.GetPhysicalKeyspace()
-		}
-	}
-
-	log.Infof("DEBUG: Vreplication controller: creating controller")
-
-	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v, targetKeyspace: %v, targetSchema: %v", ct.id, ct.workflow, cell, tabletTypesStr, ct.targetKeyspace, ct.targetSchema)
+	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v, targetSchema: %v", ct.id, ct.workflow, cell, tabletTypesStr, ct.targetSchema)
 
 	ct.lastWorkflowError = vterrors.NewLastError(fmt.Sprintf("VReplication controller %d for workflow %q", ct.id, ct.workflow), workflowConfig.MaxTimeToRetryError)
 
@@ -231,19 +172,8 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 				sourceKeyspace = physicalKeyspace
 				// Update the source shard to the physical shard for tablet picker
 				ct.source.Shard = physicalShard
-				log.Infof("DEBUG: VReplication controller: Virtual source shard detected: %s/%s -> %s/%s",
-					ct.source.Keyspace, ct.source.Shard, sourceKeyspace, physicalShard)
-			} else {
-				log.Infof("DEBUG: VReplication controller: Failed to resolve virtual shard %s/%s: %v", ct.source.Keyspace, ct.source.Shard, err)
 			}
-		} else if err != nil {
-			log.Infof("DEBUG: VReplication controller: Failed to check if shard is virtual for %s/%s: %v", ct.source.Keyspace, ct.source.Shard, err)
-		} else {
-			log.Infof("DEBUG: VReplication controller: Physical source keyspace/shard: %s/%s", sourceKeyspace, ct.source.Shard)
 		}
-
-		log.Infof("DEBUG: VReplication controller: creating tablet picker for source keyspace/shard %v/%v with cell: %v and tabletTypes: %v", sourceKeyspace, ct.source.Shard, cell, tabletTypesStr)
-		log.Infof("DEBUG: VReplication controller: original source keyspace: %s, resolved source keyspace: %s, shard: %s", ct.source.Keyspace, sourceKeyspace, ct.source.Shard)
 		cells := strings.Split(cell, ",")
 
 		sourceTopo := ts
@@ -255,10 +185,8 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 		}
 		tp, err := discovery.NewTabletPicker(ctx, sourceTopo, cells, ct.vre.cell, sourceKeyspace, ct.source.Shard, tabletTypesStr, tpo)
 		if err != nil {
-			log.Infof("DEBUG: VReplication controller: failed to create tablet picker: %v", err)
 			return nil, err
 		}
-		log.Infof("DEBUG: VReplication controller: successfully created tablet picker for keyspace: %s, shard: %s", sourceKeyspace, ct.source.Shard)
 		ct.tabletPicker = tp
 	}
 
@@ -349,24 +277,15 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 	default:
 	}
 
-	log.Infof("DEBUG: VReplication controller: getting dbClient")
 	dbClient := ct.getSchemaSpecificDBClientFactory()()
 	if err := dbClient.Connect(); err != nil {
-		log.Infof("DEBUG: VReplication controller: can't get dbClient error: %#v", err)
 		return vterrors.Wrap(err, "can't connect to database")
 	}
 	defer dbClient.Close()
 
 	tablet, err := ct.pickSourceTablet(ctx, dbClient)
 	if err != nil {
-		log.Infof("DEBUG: VReplication controller: unable to pick source tablet: %#v", err)
 		return err
-	}
-	if tablet != nil {
-		log.Infof("DEBUG: VReplication controller: picked source tablet: %s (keyspace: %s, shard: %s, type: %s)",
-			tablet.Alias.String(), tablet.Keyspace, tablet.Shard, tablet.Type)
-	} else {
-		log.Infof("DEBUG: VReplication controller: picked source tablet: nil (external)")
 	}
 	switch {
 	case len(ct.source.Tables) > 0:
@@ -395,22 +314,17 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 			}
 		} else {
 			vsClient = newTabletConnector(tablet)
-			log.Infof("DEBUG: VReplication controller: new tablet connector: %#v", tablet.Alias.String())
 		}
 		if err := vsClient.Open(ctx); err != nil {
-			log.Infof("DEBUG: VReplication controller: vs client open error: %#v", err)
 			return err
 		}
 		defer vsClient.Close(ctx)
 
 		vr := newVReplicator(ct.id, ct.source, vsClient, ct.blpStats, dbClient, ct.mysqld, ct.vre, ct.WorkflowConfig)
-		// Pass schema context to the vreplicator for virtual keyspace support
-		vr.targetKeyspace = ct.targetKeyspace
+		// Pass schema context to the vreplicator for virtual shard support
 		vr.targetSchema = ct.targetSchema
-		log.Infof("DEBUG: VReplication controller: vreplicator: %#v", vr)
 		err = vr.Replicate(ctx)
 		ct.lastWorkflowError.Record(err)
-		log.Infof("DEBUG: VReplication replicate err: %#v", err)
 
 		// If this is a MySQL error that we know needs manual intervention or
 		// it's a FAILED_PRECONDITION vterror, OR we cannot identify this as

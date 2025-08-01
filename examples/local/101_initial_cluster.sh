@@ -83,7 +83,7 @@ vtctldclient CreateKeyspace --sidecar-db-name="${SIDECAR_DB_NAME}" --durability-
 
 # Create virtual shard 0 for commerce that maps to main shard 0
 echo "Creating virtual shard 'commerce/0' on physical shard 'main/0'..."
-vtctldclient CreateVirtualShard commerce 0 main 0 || fail "Failed to create virtual shard 'commerce/0'"
+vtctldclient CreateVirtualShard commerce/0 main/0 || fail "Failed to create virtual shard 'commerce/0'"
 
 echo "Virtual shard 'commerce/0' setup complete!"
 

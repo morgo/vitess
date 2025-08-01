@@ -658,12 +658,6 @@ message CreateVirtualShardResponse {
   Shard shard = 1;
 }
 
-
-
-
-
-
-
 message CreateShardRequest {
   // Keyspace is the name of the keyspace to create the shard in.
   string keyspace = 1;
@@ -1140,8 +1134,6 @@ message GetSrvVSchemasResponse {
 
 message GetTabletRequest {
   topodata.TabletAlias tablet_alias = 1;
-  // ResolveVirtual indicates whether to resolve VIRTUAL tablets to their physical counterparts
-  bool resolve_virtual = 2;
 }
 
 message GetTabletResponse {
@@ -1171,8 +1163,6 @@ message GetTabletsRequest {
   // tablet_type specifies the type of tablets to return. Omit to return all
   // tablet types.
   topodata.TabletType tablet_type = 6;
-  // ResolveVirtual indicates whether to resolve VIRTUAL tablets to their physical counterparts
-  bool resolve_virtual = 7;
 }
 
 message GetTabletsResponse {

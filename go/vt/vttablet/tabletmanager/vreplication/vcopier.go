@@ -305,7 +305,7 @@ func (vc *vcopier) initTablesForCopy(ctx context.Context) error {
 // primary key that was copied. A nil Result means that nothing has been copied.
 // A table that was fully copied is removed from copyState.
 func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSettings) error {
-	qr, err := vc.vr.dbClient.Execute(fmt.Sprintf("select cs.table_name, cs.lastpk, vr.db_name from _vt.copy_state cs join _vt.vreplication vr on cs.vrepl_id = vr.id where cs.vrepl_id = %d and cs.id in (select max(id) from _vt.copy_state group by vrepl_id, table_name) order by cs.table_name", vc.vr.id))
+	qr, err := vc.vr.dbClient.Execute(fmt.Sprintf("select cs.table_name, cs.lastpk, vr.db_name, vr.source from _vt.copy_state cs join _vt.vreplication vr on cs.vrepl_id = vr.id where cs.vrepl_id = %d and cs.id in (select max(id) from _vt.copy_state group by vrepl_id, table_name) order by cs.table_name", vc.vr.id))
 	if err != nil {
 		return err
 	}
@@ -317,13 +317,26 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 		lastpk := row[1].ToString()
 		if tableToCopy == "" {
 			tableToCopy = tableName
-			dbName = row[2].ToString()
-			// HARDCODE FIX: Override dbName for virtual keyspace source
-			// The db_name from vreplication table is the target (vt_customer_0)
-			// but VStreamRows needs the source database name (vt_commerce_0)
-			log.Infof("HARDCODE FIX: Original dbName from vreplication table: %s", dbName)
-			dbName = "vt_commerce_0"
-			log.Infof("HARDCODE FIX: Overriding dbName to: %s", dbName)
+			destDbName := row[2].ToString()
+			sourceBlob, err := row[3].ToBytes()
+			if err != nil {
+				return vterrors.Wrapf(err, "failed to get BinlogSource from row")
+			}
+			var source binlogdatapb.BinlogSource
+			if err := prototext.Unmarshal(sourceBlob, &source); err != nil {
+				return vterrors.Wrapf(err, "failed to unmarshal BinlogSource")
+			}
+			// For virtual keyspace support, use the source keyspace from BinlogSource
+			// to construct the proper database name
+			if source.Keyspace != "" {
+				// Construct the source database name from keyspace and shard
+				// TODO: in future we should use the registry to get the dbName
+				dbName = fmt.Sprintf("vt_%s_%s", source.Keyspace, source.Shard)
+			} else {
+				// TODO: I'm not sure if this is ever correct.
+				log.Infof("Using original dbName from vreplication table: %s", dbName)
+				dbName = destDbName
+			}
 		}
 		copyState[tableName] = nil
 		if lastpk != "" {

@@ -554,23 +554,20 @@ func (tmc *testTMClient) expectValidateVReplicationPermissionsResponse(tabletID 
 
 // Note: ONLY breaks up change.SQL into individual statements and executes it. Does NOT fully implement ApplySchema.
 func (tmc *testTMClient) ApplySchema(ctx context.Context, tablet *topodatapb.Tablet, change *tmutils.SchemaChange) (*tabletmanagerdatapb.SchemaChangeResult, error) {
-	// First check if we have expected requests without holding the lock for too long
 	tmc.mu.Lock()
-	var expect *applySchemaRequestResponse
-	var hasExpected bool
-	if requests, ok := tmc.applySchemaRequests[tablet.Alias.Uid]; ok && len(requests) > 0 {
-		expect = requests[0]
-		hasExpected = true
-		tmc.applySchemaRequests[tablet.Alias.Uid] = tmc.applySchemaRequests[tablet.Alias.Uid][1:]
-	}
-	tmc.mu.Unlock()
+	defer tmc.mu.Unlock()
 
-	// Process expected request if we have one
-	if hasExpected {
+	if requests, ok := tmc.applySchemaRequests[tablet.Alias.Uid]; ok {
+		if len(requests) == 0 {
+			return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "unexpected ApplySchema request on tablet %s: got %+v",
+				topoproto.TabletAliasString(tablet.Alias), change)
+		}
+		expect := requests[0]
 		if expect.matchSqlOnly {
 			matched := false
 			if expect.change.SQL[0] == '/' {
 				matched = regexp.MustCompile("(?i)" + expect.change.SQL[1:]).MatchString(change.SQL)
+
 			} else {
 				matched = strings.EqualFold(change.SQL, expect.change.SQL)
 			}
@@ -582,16 +579,13 @@ func (tmc *testTMClient) ApplySchema(ctx context.Context, tablet *topodatapb.Tab
 			return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "unexpected ApplySchema request on tablet %s: got %+v, want %+v",
 				topoproto.TabletAliasString(tablet.Alias), change, expect.change)
 		}
+		tmc.applySchemaRequests[tablet.Alias.Uid] = tmc.applySchemaRequests[tablet.Alias.Uid][1:]
 		return expect.res, expect.err
 	}
 
-	// Fallback: execute the SQL statements
 	stmts := strings.Split(change.SQL, ";")
+
 	for _, stmt := range stmts {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" {
-			continue
-		}
 		_, err := tmc.ExecuteFetchAsDba(ctx, tablet, false, &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
 			Query:        []byte(stmt),
 			MaxRows:      0,
@@ -602,7 +596,7 @@ func (tmc *testTMClient) ApplySchema(ctx context.Context, tablet *topodatapb.Tab
 		}
 	}
 
-	return &tabletmanagerdatapb.SchemaChangeResult{}, nil
+	return nil, nil
 }
 
 type vdiffRequestResponse struct {

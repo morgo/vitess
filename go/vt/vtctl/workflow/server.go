@@ -148,9 +148,7 @@ func NewServer(env *vtenv.Environment, ts *topo.Server, tmc tmclient.TabletManag
 		env: env,
 	}
 	for _, o := range opts {
-		if o != nil {
-			o.apply(&s.options)
-		}
+		o.apply(&s.options)
 	}
 	if s.options.logger == nil {
 		s.options.logger = logutil.NewConsoleLogger() // Use the default system logger
@@ -807,15 +805,6 @@ func (s *Server) Materialize(ctx context.Context, ms *vtctldatapb.MaterializeSet
 			CreateDdl:        createDDLAsCopyDropForeignKeys,
 		})
 	}
-
-	// TODO: fix me.
-	/*
-		ti, err := mz.ts.GetTablet(mz.ctx, target.PrimaryAlias)
-		if err != nil {
-			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
-		}
-	*/
-	var dbNameOverride = "vt_" + ms.TargetKeyspace + "0"
 	err = mz.createWorkflowStreams(&tabletmanagerdatapb.CreateVReplicationWorkflowRequest{
 		Workflow:                  ms.Workflow,
 		Cells:                     strings.Split(ms.Cell, ","),
@@ -825,7 +814,6 @@ func (s *Server) Materialize(ctx context.Context, ms *vtctldatapb.MaterializeSet
 		DeferSecondaryKeys:        ms.DeferSecondaryKeys,
 		AutoStart:                 true,
 		StopAfterCopy:             ms.StopAfterCopy,
-		DbNameOverride:            dbNameOverride,
 	})
 	if err != nil {
 		return err
@@ -1159,7 +1147,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 			return nil, err
 		}
 	}
-
 	ms := &vtctldatapb.MaterializeSettings{
 		Workflow:                  req.Workflow,
 		MaterializationIntent:     vtctldatapb.MaterializationIntent_MOVETABLES,
@@ -1176,7 +1163,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		AtomicCopy:                req.AtomicCopy,
 		WorkflowOptions:           req.WorkflowOptions,
 	}
-
 	if req.SourceTimeZone != "" {
 		ms.SourceTimeZone = req.SourceTimeZone
 		ms.TargetTimeZone = "UTC"
@@ -1205,12 +1191,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		env:          s.env,
 	}
 
-	// For virtual shards, we need to determine the correct database name override
-	// TODO: do the correct dbNameOverride for a virtual shard here.
-	// The challenge with this, is that we do not know the shard
-	// that will be used for the workflow, so we cannot use the shard name.
-	dbNameOverride := "vt_" + targetKeyspace + "_0"
-
 	err = mz.createWorkflowStreams(&tabletmanagerdatapb.CreateVReplicationWorkflowRequest{
 		Workflow:                  req.Workflow,
 		Cells:                     req.Cells,
@@ -1220,9 +1200,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		DeferSecondaryKeys:        req.DeferSecondaryKeys,
 		AutoStart:                 req.AutoStart,
 		StopAfterCopy:             req.StopAfterCopy,
-		DbNameOverride:            dbNameOverride,
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -2281,7 +2259,6 @@ func (s *Server) deleteTenantData(ctx context.Context, ts *trafficSwitcher, batc
 
 func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workflowName string, opts ...WorkflowActionOption) (*trafficSwitcher, error) {
 	wopts := processWorkflowActionOptions(opts)
-
 	tgtInfo, err := BuildTargets(ctx, s.ts, s.tmc, targetKeyspace, workflowName)
 	if err != nil {
 		s.Logger().Infof("Error building targets: %s", err)
@@ -2351,7 +2328,6 @@ func (s *Server) buildTrafficSwitcher(ctx context.Context, targetKeyspace, workf
 			if wopts.ignoreSourceKeyspace {
 				continue
 			}
-
 			if _, ok := ts.sources[bls.Shard]; ok {
 				continue
 			}

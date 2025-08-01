@@ -18,16 +18,12 @@ package topo
 
 import (
 	"context"
-	"fmt"
+	"hash/fnv"
 
-	"vitess.io/vitess/go/vt/log"
-
-	tabletmanagerdatapb "vitess.io/vitess/go/vt/proto/tabletmanagerdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
-	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
 
 const (
@@ -40,131 +36,37 @@ const (
 
 // This file contains virtual shard utility functions.
 
-// CreateVirtualShard creates a virtual shard that maps to a physical shard.
-// This creates a shard entry with VIRTUAL tablets that reference the physical tablets.
-func (ts *Server) CreateVirtualShard(ctx context.Context, virtualKeyspace, virtualShard, physicalKeyspace, physicalShard string) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	if err := ValidateKeyspaceName(virtualKeyspace); err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: invalid virtual keyspace name %s", virtualKeyspace)
-	}
-
-	if err := ValidateKeyspaceName(physicalKeyspace); err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: invalid physical keyspace name %s", physicalKeyspace)
-	}
-
-	// Validate shard names
-	if _, _, err := ValidateShardName(virtualShard); err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: invalid virtual shard name %s", virtualShard)
-	}
-
-	if _, _, err := ValidateShardName(physicalShard); err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: invalid physical shard name %s", physicalShard)
-	}
-
-	// Verify that the physical shard exists
-	physicalShardInfo, err := ts.GetShard(ctx, physicalKeyspace, physicalShard)
-	if err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: physical shard %s/%s does not exist", physicalKeyspace, physicalShard)
-	}
-
-	// Create the virtual keyspace if it doesn't exist (as a regular keyspace)
-	virtualKsi := &topodatapb.Keyspace{
-		KeyspaceType: topodatapb.KeyspaceType_NORMAL,
-	}
-	if err = ts.CreateKeyspace(ctx, virtualKeyspace, virtualKsi); err != nil && !IsErrType(err, NodeExists) {
-		return vterrors.Wrapf(err, "CreateVirtualShard: failed to create keyspace %v", virtualKeyspace)
-	}
-
-	// Create the virtual shard with metadata pointing to the physical shard
-	virtualShardData := &topodatapb.Shard{
-		KeyRange:         physicalShardInfo.KeyRange,
-		IsPrimaryServing: physicalShardInfo.IsPrimaryServing,
-	}
-
-	data, err := virtualShardData.MarshalVT()
-	if err != nil {
-		return err
-	}
-
-	// Create the virtual shard
-	virtualShardPath := shardFilePath(virtualKeyspace, virtualShard)
-	if _, err := ts.globalCell.Create(ctx, virtualShardPath, data); err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: failed to create virtual shard %s/%s", virtualKeyspace, virtualShard)
-	}
-
-	// Get all tablets from the physical shard
-	physicalTablets, err := ts.GetTabletMapForShard(ctx, physicalKeyspace, physicalShard)
-	if err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: failed to get tablets for physical shard %s/%s", physicalKeyspace, physicalShard)
-	}
-
-	// Generate schema name for the virtual shard
-	schemaName := fmt.Sprintf("vt_%s_%s", virtualKeyspace, virtualShard)
-
-	// Create VIRTUAL tablets for each physical tablet and ensure the database schema is created
-	var virtualPrimaryAlias *topodatapb.TabletAlias
-	for _, physicalTabletInfo := range physicalTablets {
-		virtualTabletAlias, err := ts.createVirtualTablet(ctx, virtualKeyspace, virtualShard, physicalTabletInfo, physicalKeyspace, physicalShard, schemaName)
-		if err != nil {
-			if IsErrType(err, NodeExists) {
-				log.Warningf("CreateVirtualShard: virtual tablet node already exists in topology for %s/%s", virtualKeyspace, virtualShard)
-			} else {
-				return vterrors.Wrapf(err, "CreateVirtualShard: failed to create virtual tablet for %s", physicalTabletInfo.AliasString())
-			}
-		}
-
-		// If this is the primary tablet, set it as the virtual shard's primary
-		if physicalTabletInfo.Type == topodatapb.TabletType_PRIMARY {
-			virtualPrimaryAlias = virtualTabletAlias
-		}
-	}
-
-	// Now ensure the database schema is created on the physical primary tablet
-	// We only need to call AddVirtualShard on the primary tablet since the database
-	// creation will replicate to the replicas automatically
-	var primaryTablet *TabletInfo
-	for _, physicalTabletInfo := range physicalTablets {
-		if physicalTabletInfo.Type == topodatapb.TabletType_PRIMARY {
-			primaryTablet = physicalTabletInfo
-			break
-		}
-	}
-
-	if primaryTablet == nil {
-		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "CreateVirtualShard: no primary tablet found in physical shard %s/%s", physicalKeyspace, physicalShard)
-	}
-
-	err = ts.addVirtualShardToPhysicalTablet(ctx, primaryTablet, virtualKeyspace, virtualShard, physicalKeyspace, physicalShard, schemaName)
-	if err != nil {
-		return vterrors.Wrapf(err, "CreateVirtualShard: failed to add virtual shard to primary tablet %s", primaryTablet.AliasString())
-	}
-
-	// Update the virtual shard to set the primary alias
-	if virtualPrimaryAlias != nil {
-		_, err = ts.UpdateShardFields(ctx, virtualKeyspace, virtualShard, func(si *ShardInfo) error {
-			si.PrimaryAlias = virtualPrimaryAlias
-			return nil
-		})
-		if err != nil {
-			return vterrors.Wrapf(err, "CreateVirtualShard: failed to set primary alias for virtual shard %s/%s", virtualKeyspace, virtualShard)
-		}
-	}
-
-	return nil
-}
-
-// createVirtualTablet creates a VIRTUAL tablet that references a physical tablet.
-func (ts *Server) createVirtualTablet(ctx context.Context, virtualKeyspace, virtualShard string, physicalTabletInfo *TabletInfo, physicalKeyspace, physicalShard, schemaName string) (*topodatapb.TabletAlias, error) {
+// CreateVirtualTablet creates a VIRTUAL tablet that references a physical tablet.
+func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virtualShard string, physicalTabletInfo *TabletInfo, physicalKeyspace, physicalShard, schemaName string) (*topodatapb.TabletAlias, error) {
 	// Generate a new tablet alias for the virtual tablet
 	// Use the same cell as the physical tablet but with a different UID
+	// We need to generate a unique UID for each virtual shard, not just per physical tablet
+
+	// Start with a base UID in the virtual tablet range (100000+)
+	// We'll add a hash of the virtual keyspace/shard to make it more unique
+	h := fnv.New32a()
+	h.Write([]byte(virtualKeyspace + "/" + virtualShard))
+	hashOffset := h.Sum32() % 50000 // Use modulo to keep it within a reasonable range
+
+	baseUID := physicalTabletInfo.Alias.Uid + 100000 + hashOffset
 	virtualTabletAlias := &topodatapb.TabletAlias{
 		Cell: physicalTabletInfo.Alias.Cell,
-		// Use a high UID range for virtual tablets to avoid conflicts
-		// Add 100000 to the physical tablet UID to create virtual tablet UID
-		Uid: physicalTabletInfo.Alias.Uid + 100000,
+		Uid:  baseUID,
+	}
+
+	// Keep trying UIDs until we find one that doesn't exist
+	for {
+		_, err := ts.GetTablet(ctx, virtualTabletAlias)
+		if IsErrType(err, NoNode) {
+			// This UID is available
+			break
+		}
+		if err != nil {
+			// Some other error occurred
+			return nil, err
+		}
+		// This UID is taken, try the next one
+		virtualTabletAlias.Uid++
 	}
 
 	// Create the virtual tablet with VIRTUAL type
@@ -197,30 +99,6 @@ func (ts *Server) createVirtualTablet(ctx context.Context, virtualKeyspace, virt
 	}
 
 	return virtualTabletAlias, nil
-}
-
-// addVirtualShardToPhysicalTablet creates the database schema on a physical tablet for a virtual shard
-func (ts *Server) addVirtualShardToPhysicalTablet(ctx context.Context, physicalTabletInfo *TabletInfo, virtualKeyspace, virtualShard, physicalKeyspace, physicalShard, schemaName string) error {
-	// Create a tablet manager client to call AddVirtualShard on the physical tablet
-	tmc := tmclient.NewTabletManagerClient()
-	defer tmc.Close()
-
-	// Prepare the AddVirtualShard request
-	req := &tabletmanagerdatapb.AddVirtualShardRequest{
-		VirtualKeyspace:  virtualKeyspace,
-		VirtualShard:     virtualShard,
-		PhysicalKeyspace: physicalKeyspace,
-		PhysicalShard:    physicalShard,
-		SchemaName:       schemaName,
-	}
-
-	// Call AddVirtualShard on the physical tablet
-	_, err := tmc.AddVirtualShard(ctx, physicalTabletInfo.Tablet, req)
-	if err != nil {
-		return vterrors.Wrapf(err, "failed to add virtual shard %s/%s to physical tablet %s", virtualKeyspace, virtualShard, physicalTabletInfo.AliasString())
-	}
-
-	return nil
 }
 
 // IsVirtualShard returns true if the shard is a virtual shard.

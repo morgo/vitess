@@ -19,5 +19,7 @@
 
 source ../common/env.sh
 
-# Nothing required here.
-
+# Customer is currently located on the "main2/0" physical shard
+# For the reshard, I am moving it to "main/0"
+vtctldclient CreateVirtualShard customer/-80 main/0 || fail "Failed to create virtual shard 'customer/-80'"
+vtctldclient CreateVirtualShard customer/80- main/0 || fail "Failed to create virtual shard 'customer/80-'"

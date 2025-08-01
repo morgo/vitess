@@ -532,8 +532,6 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 			Rows:   colValues,
 		})
 	}
-	// TODO: this query now returns the schema_name and table_name
-	// and will need fixing.
 	tEnv.addResult(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows:   indexRows,

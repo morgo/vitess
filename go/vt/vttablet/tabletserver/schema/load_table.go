@@ -25,7 +25,6 @@ import (
 
 	"vitess.io/vitess/go/mysql/collations"
 	"vitess.io/vitess/go/sqltypes"
-	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
 	querypb "vitess.io/vitess/go/vt/proto/query"
@@ -34,7 +33,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
 )
 
-// LoadTable creates a Table from the schema info in the database with an optional schema override.
+// LoadTable creates a Table from the schema info in the database.
 func LoadTable(conn *connpool.PooledConn, databaseName, tableName, tableType string, comment string, collationEnv *collations.Environment) (*Table, error) {
 	ta := NewTable(tableName, NoType)
 	if strings.Contains(tableType, tmutils.TableView) {
@@ -65,7 +64,6 @@ func fetchColumns(ta *Table, conn *connpool.PooledConn, databaseName, sqlTableNa
 	}
 	fields, _, err := mysqlctl.GetColumns(databaseName, sqlTableName, exec)
 	if err != nil {
-		log.Errorf("DEBUGZ: fetchColumns: Error getting columns for table '%s' in database/schema '%s': %v", sqlTableName, databaseName, err)
 		return err
 	}
 	ta.Fields = fields

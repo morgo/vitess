@@ -7251,12 +7251,10 @@ func (x *GetSrvVSchemasResponse) GetSrvVSchemas() map[string]*vschema.SrvVSchema
 }
 
 type GetTabletRequest struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	TabletAlias *topodata.TabletAlias  `protobuf:"bytes,1,opt,name=tablet_alias,json=tabletAlias,proto3" json:"tablet_alias,omitempty"`
-	// ResolveVirtual indicates whether to resolve VIRTUAL tablets to their physical counterparts
-	ResolveVirtual bool `protobuf:"varint,2,opt,name=resolve_virtual,json=resolveVirtual,proto3" json:"resolve_virtual,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TabletAlias   *topodata.TabletAlias  `protobuf:"bytes,1,opt,name=tablet_alias,json=tabletAlias,proto3" json:"tablet_alias,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetTabletRequest) Reset() {
@@ -7294,13 +7292,6 @@ func (x *GetTabletRequest) GetTabletAlias() *topodata.TabletAlias {
 		return x.TabletAlias
 	}
 	return nil
-}
-
-func (x *GetTabletRequest) GetResolveVirtual() bool {
-	if x != nil {
-		return x.ResolveVirtual
-	}
-	return false
 }
 
 type GetTabletResponse struct {
@@ -7370,11 +7361,9 @@ type GetTabletsRequest struct {
 	TabletAliases []*topodata.TabletAlias `protobuf:"bytes,5,rep,name=tablet_aliases,json=tabletAliases,proto3" json:"tablet_aliases,omitempty"`
 	// tablet_type specifies the type of tablets to return. Omit to return all
 	// tablet types.
-	TabletType topodata.TabletType `protobuf:"varint,6,opt,name=tablet_type,json=tabletType,proto3,enum=topodata.TabletType" json:"tablet_type,omitempty"`
-	// ResolveVirtual indicates whether to resolve VIRTUAL tablets to their physical counterparts
-	ResolveVirtual bool `protobuf:"varint,7,opt,name=resolve_virtual,json=resolveVirtual,proto3" json:"resolve_virtual,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	TabletType    topodata.TabletType `protobuf:"varint,6,opt,name=tablet_type,json=tabletType,proto3,enum=topodata.TabletType" json:"tablet_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetTabletsRequest) Reset() {
@@ -7447,13 +7436,6 @@ func (x *GetTabletsRequest) GetTabletType() topodata.TabletType {
 		return x.TabletType
 	}
 	return topodata.TabletType(0)
-}
-
-func (x *GetTabletsRequest) GetResolveVirtual() bool {
-	if x != nil {
-		return x.ResolveVirtual
-	}
-	return false
 }
 
 type GetTabletsResponse struct {
@@ -18060,12 +18042,11 @@ const file_vtctldata_proto_rawDesc = "" +
 	"\rsrv_v_schemas\x18\x01 \x03(\v22.vtctldata.GetSrvVSchemasResponse.SrvVSchemasEntryR\vsrvVSchemas\x1aS\n" +
 	"\x10SrvVSchemasEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12)\n" +
-	"\x05value\x18\x02 \x01(\v2\x13.vschema.SrvVSchemaR\x05value:\x028\x01\"u\n" +
+	"\x05value\x18\x02 \x01(\v2\x13.vschema.SrvVSchemaR\x05value:\x028\x01\"L\n" +
 	"\x10GetTabletRequest\x128\n" +
-	"\ftablet_alias\x18\x01 \x01(\v2\x15.topodata.TabletAliasR\vtabletAlias\x12'\n" +
-	"\x0fresolve_virtual\x18\x02 \x01(\bR\x0eresolveVirtual\"=\n" +
+	"\ftablet_alias\x18\x01 \x01(\v2\x15.topodata.TabletAliasR\vtabletAlias\"=\n" +
 	"\x11GetTabletResponse\x12(\n" +
-	"\x06tablet\x18\x01 \x01(\v2\x10.topodata.TabletR\x06tablet\"\x91\x02\n" +
+	"\x06tablet\x18\x01 \x01(\v2\x10.topodata.TabletR\x06tablet\"\xe8\x01\n" +
 	"\x11GetTabletsRequest\x12\x1a\n" +
 	"\bkeyspace\x18\x01 \x01(\tR\bkeyspace\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x14\n" +
@@ -18073,8 +18054,7 @@ const file_vtctldata_proto_rawDesc = "" +
 	"\x06strict\x18\x04 \x01(\bR\x06strict\x12<\n" +
 	"\x0etablet_aliases\x18\x05 \x03(\v2\x15.topodata.TabletAliasR\rtabletAliases\x125\n" +
 	"\vtablet_type\x18\x06 \x01(\x0e2\x14.topodata.TabletTypeR\n" +
-	"tabletType\x12'\n" +
-	"\x0fresolve_virtual\x18\a \x01(\bR\x0eresolveVirtual\"@\n" +
+	"tabletType\"@\n" +
 	"\x12GetTabletsResponse\x12*\n" +
 	"\atablets\x18\x01 \x03(\v2\x10.topodata.TabletR\atablets\"U\n" +
 	"\x19GetThrottlerStatusRequest\x128\n" +

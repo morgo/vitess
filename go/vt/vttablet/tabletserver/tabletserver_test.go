@@ -2727,7 +2727,6 @@ func setupTabletServerTestCustom(t testing.TB, ctx context.Context, cfg *tablete
 	tsv := NewTabletServer(ctx, env, "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
 	require.Equal(t, StateNotConnected, tsv.sm.State())
 	dbcfgs := newDBConfigs(db)
-
 	target := &querypb.Target{
 		Keyspace:   keyspaceName,
 		TabletType: topodatapb.TabletType_PRIMARY,
@@ -2813,8 +2812,6 @@ func addTabletServerSupportedQueries(db *fakesqldb.DB) {
 				{sqltypes.NewVarBinary("0")},
 			},
 		},
-		// TODO: this query now returns the schema_name and table_name
-		// and will need fixing.
 		mysql.BaseShowPrimary: {
 			Fields: mysql.ShowPrimaryFields,
 			Rows: [][]sqltypes.Value{
