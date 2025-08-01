@@ -16,8 +16,6 @@ type Registry struct {
 	ts             *topo.Server
 	r              topo.TabletResolver
 	physicalTarget *querypb.Target
-	// targetToDBOverride maps a target key (keyspace/shard) to a specific database name override.
-	targetToDBOverride map[targetKey]string
 	// shardToTablet maps a target key (keyspace/shard) to the virtual tablet that serves it.
 	targetTablets map[targetKey]*topo.TabletInfo
 }
@@ -45,9 +43,6 @@ func (reg *Registry) Init(ctx context.Context, target *querypb.Target) error {
 	if len(reg.targetTablets) == 0 {
 		log.Warningf("no tablets found for physical target %s/%s, this may lead to issues with resolving targets", reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
 	}
-	if len(reg.targetToDBOverride) == 0 {
-		log.Warningf("no tablets found for physical target, this may lead to issues with resolving targets")
-	}
 	log.Infof("Registry initialized for cell %s with %d tablets", reg.physicalTarget.Cell, len(reg.targetTablets))
 	return nil
 }
@@ -58,7 +53,6 @@ func (reg *Registry) loadTabletsAndShards(ctx context.Context) error {
 		return vterrors.Wrapf(err, "failed to get virtual tablets for cell %q, keyspace %q, shard %q", reg.physicalTarget.Cell, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
 	}
 
-	reg.targetToDBOverride = make(map[targetKey]string)
 	reg.targetTablets = make(map[targetKey]*topo.TabletInfo)
 
 	for _, tablet := range tablets {
@@ -85,7 +79,9 @@ func (reg *Registry) storeTablet(ctx context.Context, tablet *topo.TabletInfo) e
 		Keyspace: tablet.Keyspace,
 		Shard:    tablet.Shard,
 	}
-	reg.targetToDBOverride[tk] = tablet.DbNameOverride
+	if tablet.Tags[topo.SchemaNameTag] == "" {
+		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "virtual tablet must have a schema name tag")
+	}
 	reg.targetTablets[tk] = tablet
 	return nil
 }
@@ -111,11 +107,19 @@ func (reg *Registry) ResolveTarget(ctx context.Context, target *querypb.Target) 
 		Keyspace: target.Keyspace,
 		Shard:    target.Shard,
 	}
-	var dbnameOverride string
-	var ok bool
+	var dbNameOverride string
 	// If this is already registered, we can return the physical target and the DB override.
 	// Otherwise, lazy load it from the topology server.
-	if dbnameOverride, ok = reg.targetToDBOverride[tk]; !ok {
+	if tt, ok := reg.targetTablets[tk]; ok {
+		dbNameOverride = tt.Tags[topo.SchemaNameTag]
+		if dbNameOverride == "" {
+			// TODO: Handle the case where no DB override is found.
+			// For now, we will use the physical target's DbName, even though this will probably break everything
+			log.Errorf("No DB override found for target %s/%s, using physical target's DbName: %s", target.Keyspace, target.Shard, reg.physicalTarget.DbName)
+			dbNameOverride = reg.physicalTarget.DbName
+		}
+		log.Infof("Found tablet for target %s/%s in registry, returning physical target with DB override: %s", target.Keyspace, target.Shard, dbNameOverride)
+	} else {
 
 		// Check if this is a virtual keyspace by looking it up in the topology server
 		log.Warningf("virtual keyspace %s not found in registry, looking in topo server", target.Keyspace)
@@ -139,14 +143,14 @@ func (reg *Registry) ResolveTarget(ctx context.Context, target *querypb.Target) 
 				if err != nil {
 					log.Errorf("failed to store tablet %s/%s", tablet.Keyspace, tablet.Shard)
 				}
-				dbnameOverride = tablet.Tags[topo.SchemaNameTag]
+				dbNameOverride = tablet.Tags[topo.SchemaNameTag]
 				break // Found a matching tablet, no need to continue
 			}
 		}
 	}
 
-	if dbnameOverride != "" {
-		return reg.physicalTarget, dbnameOverride, nil
+	if dbNameOverride != "" {
+		return reg.physicalTarget, dbNameOverride, nil
 	}
 
 	// If we reach here, we couldn't find any mapping for the target to a specific database name override.
