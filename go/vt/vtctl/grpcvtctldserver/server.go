@@ -1052,39 +1052,99 @@ func (s *VtctldServer) CreateVirtualShard(ctx context.Context, req *vtctldatapb.
 		return nil, err
 	}
 
-	// Verify the physical keyspace exists
-	if _, err = s.ts.GetKeyspace(ctx, req.PhysicalKeyspace); err != nil {
-		if topo.IsErrType(err, topo.NoNode) {
-			err = vterrors.Wrapf(err, "physical keyspace %s does not exist", req.PhysicalKeyspace)
-		}
+	// Verify the physical keyspace *and* shard exists.
+	// We can't point a virtual shard to it if we haven't verified this first.
+	physicalShardInfo, err := s.ts.GetShard(ctx, req.PhysicalKeyspace, req.PhysicalShard)
+	if err != nil {
 		return nil, err
 	}
 
-	// Verify the virtual keyspace exists (should be created separately)
+	// Verify that the keyspace exists already for the virtual shard.
+	// We don't automatically create keyspaces on new Virtual shard requests.
 	if _, err = s.ts.GetKeyspace(ctx, req.VirtualKeyspace); err != nil {
 		if topo.IsErrType(err, topo.NoNode) {
-			err = vterrors.Wrapf(err, "virtual keyspace %s does not exist - create it first with CreateKeyspace", req.VirtualKeyspace)
+			err = vterrors.Wrapf(err, "keyspace %s does not exist - create it first with CreateKeyspace", req.VirtualKeyspace)
 		}
 		return nil, err
 	}
 
-	// Create the virtual shard using the topo server method
-	err = s.ts.CreateVirtualShard(ctx, req.VirtualKeyspace, req.VirtualShard, req.PhysicalKeyspace, req.PhysicalShard)
+	// But also verify that the shard *doesn't* already exist.
+	// For the virtual shard, since we want to prevent duplicate creation.
+	if _, err = s.ts.GetShard(ctx, req.VirtualKeyspace, req.VirtualShard); err == nil {
+		err = vterrors.Errorf(vtrpcpb.Code_ALREADY_EXISTS, "virtual shard %s/%s already exists", req.VirtualKeyspace, req.VirtualShard)
+		return nil, err
+	} else if !topo.IsErrType(err, topo.NoNode) {
+		// If we got an error other than NoNode, return it.
+		return nil, vterrors.Wrapf(err, "GetShard(%s, %s)", req.VirtualKeyspace, req.VirtualShard)
+	}
+
+	schemaName := req.SchemaName
+	if schemaName == "" {
+		// Generate schema name for the virtual shard
+		// Our convention is to use the format "vt_<virtual_keyspace>_<virtual_shard>".
+		schemaName = fmt.Sprintf("vt_%s_%s", req.VirtualKeyspace, req.VirtualShard)
+	}
+
+	// --- Preflight checks done ---
+
+	// We need to convert physicalShardInfo to physicalTabletInfo
+	physicalTabletInfo, err := s.ts.GetTablet(ctx, physicalShardInfo.PrimaryAlias)
+	if err != nil {
+		return nil, vterrors.Wrapf(err, "CreateVirtualShard: failed to get physical tablet for %s", physicalShardInfo.PrimaryAlias)
+	}
+
+	// First create the shard in the topology server.
+	// Currently these are identical to regular shards too!
+	// The way a virtual shard is detected is one tablet exists and it is virtual.
+	err = s.ts.CreateShard(ctx, req.VirtualKeyspace, req.VirtualShard)
+	if err != nil {
+		return nil, vterrors.Wrapf(err, "CreateVirtualShard: failed to create shard %s/%s in topology server", req.VirtualKeyspace, req.VirtualShard)
+	}
+
+	// Create the virtual tablet in the topology server.
+	virtualTabletAlias, err := s.ts.CreateVirtualTablet(ctx, req.VirtualKeyspace, req.VirtualShard, physicalTabletInfo, req.PhysicalKeyspace, req.PhysicalShard, schemaName)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get the created shard to return in response
-	shard, err := s.ts.GetShard(ctx, req.VirtualKeyspace, req.VirtualShard)
+	// Update the virtual shard to set the virtual tablet as the primary
+	_, err = s.ts.UpdateShardFields(ctx, req.VirtualKeyspace, req.VirtualShard, func(si *topo.ShardInfo) error {
+		si.PrimaryAlias = virtualTabletAlias
+		return nil
+	})
+	if err != nil {
+		return nil, vterrors.Wrapf(err, "CreateVirtualShard: failed to set primary alias for virtual shard %s/%s", req.VirtualKeyspace, req.VirtualShard)
+	}
+
+	// Now create the shard in the tablet.
+	tmc := tmclient.NewTabletManagerClient()
+	defer tmc.Close()
+
+	// Prepare the AddVirtualShard request
+	tmcReq := &tabletmanagerdatapb.AddVirtualShardRequest{
+		VirtualKeyspace:  req.VirtualKeyspace,
+		VirtualShard:     req.VirtualShard,
+		PhysicalKeyspace: req.PhysicalKeyspace,
+		PhysicalShard:    req.PhysicalShard,
+		SchemaName:       schemaName,
+	}
+	// Call AddVirtualShard on the primary tablet of the physical shard.
+	_, err = tmc.AddVirtualShard(ctx, physicalTabletInfo.Tablet, tmcReq)
+	if err != nil {
+		return nil, vterrors.Wrapf(err, "failed to add virtual shard %s/%s to physical tablet %s", req.VirtualKeyspace, req.VirtualShard, physicalTabletInfo.AliasString())
+	}
+
+	// After we've added, we read back the shard from the topo.
+	// Just to confirm that all the metadata is correct.
+	topoResp, err := s.ts.GetShard(ctx, req.VirtualKeyspace, req.VirtualShard)
 	if err != nil {
 		return nil, err
 	}
-
 	return &vtctldatapb.CreateVirtualShardResponse{
 		Shard: &vtctldatapb.Shard{
 			Keyspace: req.VirtualKeyspace,
 			Name:     req.VirtualShard,
-			Shard:    shard.Shard,
+			Shard:    topoResp.Shard,
 		},
 	}, nil
 }
