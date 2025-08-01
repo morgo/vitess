@@ -1082,7 +1082,7 @@ func (s *VtctldServer) CreateVirtualShard(ctx context.Context, req *vtctldatapb.
 	if schemaName == "" {
 		// Generate schema name for the virtual shard
 		// Our convention is to use the format "vt_<virtual_keyspace>_<virtual_shard>".
-		schemaName = fmt.Sprintf("vt_%s_%s", req.VirtualKeyspace, req.VirtualShard)
+		schemaName = topoproto.DefaultDatabaseName(req.VirtualKeyspace, req.VirtualShard)
 	}
 
 	// --- Preflight checks done ---

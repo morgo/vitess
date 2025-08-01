@@ -1315,7 +1315,7 @@ func (tsv *TabletServer) keyspaceToDBName(keyspace string, shard string) string 
 		// Fallback to the naming convention if topo lookup fails
 		safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
 		safeShard := strings.ReplaceAll(shard, "-", "_")
-		return fmt.Sprintf("vt_%s_%s", safeKeyspace, safeShard)
+		return topoproto.DefaultDatabaseName(safeKeyspace, safeShard)
 	}
 
 	// Check if this is a virtual keyspace
@@ -1326,7 +1326,7 @@ func (tsv *TabletServer) keyspaceToDBName(keyspace string, shard string) string 
 			// Use the naming convention: vt_{keyspacename}_{shardID}
 			safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
 			safeShard := strings.ReplaceAll(shard, "-", "_")
-			return fmt.Sprintf("vt_%s_%s", safeKeyspace, safeShard)
+			return topoproto.DefaultDatabaseName(safeKeyspace, safeShard)
 		} else {
 			// This virtual keyspace is hosted on a different physical keyspace
 			// This should not happen in normal operation, but log a warning
@@ -1335,7 +1335,7 @@ func (tsv *TabletServer) keyspaceToDBName(keyspace string, shard string) string 
 			// Still return the expected database name for consistency
 			safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
 			safeShard := strings.ReplaceAll(shard, "-", "_")
-			return fmt.Sprintf("vt_%s_%s", safeKeyspace, safeShard)
+			return topoproto.DefaultDatabaseName(safeKeyspace, safeShard)
 		}
 	}
 

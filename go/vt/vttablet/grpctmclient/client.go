@@ -484,7 +484,6 @@ func (client *Client) ApplySchema(ctx context.Context, tablet *topodatapb.Tablet
 		return nil, err
 	}
 	defer closer.Close()
-	log.Infof("DEBUG Applying schema change xx : %s on db: %s", change.SQL, change.DbNameOverride)
 	response, err := c.ApplySchema(ctx, &tabletmanagerdatapb.ApplySchemaRequest{
 		Sql:                     change.SQL,
 		Force:                   change.Force,

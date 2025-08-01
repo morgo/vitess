@@ -744,7 +744,7 @@ func LegacyBuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.Table
 		dbName := primary.DbName()
 		if targetKeyspace != primary.Keyspace {
 			// This is a virtual shard - use the virtual keyspace database name
-			dbName = fmt.Sprintf("vt_%s_%s", targetKeyspace, targetShard)
+			dbName = topoproto.DefaultDatabaseName(targetKeyspace, targetShard)
 		}
 
 		// NB: changing the whitespace of this query breaks tests for now.
