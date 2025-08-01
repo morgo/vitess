@@ -805,15 +805,6 @@ func (s *Server) Materialize(ctx context.Context, ms *vtctldatapb.MaterializeSet
 			CreateDdl:        createDDLAsCopyDropForeignKeys,
 		})
 	}
-
-	// TODO: fix me.
-	/*
-		ti, err := mz.ts.GetTablet(mz.ctx, target.PrimaryAlias)
-		if err != nil {
-			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
-		}
-	*/
-	var dbNameOverride = "vt_" + ms.TargetKeyspace + "0"
 	err = mz.createWorkflowStreams(&tabletmanagerdatapb.CreateVReplicationWorkflowRequest{
 		Workflow:                  ms.Workflow,
 		Cells:                     strings.Split(ms.Cell, ","),
@@ -823,7 +814,6 @@ func (s *Server) Materialize(ctx context.Context, ms *vtctldatapb.MaterializeSet
 		DeferSecondaryKeys:        ms.DeferSecondaryKeys,
 		AutoStart:                 true,
 		StopAfterCopy:             ms.StopAfterCopy,
-		DbNameOverride:            dbNameOverride,
 	})
 	if err != nil {
 		return err
@@ -1201,12 +1191,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		env:          s.env,
 	}
 
-	// For virtual shards, we need to determine the correct database name override
-	// TODO: do the correct dbNameOverride for a virtual shard here.
-	// The challenge with this, is that we do not know the shard
-	// that will be used for the workflow, so we cannot use the shard name.
-	dbNameOverride := "vt_" + targetKeyspace + "_0"
-
 	err = mz.createWorkflowStreams(&tabletmanagerdatapb.CreateVReplicationWorkflowRequest{
 		Workflow:                  req.Workflow,
 		Cells:                     req.Cells,
@@ -1216,7 +1200,6 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		DeferSecondaryKeys:        req.DeferSecondaryKeys,
 		AutoStart:                 req.AutoStart,
 		StopAfterCopy:             req.StopAfterCopy,
-		DbNameOverride:            dbNameOverride,
 	})
 	if err != nil {
 		return nil, err

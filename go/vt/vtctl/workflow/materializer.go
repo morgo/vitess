@@ -166,7 +166,7 @@ func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVRe
 			return err
 		}
 
-		tabletReq.DbNameOverride = req.DbNameOverride
+		tabletReq.DbNameOverride = targetPrimary.Tablet.DbNameOverride
 		_, err = mz.tmc.CreateVReplicationWorkflow(mz.ctx, targetPrimary.Tablet, tabletReq)
 		return err
 	})

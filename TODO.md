@@ -29,15 +29,7 @@ Not planned:
 Remove hard coded strings:
 
 
-+++ b/go/vt/vttablet/tabletmanager/vreplication/vcopier.go
-+                       dbName = row[2].ToString()
-+                       // HARDCODE FIX: Override dbName for virtual keyspace source
-+                       // The db_name from vreplication table is the target (vt_customer_0)
-+                       // but VStreamRows needs the source database name (vt_commerce_0)
-+                       log.Infof("HARDCODE FIX: Original dbName from vreplication table: %s", dbName)
-+                       dbName = "vt_commerce_0"
-+                       log.Infof("HARDCODE FIX: Overriding dbName to: %s", dbName)
-
+Critical:
 
 +++ b/go/vt/vtctl/workflow/server.go
 +       // For virtual shards, we need to determine the correct database name override
@@ -47,6 +39,7 @@ Remove hard coded strings:
 +       dbNameOverride := "vt_" + targetKeyspace + "_0"
 
 
+Not so critical yet:
 
 +++ b/go/vt/vtctl/workflow/utils.go
 +               if targetKeyspace != primary.Keyspace {
