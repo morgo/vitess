@@ -741,6 +741,36 @@ func (ts *Server) GetTabletList(ctx context.Context, tabletAliases []*topodatapb
 	return tabletList, returnErr
 }
 
+// GetVirtualTablets returns all the VIRTUAL tablets served by a physical keyspace and shard.
+func (ts *Server) GetVirtualTablets(ctx context.Context, cell, keyspace, shard string) ([]*TabletInfo, error) {
+	// Get all tablets in the cell for the given keyspace and shard.
+	tabletInfos, err := ts.GetTabletsByCell(ctx, cell, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tablets in cell %q for keyspace %q and shard %q: %w", cell, keyspace, shard, err)
+	}
+	// Filter out only VIRTUAL tablets for the specified keyspace and shard.
+	var virtualTablets []*TabletInfo
+	for _, ti := range tabletInfos {
+		if IsVirtualType(ti.Type) {
+			pta, err := GetPhysicalTabletAlias(ti.Tablet)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get physical tablet alias for virtual tablet %s: %w", topoproto.TabletAliasString(ti.Alias), err)
+			}
+			pti, err := ts.GetTablet(ctx, pta)
+			if err != nil {
+				return nil, vterrors.Wrapf(err, "failed to resolve VIRTUAL tablet %s to physical tablet %s",
+					topoproto.TabletAliasString(ti.Tablet.Alias), topoproto.TabletAliasString(pta))
+			}
+
+			if pti.Keyspace == keyspace && pti.Shard == shard {
+				log.Infof("Found VIRTUAL tablet %s for physical tablet %s in keyspace %s and shard %s", ti.Tablet.Alias, ti.Tablet.Keyspace, pti.Keyspace, pti.Shard)
+				virtualTablets = append(virtualTablets, ti)
+			}
+		}
+	}
+	return virtualTablets, nil
+}
+
 // InitTablet creates or updates a tablet. If no parent is specified
 // in the tablet, and the tablet has a replica type, we will find the
 // appropriate parent. If createShardAndKeyspace is true and the

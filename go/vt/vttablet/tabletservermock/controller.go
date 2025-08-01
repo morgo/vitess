@@ -133,6 +133,11 @@ func (tqsc *Controller) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.D
 	return nil
 }
 
+func (tqsc *Controller) InitRegistry(ctx context.Context, target *querypb.Target) error {
+	// TODO: Implement this if needed for tests.
+	return nil
+}
+
 // SetServingType is part of the tabletserver.Controller interface
 func (tqsc *Controller) SetServingType(tabletType topodatapb.TabletType, ptsTime time.Time, serving bool, reason string) error {
 	tqsc.mu.Lock()

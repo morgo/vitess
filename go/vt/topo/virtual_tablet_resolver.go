@@ -106,7 +106,7 @@ func GetPhysicalTabletAlias(virtualTablet *topodatapb.Tablet) (*topodatapb.Table
 			topoproto.TabletAliasString(virtualTablet.Alias))
 	}
 
-	physicalTabletAliasStr, ok := virtualTablet.Tags["physical_tablet"]
+	physicalTabletAliasStr, ok := virtualTablet.Tags[PhysicalTabletTag]
 	if !ok {
 		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "VIRTUAL tablet %s missing physical_tablet tag",
 			topoproto.TabletAliasString(virtualTablet.Alias))

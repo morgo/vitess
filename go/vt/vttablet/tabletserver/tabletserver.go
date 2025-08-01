@@ -32,6 +32,8 @@ import (
 	"syscall"
 	"time"
 
+	"vitess.io/vitess/go/vt/registry"
+
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/pools/smartconnpool"
@@ -97,6 +99,7 @@ type TabletServer struct {
 	exporter               *servenv.Exporter
 	config                 *tabletenv.TabletConfig
 	stats                  *tabletenv.Stats
+	registry               *registry.Registry
 	QueryTimeout           atomic.Int64
 	TerseErrors            bool
 	TruncateErrorLen       int
@@ -149,10 +152,12 @@ func NewServer(ctx context.Context, env *vtenv.Environment, name string, topoSer
 // instance of TabletServer will expose its state variables.
 func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, config *tabletenv.TabletConfig, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) *TabletServer {
 	exporter := servenv.NewExporter(name, "Tablet")
+
 	tsv := &TabletServer{
 		exporter:               exporter,
 		stats:                  tabletenv.NewStats(exporter),
 		config:                 config,
+		registry:               registry.NewRegistry(topoServer),
 		TerseErrors:            config.TerseErrors,
 		TruncateErrorLen:       config.TruncateErrorLen,
 		enableHotRowProtection: config.HotRowProtection.Mode != tabletenv.Disable,
@@ -423,6 +428,16 @@ func (tsv *TabletServer) InitACL(tableACLConfigFile string, reloadACLConfigFileI
 			}
 		}()
 	}
+	return nil
+}
+
+func (tsv *TabletServer) InitRegistry(ctx context.Context, target *querypb.Target) error {
+
+	// Initialize the registry with the current tablet alias.
+	if err := tsv.registry.Init(ctx, target); err != nil {
+		return vterrors.Wrapf(err, "failed to load tablets and shards for physical target %s/%s", target.Keyspace, target.Shard)
+	}
+
 	return nil
 }
 
@@ -1380,7 +1395,8 @@ func (tsv *TabletServer) VStreamRows(ctx context.Context, request *binlogdatapb.
 	}
 
 	// convert request.Target to dbName
-	dbName, err := tsv.getDBName(request.Target)
+	_, dbName, err := tsv.registry.ResolveTarget(ctx, request.Target)
+	// tsv.getDBName(request.Target)
 	if err != nil {
 		return err
 	}
@@ -1400,7 +1416,8 @@ func (tsv *TabletServer) VStreamTables(ctx context.Context, request *binlogdatap
 	}
 	log.Infof("DEBUGZ: VStreamTables request: %v", request)
 	// convert request.Target to dbName
-	dbName, err := tsv.getDBName(request.Target)
+	_, dbName, err := tsv.registry.ResolveTarget(ctx, request.Target)
+	//dbName, err := tsv.getDBName(request.Target)
 	if err != nil {
 		return err
 	}
@@ -1418,7 +1435,8 @@ func (tsv *TabletServer) VStreamResults(ctx context.Context, target *querypb.Tar
 		return err
 	}
 	log.Infof("DEBUGZ: VStreamResults target: %v", target)
-	dbName, err := tsv.getDBName(target)
+	_, dbName, err := tsv.registry.ResolveTarget(ctx, target)
+	//dbName, err := tsv.getDBName(target)
 	if err != nil {
 		return err
 	}
