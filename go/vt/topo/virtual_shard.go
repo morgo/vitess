@@ -18,6 +18,7 @@ package topo
 
 import (
 	"context"
+	"hash/fnv"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
@@ -31,11 +32,33 @@ import (
 func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virtualShard string, physicalTabletInfo *TabletInfo, physicalKeyspace, physicalShard, schemaName string) (*topodatapb.TabletAlias, error) {
 	// Generate a new tablet alias for the virtual tablet
 	// Use the same cell as the physical tablet but with a different UID
+	// We need to generate a unique UID for each virtual shard, not just per physical tablet
+
+	// Start with a base UID in the virtual tablet range (100000+)
+	// We'll add a hash of the virtual keyspace/shard to make it more unique
+	h := fnv.New32a()
+	h.Write([]byte(virtualKeyspace + "/" + virtualShard))
+	hashOffset := h.Sum32() % 50000 // Use modulo to keep it within a reasonable range
+
+	baseUID := physicalTabletInfo.Alias.Uid + 100000 + hashOffset
 	virtualTabletAlias := &topodatapb.TabletAlias{
 		Cell: physicalTabletInfo.Alias.Cell,
-		// Use a high UID range for virtual tablets to avoid conflicts
-		// Add 100000 to the physical tablet UID to create virtual tablet UID
-		Uid: physicalTabletInfo.Alias.Uid + 100000,
+		Uid:  baseUID,
+	}
+
+	// Keep trying UIDs until we find one that doesn't exist
+	for {
+		_, err := ts.GetTablet(ctx, virtualTabletAlias)
+		if IsErrType(err, NoNode) {
+			// This UID is available
+			break
+		}
+		if err != nil {
+			// Some other error occurred
+			return nil, err
+		}
+		// This UID is taken, try the next one
+		virtualTabletAlias.Uid++
 	}
 
 	// Create the virtual tablet with VIRTUAL type

@@ -21,13 +21,5 @@ source ../common/env.sh
 
 # Customer is currently located on the "main2/0" physical shard
 # For the reshard, I am moving it to "main/0"
-# TODO: This is currently returning an error, we need to fix it:
-# E0801 09:01:22.925258   55538 main.go:60] unknown shorthand flag: '8' in -80
-vtctldclient CreateVirtualShard customer "-80" main 0 || fail "Failed to create virtual shard 'customer/-80'"
-vtctldclient CreateVirtualShard customer "80-" main 0 || fail "Failed to create virtual shard 'customer/80-'"
-
-for shard in "-80" "80-"; do
-    # Wait for all the tablets to be up and registered in the topology server
-    # and for a primary tablet to be elected in the shard and become healthy/serving.
-    wait_for_healthy_shard customer "${shard}" || exit 1
-done;
+vtctldclient CreateVirtualShard customer/-80 main/0 || fail "Failed to create virtual shard 'customer/-80'"
+vtctldclient CreateVirtualShard customer/80- main/0 || fail "Failed to create virtual shard 'customer/80-'"

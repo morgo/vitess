@@ -36,7 +36,7 @@ wait_for_healthy_shard main2 0 || exit 1
 
 vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync customer || fail "Failed to create keyspace 'customer'"
 
-vtctldclient CreateVirtualShard customer 0 main2 0 || fail "Failed to create virtual shard 'customer/0'"
+vtctldclient CreateVirtualShard customer/0 main2/0 || fail "Failed to create virtual shard 'customer/0'"
 
 
 # todo: currently we need to create an empty table for the schema to be created.
