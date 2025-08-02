@@ -22,7 +22,7 @@ cell=${CELL:-'test'}
 web_port=15001
 grpc_port=15991
 mysql_server_port=15306
-mysql_server_socket_path="/tmp/mysql.sock"
+mysql_server_socket_path=${VTGATE_MYSQL_SOCK:-"/tmp/mysql.sock"}
 
 echo "Starting vtgate..."
 # shellcheck disable=SC2086

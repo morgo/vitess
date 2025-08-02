@@ -27,6 +27,11 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 )
 
+const (
+	PhysicalKeyspaceTag = "physical_keyspace"
+	PhysicalShardTag    = "physical_shard"
+)
+
 // This file contains virtual shard utility functions.
 
 // tabletExists checks if a tablet exists in the topology without logging errors
@@ -94,8 +99,8 @@ func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virt
 		DbNameOverride: dbName,
 		// Store metadata in tags
 		Tags: map[string]string{
-			"physical_keyspace": physicalKeyspace,
-			"physical_shard":    physicalShard,
+			PhysicalKeyspaceTag: physicalKeyspace,
+			PhysicalShardTag:    physicalShard,
 		},
 	}
 
