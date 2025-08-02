@@ -99,7 +99,7 @@ type TabletServer struct {
 	exporter               *servenv.Exporter
 	config                 *tabletenv.TabletConfig
 	stats                  *tabletenv.Stats
-	registry               *registry.Registry
+	registry               *registry.TopoRegistry
 	QueryTimeout           atomic.Int64
 	TerseErrors            bool
 	TruncateErrorLen       int
@@ -156,7 +156,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		exporter:               exporter,
 		stats:                  tabletenv.NewStats(exporter),
 		config:                 config,
-		registry:               registry.NewRegistry(topoServer),
+		registry:               registry.NewTopoRegistry(topoServer),
 		TerseErrors:            config.TerseErrors,
 		TruncateErrorLen:       config.TruncateErrorLen,
 		enableHotRowProtection: config.HotRowProtection.Mode != tabletenv.Disable,

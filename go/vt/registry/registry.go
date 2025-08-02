@@ -13,29 +13,47 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 )
 
-type Registry struct {
+type Registry interface {
+	// Init initializes the registry with the given target.
+	Init(ctx context.Context, target *querypb.Target) error
+	// ResolveTarget resolves the given target to a physical target and an optional database name override.
+	ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error)
+	// ResolveDbName resolves a database name to a tablet.
+	ResolveDbName(dbName string) (*topo.TabletInfo, error)
+	// AddTablet adds a tablet to the registry.
+	AddTablet(tablet *topo.TabletInfo) error
+	// RemoveTablet removes a tablet from the registry.
+	RemoveTablet(keyspace, shard string) error
+}
+type TopoRegistry struct {
 	ts             *topo.Server
 	r              topo.TabletResolver
 	physicalTarget *querypb.Target
-	mu             sync.Mutex // protects targetTablets
+	mu             sync.Mutex // protects the maps
 	// targetTablets maps a target key (keyspace/shard) to the virtual tablet that serves it.
 	targetTablets map[targetKey]*topo.TabletInfo
+	// dbNameTablets maps a database name to the virtual tablet that serves it.
+	dbNameTablets map[string]*topo.TabletInfo
 }
+
+var _ Registry = (*TopoRegistry)(nil)
 
 type targetKey struct {
 	Keyspace string
 	Shard    string
 }
 
-func NewRegistry(topoServer *topo.Server) *Registry {
-	return &Registry{
-		ts: topoServer,
-		r:  topo.NewDefaultTabletResolver(topoServer),
+func NewTopoRegistry(topoServer *topo.Server) *TopoRegistry {
+	return &TopoRegistry{
+		ts:            topoServer,
+		r:             topo.NewDefaultTabletResolver(topoServer),
+		targetTablets: make(map[targetKey]*topo.TabletInfo),
+		dbNameTablets: make(map[string]*topo.TabletInfo),
 	}
 }
 
-func (reg *Registry) Init(ctx context.Context, target *querypb.Target) error {
-	if reg.ts == nil || reg.r == nil {
+func (reg *TopoRegistry) Init(ctx context.Context, target *querypb.Target) error {
+	if reg.ts == nil || reg.r == nil || reg.targetTablets == nil || reg.dbNameTablets == nil {
 		return vterrors.New(vtrpcpb.Code_INTERNAL, "registry not properly constructed: topo server or physical tablet alias is nil")
 	}
 
@@ -52,50 +70,11 @@ func (reg *Registry) Init(ctx context.Context, target *querypb.Target) error {
 	if len(reg.targetTablets) == 0 {
 		log.Warningf("no tablets found for physical target %s/%s, this may lead to issues with resolving targets", reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
 	}
-	log.Infof("Registry initialized for cell %s with %d tablets", reg.physicalTarget.Cell, len(reg.targetTablets))
+	log.Infof("TopoRegistry initialized for cell %s with %d tablets", reg.physicalTarget.Cell, len(reg.targetTablets))
 	return nil
 }
 
-func (reg *Registry) loadTabletsAndShards(ctx context.Context) error {
-	tablets, err := reg.ts.GetVirtualTablets(ctx, reg.physicalTarget.Cell, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
-	if err != nil {
-		return vterrors.Wrapf(err, "failed to get virtual tablets for cell %q, keyspace %q, shard %q", reg.physicalTarget.Cell, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
-	}
-
-	reg.targetTablets = make(map[targetKey]*topo.TabletInfo)
-
-	for _, tablet := range tablets {
-		if tablet.Alias == nil || tablet.Alias.Cell != reg.physicalTarget.Cell {
-			continue // Skip tablets not in the same cell
-		}
-		if tablet.Keyspace != reg.physicalTarget.Keyspace || tablet.Shard != reg.physicalTarget.Shard {
-			log.Warningf("Tablet %s/%s does not match physical target %s/%s, skipping", tablet.Keyspace, tablet.Shard, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
-			continue // Skip tablets not in the same keyspace/shard
-		}
-		if err := reg.storeTablet(tablet); err != nil {
-			return vterrors.Wrapf(err, "failed to store tablet %s/%s", tablet.Keyspace, tablet.Shard)
-		}
-	}
-
-	return nil
-}
-
-func (reg *Registry) storeTablet(tablet *topo.TabletInfo) error {
-	if tablet == nil || tablet.Tablet == nil {
-		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "tablet cannot be nil")
-	}
-	tk := targetKey{
-		Keyspace: tablet.Keyspace,
-		Shard:    tablet.Shard,
-	}
-	if tablet.Tags[topo.SchemaNameTag] == "" {
-		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "virtual tablet must have a schema name tag")
-	}
-	reg.targetTablets[tk] = tablet
-	return nil
-}
-
-func (reg *Registry) ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error) {
+func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error) {
 	log.Infof("Resolving target %s/%s", target.Keyspace, target.Shard)
 	if target.Keyspace == "" {
 		return nil, "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target keyspace cannot be empty")
@@ -172,7 +151,24 @@ func (reg *Registry) ResolveTarget(ctx context.Context, target *querypb.Target) 
 	return reg.physicalTarget, reg.physicalTarget.DbName, nil
 }
 
-func (reg *Registry) AddTablet(tablet *topo.TabletInfo) error {
+func (reg *TopoRegistry) ResolveDbName(dbName string) (*topo.TabletInfo, error) {
+	if dbName == "" {
+		return nil, vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "dbName cannot be empty")
+	}
+
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+
+	tablet, exists := reg.dbNameTablets[dbName]
+	if !exists {
+		return nil, vterrors.New(vtrpcpb.Code_NOT_FOUND, fmt.Sprintf("no tablet found for dbName %s", dbName))
+	}
+
+	log.Infof("Resolved dbName %s to tablet %s/%s", dbName, tablet.Keyspace, tablet.Shard)
+	return tablet, nil
+}
+
+func (reg *TopoRegistry) AddTablet(tablet *topo.TabletInfo) error {
 	if tablet == nil || tablet.Tablet == nil {
 		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "tablet cannot be nil")
 	}
@@ -187,7 +183,7 @@ func (reg *Registry) AddTablet(tablet *topo.TabletInfo) error {
 	return nil
 }
 
-func (reg *Registry) RemoveTablet(keyspace, shard string) error {
+func (reg *TopoRegistry) RemoveTablet(keyspace, shard string) error {
 	if keyspace == "" || shard == "" {
 		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "keyspace and shard cannot be empty")
 	}
@@ -199,12 +195,60 @@ func (reg *Registry) RemoveTablet(keyspace, shard string) error {
 		Keyspace: keyspace,
 		Shard:    shard,
 	}
-	if _, exists := reg.targetTablets[tk]; !exists {
+	tablet, exists := reg.targetTablets[tk]
+	if !exists {
 		return vterrors.New(vtrpcpb.Code_NOT_FOUND, fmt.Sprintf("tablet for keyspace %s and shard %s not found", keyspace, shard))
 	}
 
+	// Remove from both maps
 	delete(reg.targetTablets, tk)
+	delete(reg.dbNameTablets, tablet.Tags[topo.SchemaNameTag])
+	if tablet.Tags != nil {
+		if dbName := tablet.Tags[topo.SchemaNameTag]; dbName != "" {
+			delete(reg.dbNameTablets, dbName)
+		}
+	} else {
+		// Hopefully this is impossible
+		log.Errorf("Tablet %s/%s has no tags, cannot remove from dbNameTablets", keyspace, shard)
+	}
 	log.Infof("Removed tablet for keyspace %s and shard %s from registry", keyspace, shard)
+	return nil
+}
+func (reg *TopoRegistry) loadTabletsAndShards(ctx context.Context) error {
+	tablets, err := reg.ts.GetVirtualTablets(ctx, reg.physicalTarget.Cell, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
+	if err != nil {
+		return vterrors.Wrapf(err, "failed to get virtual tablets for cell %q, keyspace %q, shard %q", reg.physicalTarget.Cell, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
+	}
+
+	for _, tablet := range tablets {
+		if tablet.Alias == nil || tablet.Alias.Cell != reg.physicalTarget.Cell {
+			continue // Skip tablets not in the same cell
+		}
+		if tablet.Keyspace != reg.physicalTarget.Keyspace || tablet.Shard != reg.physicalTarget.Shard {
+			log.Warningf("Tablet %s/%s does not match physical target %s/%s, skipping", tablet.Keyspace, tablet.Shard, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
+			continue // Skip tablets not in the same keyspace/shard
+		}
+		if err := reg.storeTablet(tablet); err != nil {
+			return vterrors.Wrapf(err, "failed to store tablet %s/%s", tablet.Keyspace, tablet.Shard)
+		}
+	}
+
+	return nil
+}
+
+func (reg *TopoRegistry) storeTablet(tablet *topo.TabletInfo) error {
+	if tablet == nil || tablet.Tablet == nil {
+		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "tablet cannot be nil")
+	}
+	tk := targetKey{
+		Keyspace: tablet.Keyspace,
+		Shard:    tablet.Shard,
+	}
+	if tablet.Tags[topo.SchemaNameTag] == "" {
+		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "virtual tablet must have a schema name tag")
+	}
+	reg.targetTablets[tk] = tablet
+	reg.dbNameTablets[tablet.Tags[topo.SchemaNameTag]] = tablet
 	return nil
 }
 
