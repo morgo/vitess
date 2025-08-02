@@ -26,6 +26,14 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 )
 
+const (
+	PhysicalTabletTag   = "physical_tablet"
+	PhysicalKeyspaceTag = "physical_keyspace"
+	PhysicalShardTag    = "physical_shard"
+	VirtualShardTag     = "virtual_shard"
+	SchemaNameTag       = "schema_name"
+)
+
 // This file contains virtual shard utility functions.
 
 // CreateVirtualTablet creates a VIRTUAL tablet that references a physical tablet.
@@ -76,11 +84,11 @@ func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virt
 		DbNameOverride: schemaName,
 		// Store metadata in tags
 		Tags: map[string]string{
-			"physical_tablet":   topoproto.TabletAliasString(physicalTabletInfo.Alias),
-			"physical_keyspace": physicalKeyspace,
-			"physical_shard":    physicalShard,
-			"virtual_shard":     "true",
-			"schema_name":       schemaName,
+			PhysicalTabletTag:   topoproto.TabletAliasString(physicalTabletInfo.Alias),
+			PhysicalKeyspaceTag: physicalKeyspace,
+			PhysicalShardTag:    physicalShard,
+			VirtualShardTag:     "true",
+			SchemaNameTag:       schemaName,
 		},
 	}
 

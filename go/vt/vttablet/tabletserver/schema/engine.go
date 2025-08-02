@@ -999,6 +999,7 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 	// First try to find the table in the provided dbName
 	var st *Table
 	var ok bool
+	/* TODO: what is happening here?
 	if dbName != "" {
 		if schemaMap, ok := se.tables[dbName]; ok {
 			if st, ok = schemaMap[tableNameStr]; ok {
@@ -1006,6 +1007,7 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 			}
 		}
 	}
+	*/
 
 	// If not found, search across all databases for this table name
 	if !ok {
