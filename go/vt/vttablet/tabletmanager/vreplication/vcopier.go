@@ -36,6 +36,7 @@ import (
 	"vitess.io/vitess/go/vt/binlog/binlogplayer"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/sqlparser"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle/throttlerapp"
 
@@ -331,7 +332,7 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 			if source.Keyspace != "" {
 				// Construct the source database name from keyspace and shard
 				// TODO: in future we should use the registry to get the dbName
-				dbName = fmt.Sprintf("vt_%s_%s", source.Keyspace, source.Shard)
+				dbName = topoproto.DefaultDatabaseName(source.Keyspace, source.Shard)
 			} else {
 				// TODO: I'm not sure if this is ever correct.
 				log.Infof("Using original dbName from vreplication table: %s", dbName)

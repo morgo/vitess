@@ -33,6 +33,7 @@ import (
 	"vitess.io/vitess/go/vt/srvtopo"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
@@ -221,7 +222,7 @@ func (te *Env) CreateVirtualShard(virtualKeyspaceName, virtualShardName string) 
 	ctx := context.Background()
 
 	// Create the database/schema - use a unique name for the virtual shard
-	schemaName := fmt.Sprintf("%s_%s", virtualKeyspaceName, virtualShardName)
+	schemaName := topoproto.DefaultDatabaseName(virtualKeyspaceName, virtualShardName)
 	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", schemaName)
 	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
 		return fmt.Errorf("failed to create virtual shard database %s: %v", schemaName, err)
@@ -269,7 +270,7 @@ func (te *Env) DropVirtualShard(virtualKeyspaceName, virtualShardName string) er
 	ctx := context.Background()
 
 	// Drop the database/schema
-	schemaName := fmt.Sprintf("%s_%s", virtualKeyspaceName, virtualShardName)
+	schemaName := topoproto.DefaultDatabaseName(virtualKeyspaceName, virtualShardName)
 	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", schemaName)
 	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
 		return fmt.Errorf("failed to drop virtual shard database %s: %v", schemaName, err)

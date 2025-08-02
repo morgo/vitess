@@ -25,7 +25,6 @@ import (
 	"vitess.io/vitess/go/vt/callerid"
 	"vitess.io/vitess/go/vt/callinfo"
 	"vitess.io/vitess/go/vt/hook"
-	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
 	"vitess.io/vitess/go/vt/servenv"
@@ -181,7 +180,6 @@ func (s *server) ApplySchema(ctx context.Context, request *tabletmanagerdatapb.A
 	defer s.tm.HandleRPCPanic(ctx, "ApplySchema", request, response, true /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
 	response = &tabletmanagerdatapb.ApplySchemaResponse{}
-	log.Infof("DEBUG Applying schema change: %s - now with DBoverride %s", request.Sql, request.DbNameOverride)
 	scr, err := s.tm.ApplySchema(ctx, &tmutils.SchemaChange{
 		SQL:                     request.Sql,
 		Force:                   request.Force,

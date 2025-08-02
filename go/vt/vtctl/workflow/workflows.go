@@ -135,7 +135,7 @@ func (wf *workflowFetcher) fetchWorkflowsByShard(
 		// the database name to query the correct VReplication data.
 		if req.Keyspace != primary.Keyspace {
 			// For virtual shards, construct the database name using the virtual keyspace
-			reqClone.DbNameOverride = fmt.Sprintf("vt_%s_%s", req.Keyspace, si.ShardName())
+			reqClone.DbNameOverride = topoproto.DefaultDatabaseName(req.Keyspace, si.ShardName())
 		}
 
 		wres, err := wf.tmc.ReadVReplicationWorkflows(ctx, primary.Tablet, reqClone)
