@@ -752,6 +752,10 @@ message VDiffRequest {
   string action_arg = 4;
   string vdiff_uuid = 5;
   VDiffOptions options = 6;
+  // DBNameOverride allows overriding the database name to use for VDiff operations
+  // This is particularly useful for virtual shards where the logical keyspace name
+  // differs from the physical database name
+  string db_name_override = 7;
 }
 
 message VDiffResponse {

@@ -376,11 +376,14 @@ func (vr *vreplicator) buildColInfoMap(ctx context.Context) (map[string][]*Colum
 
 	// Use the target schema for virtual keyspace support
 	schemaName := vr.getTargetSchemaName()
+	log.Infof("DEBUG: buildColInfoMap using schema name: %s", schemaName)
 
 	schema, err := vr.mysqld.GetSchema(ctx, schemaName, req)
 	if err != nil {
+		log.Errorf("DEBUG: buildColInfoMap failed to get schema for %s: %v", schemaName, err)
 		return nil, err
 	}
+	log.Infof("DEBUG: buildColInfoMap got schema with %d table definitions", len(schema.TableDefinitions))
 	queryTemplate := "select character_set_name, collation_name, column_name, data_type, column_type, extra from information_schema.columns where table_schema=%s and table_name=%s;"
 	colInfoMap := make(map[string][]*ColumnInfo)
 	for _, td := range schema.TableDefinitions {

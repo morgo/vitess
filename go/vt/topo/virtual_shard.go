@@ -19,6 +19,7 @@ package topo
 import (
 	"context"
 	"hash/fnv"
+	"path"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
@@ -28,8 +29,28 @@ import (
 
 // This file contains virtual shard utility functions.
 
+// tabletExists checks if a tablet exists in the topology without logging errors
+// for non-existent nodes. This is used to avoid spamming logs when checking
+// for available UIDs during virtual tablet creation.
+func (ts *Server) tabletExists(ctx context.Context, alias *topodatapb.TabletAlias) (bool, error) {
+	conn, err := ts.ConnForCell(ctx, alias.Cell)
+	if err != nil {
+		return false, err
+	}
+
+	tabletPath := path.Join(TabletsPath, topoproto.TabletAliasString(alias), TabletFile)
+	_, _, err = conn.Get(ctx, tabletPath)
+	if err != nil {
+		if IsErrType(err, NoNode) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // CreateVirtualTablet creates a VIRTUAL tablet that references a physical tablet.
-func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virtualShard string, physicalTabletInfo *TabletInfo, physicalKeyspace, physicalShard, schemaName string) (*topodatapb.TabletAlias, error) {
+func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virtualShard string, physicalTabletInfo *TabletInfo, physicalKeyspace, physicalShard, dbName string) (*topodatapb.TabletAlias, error) {
 	// Generate a new tablet alias for the virtual tablet
 	// Use the same cell as the physical tablet but with a different UID
 	// We need to generate a unique UID for each virtual shard, not just per physical tablet
@@ -48,14 +69,15 @@ func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virt
 
 	// Keep trying UIDs until we find one that doesn't exist
 	for {
-		_, err := ts.GetTablet(ctx, virtualTabletAlias)
-		if IsErrType(err, NoNode) {
-			// This UID is available
-			break
-		}
+		// Check if tablet exists without logging "node doesn't exist" errors
+		exists, err := ts.tabletExists(ctx, virtualTabletAlias)
 		if err != nil {
 			// Some other error occurred
 			return nil, err
+		}
+		if !exists {
+			// This UID is available
+			break
 		}
 		// This UID is taken, try the next one
 		virtualTabletAlias.Uid++
@@ -67,27 +89,20 @@ func (ts *Server) CreateVirtualTablet(ctx context.Context, virtualKeyspace, virt
 		Keyspace: virtualKeyspace,
 		Shard:    virtualShard,
 		Type:     topodatapb.TabletType_VIRTUAL,
-		// Copy key range from physical tablet
-		KeyRange: physicalTabletInfo.KeyRange,
-		// Set hostname and ports to empty since VIRTUAL tablets don't run services
-		Hostname: "",
 		PortMap:  make(map[string]int32),
 		// Set DbNameOverride to the schema name for this virtual shard
-		DbNameOverride: schemaName,
+		DbNameOverride: dbName,
 		// Store metadata in tags
 		Tags: map[string]string{
-			"physical_tablet":   topoproto.TabletAliasString(physicalTabletInfo.Alias),
 			"physical_keyspace": physicalKeyspace,
 			"physical_shard":    physicalShard,
-			"virtual_shard":     "true",
-			"schema_name":       schemaName,
 		},
 	}
 
-	// Create the virtual tablet
+	// Create the virtual tablet in the topology server
 	err := ts.CreateTablet(ctx, virtualTablet)
 	if err != nil {
-		return nil, err
+		return nil, vterrors.Wrapf(err, "CreateVirtualTablet: failed to create virtual tablet %s in topology", topoproto.TabletAliasString(virtualTabletAlias))
 	}
 
 	return virtualTabletAlias, nil

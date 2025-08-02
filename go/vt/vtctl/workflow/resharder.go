@@ -146,7 +146,9 @@ func (s *Server) buildResharder(ctx context.Context, req *vtctldata.ReshardCreat
 func (rs *resharder) validateTargets(ctx context.Context) error {
 	err := forAllShards(rs.targetShards, func(target *topo.ShardInfo) error {
 		targetPrimary := rs.targetPrimaries[target.ShardName()]
-		res, err := rs.s.tmc.HasVReplicationWorkflows(ctx, targetPrimary.Tablet, &tabletmanagerdatapb.HasVReplicationWorkflowsRequest{})
+		res, err := rs.s.tmc.HasVReplicationWorkflows(ctx, targetPrimary.Tablet, &tabletmanagerdatapb.HasVReplicationWorkflowsRequest{
+			DbNameOverride: targetPrimary.DbNameOverride,
+		})
 		if err != nil {
 			return vterrors.Wrapf(err, "HasVReplicationWorkflows(%v)", targetPrimary.Tablet)
 		}
@@ -164,7 +166,8 @@ func (rs *resharder) readRefStreams(ctx context.Context) error {
 		sourcePrimary := rs.sourcePrimaries[source.ShardName()]
 
 		req := &tabletmanagerdatapb.ReadVReplicationWorkflowsRequest{
-			ExcludeFrozen: true,
+			ExcludeFrozen:  true,
+			DbNameOverride: sourcePrimary.DbNameOverride,
 		}
 		res, err := rs.s.tmc.ReadVReplicationWorkflows(ctx, sourcePrimary.Tablet, req)
 		if err != nil {
@@ -288,6 +291,7 @@ func (rs *resharder) createStreams(ctx context.Context) error {
 	err := forAllShards(rs.targetShards, func(target *topo.ShardInfo) error {
 		targetPrimary := rs.targetPrimaries[target.ShardName()]
 
+		// TODO: this might not be correct.
 		ig := vreplication.NewInsertGenerator(binlogdatapb.VReplicationWorkflowState_Stopped, targetPrimary.DbName())
 
 		// Clone excludeRules to prevent data races.
@@ -343,8 +347,9 @@ func (rs *resharder) startStreams(ctx context.Context) error {
 		// on the shards when we started, and we want to start all of the ones
 		// that we've created on the new shards as we're migrating them.
 		req := &tabletmanagerdatapb.UpdateVReplicationWorkflowsRequest{
-			AllWorkflows: true,
-			State:        ptr.Of(binlogdatapb.VReplicationWorkflowState_Running),
+			AllWorkflows:   true,
+			State:          ptr.Of(binlogdatapb.VReplicationWorkflowState_Running),
+			DbNameOverride: targetPrimary.DbNameOverride,
 		}
 		if _, err := rs.s.tmc.UpdateVReplicationWorkflows(ctx, targetPrimary.Tablet, req); err != nil {
 			return vterrors.Wrapf(err, "UpdateVReplicationWorkflows(%v, 'state='%s')",

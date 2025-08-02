@@ -1521,6 +1521,7 @@ func (s *Server) ReshardCreate(ctx context.Context, req *vtctldatapb.ReshardCrea
 		s.Logger().Errorf("%v", err2)
 		return nil, err
 	}
+	log.Infof("DEBUG: building resharder for workflow %s in keyspace %s", req.Workflow, keyspace)
 	rs, err := s.buildResharder(ctx, req)
 	if err != nil {
 		return nil, vterrors.Wrap(err, "buildResharder")
@@ -1529,18 +1530,23 @@ func (s *Server) ReshardCreate(ctx context.Context, req *vtctldatapb.ReshardCrea
 	rs.stopAfterCopy = req.StopAfterCopy
 	rs.deferSecondaryKeys = req.DeferSecondaryKeys
 	if !req.SkipSchemaCopy {
+		log.Infof("DEBUG: running copySchema for workflow %s in keyspace %s", req.Workflow, keyspace)
 		if err := rs.copySchema(ctx); err != nil {
 			return nil, vterrors.Wrap(err, "copySchema")
 		}
 	}
+	log.Infof("DEBUG: creating reshard streams for workflow %s in keyspace %s", req.Workflow, keyspace)
 	if err := rs.createStreams(ctx); err != nil {
 		return nil, vterrors.Wrap(err, "createStreams")
 	}
+	log.Infof("DEBUG: finished creating reshard streams")
 
 	if req.AutoStart {
+		log.Infof("DEBUG: running startstreams for workflow %s in keyspace %s", req.Workflow, keyspace)
 		if err := rs.startStreams(ctx); err != nil {
 			return nil, vterrors.Wrap(err, "startStreams")
 		}
+		log.Infof("DEBUG: finished running start streams")
 	} else {
 		s.Logger().Warningf("Streams will not be started since --auto-start is set to false")
 	}

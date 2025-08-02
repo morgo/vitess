@@ -1101,11 +1101,13 @@ func (s *VtctldServer) CreateVirtualShard(ctx context.Context, req *vtctldatapb.
 		return nil, vterrors.Wrapf(err, "CreateVirtualShard: failed to create shard %s/%s in topology server", req.VirtualKeyspace, req.VirtualShard)
 	}
 
+	log.Infof("About to create virtual shard %s/%s in topology server", req.VirtualKeyspace, req.VirtualShard)
 	// Create the virtual tablet in the topology server.
 	virtualTabletAlias, err := s.ts.CreateVirtualTablet(ctx, req.VirtualKeyspace, req.VirtualShard, physicalTabletInfo, req.PhysicalKeyspace, req.PhysicalShard, schemaName)
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("Created virtual shard %s/%s in topology server", req.VirtualKeyspace, req.VirtualShard)
 
 	// Update the virtual shard to set the virtual tablet as the primary
 	_, err = s.ts.UpdateShardFields(ctx, req.VirtualKeyspace, req.VirtualShard, func(si *topo.ShardInfo) error {
@@ -1115,6 +1117,8 @@ func (s *VtctldServer) CreateVirtualShard(ctx context.Context, req *vtctldatapb.
 	if err != nil {
 		return nil, vterrors.Wrapf(err, "CreateVirtualShard: failed to set primary alias for virtual shard %s/%s", req.VirtualKeyspace, req.VirtualShard)
 	}
+
+	log.Infof("Updated shard fields %s/%s in topology server", req.VirtualKeyspace, req.VirtualShard)
 
 	// Now create the shard in the tablet.
 	tmc := tmclient.NewTabletManagerClient()

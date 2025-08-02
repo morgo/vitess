@@ -106,18 +106,20 @@ var (
 	errAllWithIncludeExcludeWorkflows = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "cannot specify all workflows along with either of include or exclude workflows")
 )
 
+func (tm *TabletManager) getDBName(dbNameOverride string) string {
+	// Default to the DBName based on the tabletmanager's DB config.
+	// This will only be correct for physical keyspaces.
+	if dbNameOverride != "" {
+		return dbNameOverride
+	}
+	return tm.DBConfigs.DBName
+}
+
 func (tm *TabletManager) CreateVReplicationWorkflow(ctx context.Context, req *tabletmanagerdatapb.CreateVReplicationWorkflowRequest) (*tabletmanagerdatapb.CreateVReplicationWorkflowResponse, error) {
 	if req == nil || len(req.BinlogSource) == 0 {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid request, no binlog source specified")
 	}
-
-	// Default to the DBName based on the tabletmanager's DB config.
-	// This will only be correct for physical keyspaces.
-	dbName := tm.DBConfigs.DBName
-	if req.DbNameOverride != "" {
-		dbName = req.DbNameOverride
-	}
-
+	dbName := tm.getDBName(req.DbNameOverride)
 	res := &sqltypes.Result{}
 	for _, bls := range req.BinlogSource {
 		protoutil.SortBinlogSourceTables(bls)
@@ -173,13 +175,7 @@ func (tm *TabletManager) DeleteTableData(ctx context.Context, req *tabletmanager
 	if req == nil {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid nil request")
 	}
-	// Default to the DBName based on the tabletmanager's DB config.
-	// This will only be correct for physical keyspaces.
-	dbName := tm.DBConfigs.DBName
-	if req.DbNameOverride != "" {
-		dbName = req.DbNameOverride
-	}
-
+	dbName := tm.getDBName(req.DbNameOverride)
 	if len(req.TableFilters) == 0 { // Nothing to do
 		return &tabletmanagerdatapb.DeleteTableDataResponse{}, nil
 	}
@@ -267,12 +263,7 @@ func (tm *TabletManager) DeleteVReplicationWorkflow(ctx context.Context, req *ta
 	if req == nil || req.Workflow == "" {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid request, no workflow provided")
 	}
-	// Default to the DBName based on the tabletmanager's DB config.
-	// This will only be correct for physical keyspaces.
-	dbName := tm.DBConfigs.DBName
-	if req.DbNameOverride != "" {
-		dbName = req.DbNameOverride
-	}
+	dbName := tm.getDBName(req.DbNameOverride)
 
 	res := &sqltypes.Result{}
 	bindVars := map[string]*querypb.BindVariable{
@@ -295,13 +286,7 @@ func (tm *TabletManager) DeleteVReplicationWorkflow(ctx context.Context, req *ta
 }
 
 func (tm *TabletManager) HasVReplicationWorkflows(ctx context.Context, req *tabletmanagerdatapb.HasVReplicationWorkflowsRequest) (*tabletmanagerdatapb.HasVReplicationWorkflowsResponse, error) {
-	// Default to the DBName based on the tabletmanager's DB config.
-	// This will only be correct for physical keyspaces.
-	dbName := tm.DBConfigs.DBName
-	if req.DbNameOverride != "" {
-		dbName = req.DbNameOverride
-	}
-
+	dbName := tm.getDBName(req.DbNameOverride)
 	bindVars := map[string]*querypb.BindVariable{
 		"db": sqltypes.StringBindVariable(dbName),
 	}
@@ -331,6 +316,8 @@ func (tm *TabletManager) HasVReplicationWorkflows(ctx context.Context, req *tabl
 	return &tabletmanagerdatapb.HasVReplicationWorkflowsResponse{Has: has}, nil
 }
 
+// ReadVReplicationWorkflows will read all VReplication workflows
+// TODO: I'm not sure it supports virtual shards correctly
 func (tm *TabletManager) ReadVReplicationWorkflows(ctx context.Context, req *tabletmanagerdatapb.ReadVReplicationWorkflowsRequest) (*tabletmanagerdatapb.ReadVReplicationWorkflowsResponse, error) {
 	query, err := tm.buildReadVReplicationWorkflowsQuery(req)
 	if err != nil {
@@ -439,12 +426,7 @@ func (tm *TabletManager) ReadVReplicationWorkflow(ctx context.Context, req *tabl
 	if req == nil || req.Workflow == "" {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid request, no workflow provided")
 	}
-	// Default to the DBName based on the tabletmanager's DB config.
-	// This will only be correct for physical keyspaces.
-	dbName := tm.DBConfigs.DBName
-	if req.DbNameOverride != "" {
-		dbName = req.DbNameOverride
-	}
+	dbName := tm.getDBName(req.DbNameOverride)
 	bindVars := map[string]*querypb.BindVariable{
 		"wf": sqltypes.StringBindVariable(req.Workflow),
 		"db": sqltypes.StringBindVariable(dbName),
@@ -950,12 +932,7 @@ func (tm *TabletManager) VReplicationWaitForPos(ctx context.Context, id int32, p
 // buildReadVReplicationWorkflowsQuery builds the SQL query used to read N
 // vreplication workflows based on the request.
 func (tm *TabletManager) buildReadVReplicationWorkflowsQuery(req *tabletmanagerdatapb.ReadVReplicationWorkflowsRequest) (string, error) {
-	// Default to the DBName based on the tabletmanager's DB config.
-	// This will only be correct for physical keyspaces.
-	dbName := tm.DBConfigs.DBName
-	if req.DbNameOverride != "" {
-		dbName = req.DbNameOverride
-	}
+	dbName := tm.getDBName(req.DbNameOverride)
 	bindVars := map[string]*querypb.BindVariable{
 		"db": sqltypes.StringBindVariable(dbName),
 	}
@@ -1031,12 +1008,7 @@ func (tm *TabletManager) buildUpdateVReplicationWorkflowsQuery(req *tabletmanage
 	}
 	sets := strings.Builder{}
 	predicates := strings.Builder{}
-	// Default to the DBName based on the tabletmanager's DB config.
-	// This will only be correct for physical keyspaces.
-	dbName := tm.DBConfigs.DBName
-	if req.DbNameOverride != "" {
-		dbName = req.DbNameOverride
-	}
+	dbName := tm.getDBName(req.DbNameOverride)
 
 	// First add the SET clauses.
 	// We also need to check for a SimulatedNull here to support older clients and

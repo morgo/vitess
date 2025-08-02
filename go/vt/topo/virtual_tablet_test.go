@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
-	"vitess.io/vitess/go/vt/topo/topoproto"
 )
 
 func TestVirtualTabletType(t *testing.T) {
@@ -57,13 +56,13 @@ func TestVirtualTabletHelpers(t *testing.T) {
 			Cell: "cell1",
 			Uid:  200,
 		},
-		Keyspace: "virtual_ks",
-		Shard:    "0",
-		Type:     topodatapb.TabletType_VIRTUAL,
+		Keyspace:       "virtual_ks",
+		Shard:          "0",
+		Type:           topodatapb.TabletType_VIRTUAL,
+		DbNameOverride: "test_schema",
 		Tags: map[string]string{
-			"physical_tablet":  topoproto.TabletAliasString(physicalTablet.Alias),
-			"virtual_keyspace": "virtual_ks",
-			"schema_name":      "test_schema",
+			"physical_keyspace": physicalTablet.Keyspace,
+			"physical_shard":    physicalTablet.Shard,
 		},
 	}
 
@@ -71,26 +70,14 @@ func TestVirtualTabletHelpers(t *testing.T) {
 	assert.True(t, IsVirtualTablet(virtualTablet))
 	assert.False(t, IsVirtualTablet(physicalTablet))
 
-	// Test extracting metadata
-	physicalAlias, err := GetPhysicalTabletAlias(virtualTablet)
-	require.NoError(t, err)
-	assert.Equal(t, physicalTablet.Alias, physicalAlias)
-
 	virtualKeyspace, err := GetVirtualKeyspaceName(virtualTablet)
 	require.NoError(t, err)
 	assert.Equal(t, "virtual_ks", virtualKeyspace)
 
-	schemaName, err := GetSchemaName(virtualTablet)
-	require.NoError(t, err)
-	assert.Equal(t, "test_schema", schemaName)
+	// Test accessing DbNameOverride directly
+	assert.Equal(t, "test_schema", virtualTablet.DbNameOverride)
 
 	// Test error cases
-	_, err = GetPhysicalTabletAlias(physicalTablet)
-	assert.Error(t, err)
-
 	_, err = GetVirtualKeyspaceName(physicalTablet)
-	assert.Error(t, err)
-
-	_, err = GetSchemaName(physicalTablet)
 	assert.Error(t, err)
 }

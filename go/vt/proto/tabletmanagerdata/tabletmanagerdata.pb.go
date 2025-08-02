@@ -6328,15 +6328,19 @@ func (x *ValidateVReplicationPermissionsResponse) GetError() string {
 }
 
 type VDiffRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Keyspace      string                 `protobuf:"bytes,1,opt,name=keyspace,proto3" json:"keyspace,omitempty"`
-	Workflow      string                 `protobuf:"bytes,2,opt,name=workflow,proto3" json:"workflow,omitempty"`
-	Action        string                 `protobuf:"bytes,3,opt,name=action,proto3" json:"action,omitempty"`
-	ActionArg     string                 `protobuf:"bytes,4,opt,name=action_arg,json=actionArg,proto3" json:"action_arg,omitempty"`
-	VdiffUuid     string                 `protobuf:"bytes,5,opt,name=vdiff_uuid,json=vdiffUuid,proto3" json:"vdiff_uuid,omitempty"`
-	Options       *VDiffOptions          `protobuf:"bytes,6,opt,name=options,proto3" json:"options,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Keyspace  string                 `protobuf:"bytes,1,opt,name=keyspace,proto3" json:"keyspace,omitempty"`
+	Workflow  string                 `protobuf:"bytes,2,opt,name=workflow,proto3" json:"workflow,omitempty"`
+	Action    string                 `protobuf:"bytes,3,opt,name=action,proto3" json:"action,omitempty"`
+	ActionArg string                 `protobuf:"bytes,4,opt,name=action_arg,json=actionArg,proto3" json:"action_arg,omitempty"`
+	VdiffUuid string                 `protobuf:"bytes,5,opt,name=vdiff_uuid,json=vdiffUuid,proto3" json:"vdiff_uuid,omitempty"`
+	Options   *VDiffOptions          `protobuf:"bytes,6,opt,name=options,proto3" json:"options,omitempty"`
+	// DBNameOverride allows overriding the database name to use for VDiff operations
+	// This is particularly useful for virtual shards where the logical keyspace name
+	// differs from the physical database name
+	DbNameOverride string `protobuf:"bytes,7,opt,name=db_name_override,json=dbNameOverride,proto3" json:"db_name_override,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *VDiffRequest) Reset() {
@@ -6409,6 +6413,13 @@ func (x *VDiffRequest) GetOptions() *VDiffOptions {
 		return x.Options
 	}
 	return nil
+}
+
+func (x *VDiffRequest) GetDbNameOverride() string {
+	if x != nil {
+		return x.DbNameOverride
+	}
+	return ""
 }
 
 type VDiffResponse struct {
@@ -8952,7 +8963,7 @@ const file_tabletmanagerdata_proto_rawDesc = "" +
 	"'ValidateVReplicationPermissionsResponse\x12\x12\n" +
 	"\x04user\x18\x01 \x01(\tR\x04user\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\xd7\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\x81\x02\n" +
 	"\fVDiffRequest\x12\x1a\n" +
 	"\bkeyspace\x18\x01 \x01(\tR\bkeyspace\x12\x1a\n" +
 	"\bworkflow\x18\x02 \x01(\tR\bworkflow\x12\x16\n" +
@@ -8961,7 +8972,8 @@ const file_tabletmanagerdata_proto_rawDesc = "" +
 	"action_arg\x18\x04 \x01(\tR\tactionArg\x12\x1d\n" +
 	"\n" +
 	"vdiff_uuid\x18\x05 \x01(\tR\tvdiffUuid\x129\n" +
-	"\aoptions\x18\x06 \x01(\v2\x1f.tabletmanagerdata.VDiffOptionsR\aoptions\"j\n" +
+	"\aoptions\x18\x06 \x01(\v2\x1f.tabletmanagerdata.VDiffOptionsR\aoptions\x12(\n" +
+	"\x10db_name_override\x18\a \x01(\tR\x0edbNameOverride\"j\n" +
 	"\rVDiffResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12*\n" +
 	"\x06output\x18\x02 \x01(\v2\x12.query.QueryResultR\x06output\x12\x1d\n" +

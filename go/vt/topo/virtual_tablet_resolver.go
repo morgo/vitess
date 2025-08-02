@@ -55,22 +55,22 @@ func (r *DefaultTabletResolver) ResolveTablet(ctx context.Context, tablet *topod
 		return tablet, nil
 	}
 
-	// Get the physical tablet alias from the VIRTUAL tablet's tags
-	physicalTabletAlias, err := GetPhysicalTabletAlias(tablet)
+	// Get the physical keyspace and shard from the VIRTUAL tablet's tags
+	physicalKeyspace, physicalShard, err := GetPhysicalShardInfo(ctx, r.ts, tablet.Keyspace, tablet.Shard)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get the physical tablet
-	physicalTabletInfo, err := r.ts.GetTablet(ctx, physicalTabletAlias)
+	// Find an appropriate physical tablet in the physical shard
+	physicalTablet, err := r.findPhysicalTabletForVirtual(ctx, physicalKeyspace, physicalShard, tablet)
 	if err != nil {
-		return nil, vterrors.Wrapf(err, "failed to resolve VIRTUAL tablet %s to physical tablet %s",
-			topoproto.TabletAliasString(tablet.Alias), topoproto.TabletAliasString(physicalTabletAlias))
+		return nil, vterrors.Wrapf(err, "failed to resolve VIRTUAL tablet %s to physical tablet in %s/%s",
+			topoproto.TabletAliasString(tablet.Alias), physicalKeyspace, physicalShard)
 	}
 
-	// The dbname is stored in the VIRTUAL tablet's tags
-	physicalTabletInfo.DbNameOverride = tablet.GetDbNameOverride()
-	return physicalTabletInfo.Tablet, nil
+	// The dbname is stored in the VIRTUAL tablet's DbNameOverride
+	physicalTablet.DbNameOverride = tablet.GetDbNameOverride()
+	return physicalTablet, nil
 }
 
 // ResolveShardTablets resolves all VIRTUAL tablets in a shard to their
@@ -99,26 +99,26 @@ func IsVirtualTablet(tablet *topodatapb.Tablet) bool {
 	return IsVirtualType(tablet.Type)
 }
 
-// GetPhysicalTabletAlias extracts the physical tablet alias from a VIRTUAL tablet's tags.
-func GetPhysicalTabletAlias(virtualTablet *topodatapb.Tablet) (*topodatapb.TabletAlias, error) {
-	if !IsVirtualType(virtualTablet.Type) {
-		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "tablet %s is not a VIRTUAL tablet",
-			topoproto.TabletAliasString(virtualTablet.Alias))
-	}
-
-	physicalTabletAliasStr, ok := virtualTablet.Tags["physical_tablet"]
-	if !ok {
-		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "VIRTUAL tablet %s missing physical_tablet tag",
-			topoproto.TabletAliasString(virtualTablet.Alias))
-	}
-
-	physicalTabletAlias, err := topoproto.ParseTabletAlias(physicalTabletAliasStr)
+// findPhysicalTabletForVirtual finds an appropriate physical tablet for a virtual tablet.
+// It looks for a tablet of the same type as the virtual tablet in the physical shard.
+func (r *DefaultTabletResolver) findPhysicalTabletForVirtual(ctx context.Context, physicalKeyspace, physicalShard string, virtualTablet *topodatapb.Tablet) (*topodatapb.Tablet, error) {
+	// Get all tablets in the physical shard
+	physicalTablets, err := r.ts.GetTabletMapForShard(ctx, physicalKeyspace, physicalShard)
 	if err != nil {
-		return nil, vterrors.Wrapf(err, "invalid physical_tablet alias %s in VIRTUAL tablet %s",
-			physicalTabletAliasStr, topoproto.TabletAliasString(virtualTablet.Alias))
+		return nil, err
 	}
 
-	return physicalTabletAlias, nil
+	// Find a tablet of the same type as the virtual tablet would represent
+	// For now, we'll look for a PRIMARY tablet as the default choice
+	// TODO: This logic may need to be more sophisticated based on requirements
+	for _, tabletInfo := range physicalTablets {
+		if tabletInfo.Type == topodatapb.TabletType_PRIMARY {
+			return tabletInfo.Tablet, nil
+		}
+	}
+	// If no suitable tablet found, return an error
+	return nil, vterrors.Errorf(vtrpc.Code_NOT_FOUND, "no suitable physical tablet found in shard %s/%s",
+		physicalKeyspace, physicalShard)
 }
 
 // GetVirtualKeyspaceName extracts the virtual keyspace name from a VIRTUAL tablet's keyspace field.
@@ -130,21 +130,4 @@ func GetVirtualKeyspaceName(virtualTablet *topodatapb.Tablet) (string, error) {
 	}
 
 	return virtualTablet.Keyspace, nil
-}
-
-// GetSchemaName extracts the schema name from a VIRTUAL tablet's tags.
-// This represents the MySQL schema name used for this virtual shard.
-func GetSchemaName(virtualTablet *topodatapb.Tablet) (string, error) {
-	if !IsVirtualType(virtualTablet.Type) {
-		return "", vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "tablet %s is not a VIRTUAL tablet",
-			topoproto.TabletAliasString(virtualTablet.Alias))
-	}
-
-	schemaName, ok := virtualTablet.Tags["schema_name"]
-	if !ok {
-		return "", vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "VIRTUAL tablet %s missing schema_name tag",
-			topoproto.TabletAliasString(virtualTablet.Alias))
-	}
-
-	return schemaName, nil
 }

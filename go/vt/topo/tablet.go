@@ -473,25 +473,34 @@ func Validate(ctx context.Context, ts *Server, tabletAlias *topodatapb.TabletAli
 
 // validateVirtualTablet performs specific validation for VIRTUAL tablets.
 func validateVirtualTablet(ctx context.Context, ts *Server, tablet *topodatapb.Tablet) error {
-	// Ensure physical tablet reference exists
-	physicalTabletAlias, err := GetPhysicalTabletAlias(tablet)
+	// Get the physical keyspace and shard from the VIRTUAL tablet's tags
+	physicalKeyspace, physicalShard, err := GetPhysicalShardInfo(ctx, ts, tablet.Keyspace, tablet.Shard)
 	if err != nil {
-		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid physical tablet reference",
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid physical keyspace/shard reference",
 			topoproto.TabletAliasString(tablet.Alias))
 	}
 
-	// Verify the physical tablet exists
-	physicalTablet, err := ts.GetTablet(ctx, physicalTabletAlias)
+	// Verify the physical shard exists and has tablets
+	physicalTablets, err := ts.GetTabletMapForShard(ctx, physicalKeyspace, physicalShard)
 	if err != nil {
-		return vterrors.Wrapf(err, "VIRTUAL tablet %s references non-existent physical tablet %s",
-			topoproto.TabletAliasString(tablet.Alias), topoproto.TabletAliasString(physicalTabletAlias))
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s references non-existent or inaccessible physical shard %s/%s",
+			topoproto.TabletAliasString(tablet.Alias), physicalKeyspace, physicalShard)
 	}
 
-	// Ensure physical tablet is not also VIRTUAL
-	if IsVirtualType(physicalTablet.Type) {
+	if len(physicalTablets) == 0 {
 		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
-			"VIRTUAL tablet %s cannot reference another VIRTUAL tablet %s",
-			topoproto.TabletAliasString(tablet.Alias), topoproto.TabletAliasString(physicalTabletAlias))
+			"VIRTUAL tablet %s references physical shard %s/%s which has no tablets",
+			topoproto.TabletAliasString(tablet.Alias), physicalKeyspace, physicalShard)
+	}
+
+	// Ensure no physical tablet is also VIRTUAL (avoid circular references)
+	for _, physicalTablet := range physicalTablets {
+		if IsVirtualType(physicalTablet.Type) {
+			return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+				"VIRTUAL tablet %s references physical shard %s/%s which contains VIRTUAL tablet %s",
+				topoproto.TabletAliasString(tablet.Alias), physicalKeyspace, physicalShard,
+				topoproto.TabletAliasString(physicalTablet.Alias))
+		}
 	}
 
 	// Validate virtual keyspace name
@@ -503,15 +512,8 @@ func validateVirtualTablet(ctx context.Context, ts *Server, tablet *topodatapb.T
 
 	if virtualKeyspace != tablet.Keyspace {
 		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
-			"VIRTUAL tablet %s virtual_keyspace tag (%s) doesn't match tablet keyspace (%s)",
+			"VIRTUAL tablet %s virtual keyspace (%s) doesn't match tablet keyspace (%s)",
 			topoproto.TabletAliasString(tablet.Alias), virtualKeyspace, tablet.Keyspace)
-	}
-
-	// Validate schema name exists
-	_, err = GetSchemaName(tablet)
-	if err != nil {
-		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid schema name",
-			topoproto.TabletAliasString(tablet.Alias))
 	}
 
 	return nil

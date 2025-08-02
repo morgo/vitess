@@ -562,11 +562,12 @@ func doValidateWorkflowHasCompleted(ctx context.Context, ts *trafficSwitcher) er
 		})
 	} else {
 		_ = ts.ForAllTargets(func(target *MigrationTarget) error {
+			primary := target.GetPrimary()
 			wg.Add(1)
 			defer wg.Done()
 			res, err := ts.ws.tmc.ReadVReplicationWorkflow(ctx, target.GetPrimary().Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
-				Workflow: ts.WorkflowName(),
-				//DbNameOverride: "TODO",
+				Workflow:       ts.WorkflowName(),
+				DbNameOverride: primary.DbNameOverride,
 			})
 			if err != nil {
 				rec.RecordError(err)
