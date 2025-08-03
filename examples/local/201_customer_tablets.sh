@@ -37,11 +37,6 @@ vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_syn
 
 vtctldclient CreateVirtualShard customer/0 $PHYSICAL_KEYSPACE/0 || fail "Failed to create virtual shard 'customer/0'"
 
-
-# todo: currently we need to create an empty table for the schema to be created.
-# I will fix this later.
-# vtctldclient ApplySchema --sql "CREATE TABLE t1 (id int not null primary key)" customer
-
 # TODO: I will figure out how to automatically rebuild the keyspace graph later.
 vtctldclient RebuildKeyspaceGraph --cells=zone1 customer
 vtctldclient ApplyVSchema --vschema "{}" customer

@@ -344,19 +344,12 @@ func GetColumns(dbName, table string, exec func(string, int, bool) (*sqltypes.Re
 	if dbName == "" {
 		return nil, nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "no database name provided for GetColumns")
 	}
-	// The table name is already escaped (weirdly.)
-	// don't want to double escape.
-	table, err = sqlescape.EnsureEscaped(table)
-	if err != nil {
-		return nil, nil, vterrors.Wrapf(err, "in GetColumns()")
-	}
-	tableSpec := fmt.Sprintf("%s.%s", sqlescape.EscapeID(dbName), table)
+	tableSpec := fmt.Sprintf("%s.%s", sqlescape.EscapeID(dbName), sqlescape.EscapeID(table))
 	query := fmt.Sprintf(GetFieldsQuery, selectColumns, tableSpec)
 	qr, err := exec(query, 0, true)
 	if err != nil {
 		return nil, nil, vterrors.Wrapf(err, "in Mysqld.GetColumns()")
 	}
-
 	columns := make([]string, len(qr.Fields))
 	for i, field := range qr.Fields {
 		columns[i] = field.Name
@@ -491,14 +484,13 @@ func (mysqld *Mysqld) PreflightSchemaChange(ctx context.Context, dbName string, 
 // ApplySchemaChange will apply the schema change to the given database.
 func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, change *tmutils.SchemaChange) (*tabletmanagerdatapb.SchemaChangeResult, error) {
 	// Use DbNameOverride if provided, otherwise use the default dbName
-	targetDbName := dbName
 	if change.DbNameOverride != "" {
-		targetDbName = change.DbNameOverride
+		dbName = change.DbNameOverride
 	}
 
 	// check current schema matches
 	req := &tabletmanagerdatapb.GetSchemaRequest{IncludeViews: true}
-	beforeSchema, err := mysqld.GetSchema(ctx, targetDbName, req)
+	beforeSchema, err := mysqld.GetSchema(ctx, dbName, req)
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +539,7 @@ func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, chan
 	}
 
 	// add a 'use XXX' in front of the SQL
-	sql = fmt.Sprintf("USE %s;\n%s", sqlescape.EscapeID(targetDbName), sql)
+	sql = fmt.Sprintf("USE %s;\n%s", sqlescape.EscapeID(dbName), sql)
 
 	// execute the schema change using an external mysql process
 	// (to benefit from the extra commands in mysql cli)
@@ -556,7 +548,7 @@ func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, chan
 	}
 
 	// get AfterSchema
-	afterSchema, err := mysqld.GetSchema(ctx, targetDbName, req)
+	afterSchema, err := mysqld.GetSchema(ctx, dbName, req)
 	if err != nil {
 		return nil, err
 	}

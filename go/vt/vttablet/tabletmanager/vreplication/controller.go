@@ -67,8 +67,8 @@ type controller struct {
 	stopPos      string
 	tabletPicker *discovery.TabletPicker
 
-	// Schema context for virtual shard support
-	targetSchema string
+	// DBName context for virtual shard support
+	targetDBName string
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -126,15 +126,15 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 	ct.id = int32(id)
 	ct.workflow = params["workflow"]
 
-	// Determine target keyspace and schema for virtual keyspace support
+	// Determine target keyspace and dbName for virtual keyspace support
 	// Set target schema from db_name parameter, fallback to engine's default
 	if dbName, ok := params["db_name"]; ok && dbName != "" {
-		ct.targetSchema = dbName
+		ct.targetDBName = dbName
 	} else {
-		ct.targetSchema = vre.dbName
+		ct.targetDBName = vre.dbName
 	}
 
-	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v, targetSchema: %v", ct.id, ct.workflow, cell, tabletTypesStr, ct.targetSchema)
+	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v, dbName: %v", ct.id, ct.workflow, cell, tabletTypesStr, ct.targetDBName)
 
 	ct.lastWorkflowError = vterrors.NewLastError(fmt.Sprintf("VReplication controller %d for workflow %q", ct.id, ct.workflow), workflowConfig.MaxTimeToRetryError)
 
@@ -277,7 +277,7 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 	default:
 	}
 
-	dbClient := ct.getSchemaSpecificDBClientFactory()()
+	dbClient := ct.getDBNameSpecificDBClientFactory()()
 	if err := dbClient.Connect(); err != nil {
 		return vterrors.Wrap(err, "can't connect to database")
 	}
@@ -321,8 +321,8 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 		defer vsClient.Close(ctx)
 
 		vr := newVReplicator(ct.id, ct.source, vsClient, ct.blpStats, dbClient, ct.mysqld, ct.vre, ct.WorkflowConfig)
-		// Pass schema context to the vreplicator for virtual shard support
-		vr.targetSchema = ct.targetSchema
+		// Pass dbName context to the vreplicator for virtual shard support
+		vr.targetDBName = ct.targetDBName
 		err = vr.Replicate(ctx)
 		ct.lastWorkflowError.Record(err)
 
@@ -394,9 +394,9 @@ func (ct *controller) Stop() {
 	<-ct.done
 }
 
-// getSchemaSpecificDBClientFactory returns a database client factory that connects to the appropriate schema
-func (ct *controller) getSchemaSpecificDBClientFactory() func() binlogplayer.DBClient {
-	if ct.targetSchema == "" || ct.targetSchema == ct.vre.dbName {
+// getDBNameSpecificDBClientFactory returns a database client factory that connects to the appropriate schema
+func (ct *controller) getDBNameSpecificDBClientFactory() func() binlogplayer.DBClient {
+	if ct.targetDBName == "" || ct.targetDBName == ct.vre.dbName {
 		// Use the default factory if no specific schema or same as default
 		return ct.dbClientFactory
 	}
@@ -406,7 +406,7 @@ func (ct *controller) getSchemaSpecificDBClientFactory() func() binlogplayer.DBC
 		client := ct.dbClientFactory()
 		// Override the database name to use the target schema
 		if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
-			schemaClient.SetDBName(ct.targetSchema)
+			schemaClient.SetDBName(ct.targetDBName)
 		}
 		return client
 	}

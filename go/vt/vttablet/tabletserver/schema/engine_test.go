@@ -162,9 +162,6 @@ func TestOpenAndReloadLegacy(t *testing.T) {
 			Type: sqltypes.Int32,
 		}},
 	})
-	// TODO: this query now returns the schema_name and table_name
-	// and will need fixing.
-
 	db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows: [][]sqltypes.Value{
@@ -263,9 +260,6 @@ func TestOpenAndReloadLegacy(t *testing.T) {
 			mysql.BaseShowTablesRow("fakesqldb", "seq", false, "vitess_sequence"),
 		},
 	})
-	// TODO: this query now returns the schema_name and table_name
-	// and will need fixing.
-
 	db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows: [][]sqltypes.Value{
@@ -405,9 +399,6 @@ func TestOpenAndReload(t *testing.T) {
 			Type: sqltypes.Int32,
 		}},
 	})
-	// TODO: this query now returns the schema_name and table_name
-	// and will need fixing.
-
 	db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows: [][]sqltypes.Value{
@@ -506,9 +497,6 @@ func TestOpenAndReload(t *testing.T) {
 			mysql.BaseShowTablesRow("fakesqldb", "seq", false, "vitess_sequence"),
 		},
 	})
-	// TODO: this query now returns the schema_name and table_name
-	// and will need fixing.
-
 	db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows: [][]sqltypes.Value{
@@ -1095,8 +1083,6 @@ func TestEnginePopulatePrimaryKeys(t *testing.T) {
 					Type: NoType,
 				},
 			},
-			// TODO: this query now returns the schema_name and table_name
-			// and will need fixing.
 			expectedQueries: map[string]*sqltypes.Result{
 				mysql.BaseShowPrimary: sqltypes.MakeTestResult(mysql.ShowPrimaryFields,
 					"testdb|t1|col2",
@@ -1121,8 +1107,6 @@ func TestEnginePopulatePrimaryKeys(t *testing.T) {
 					Type: NoType,
 				},
 			},
-			// TODO: this query now returns the schema_name and table_name
-			// and will need fixing.
 			expectedQueries: map[string]*sqltypes.Result{
 				mysql.BaseShowPrimary: sqltypes.MakeTestResult(mysql.ShowPrimaryFields,
 					"testdb|t1|col5"),
@@ -1143,8 +1127,6 @@ func TestEnginePopulatePrimaryKeys(t *testing.T) {
 					Type: NoType,
 				},
 			},
-			// TODO: this query now returns the schema_name and table_name
-			// and will need fixing.
 			queriesToReject: map[string]error{
 				mysql.BaseShowPrimary: errors.New("some error in MySQL"),
 			},
@@ -1525,8 +1507,6 @@ func TestEngineReload(t *testing.T) {
 			}
 
 			// Primary key information.
-			// TODO: this query now returns the schema_name and table_name
-			// and will need fixing.
 			db.AddQuery(mysql.BaseShowPrimary, sqltypes.MakeTestResult(mysql.ShowPrimaryFields,
 				"fakesqldb|t1|col1",
 				"fakesqldb|t2|col1",
@@ -1662,8 +1642,6 @@ func TestGetTableForPosLegacy(t *testing.T) {
 				StatusFlags:         0,
 			},
 		)
-		// TODO: this query now returns the schema_name and table_name
-		// and will need fixing.
 		db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 			Fields: mysql.ShowPrimaryFields,
 			Rows: [][]sqltypes.Value{
@@ -1737,8 +1715,6 @@ func TestGetTableForPosLegacy(t *testing.T) {
 				// We only reload the column and PK info for the table in our cache. A new column
 				// called col2 has been added to the table schema and it is the new PK.
 				newTableSchema := fmt.Sprintf("create table %s (%s varchar(50), col2 varchar(50), primary key(col2))", table.String(), column)
-				// TODO: this query now returns the schema_name and table_name
-				// and will need fixing.
 				db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 					Fields: mysql.ShowPrimaryFields,
 					Rows: [][]sqltypes.Value{

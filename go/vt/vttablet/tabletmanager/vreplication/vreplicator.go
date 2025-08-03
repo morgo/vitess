@@ -108,7 +108,7 @@ type vreplicator struct {
 
 	// Schema context for virtual keyspace support
 	targetKeyspace string
-	targetSchema   string
+	targetDBName   string
 
 	originalFKCheckSetting int64
 	originalSQLMode        string
@@ -375,19 +375,15 @@ func (vr *vreplicator) buildColInfoMap(ctx context.Context) (map[string][]*Colum
 	}
 
 	// Use the target schema for virtual keyspace support
-	schemaName := vr.getTargetSchemaName()
-	log.Infof("DEBUG: buildColInfoMap using schema name: %s", schemaName)
-
-	schema, err := vr.mysqld.GetSchema(ctx, schemaName, req)
+	dbName := vr.getTargetDBName()
+	schema, err := vr.mysqld.GetSchema(ctx, dbName, req)
 	if err != nil {
-		log.Errorf("DEBUG: buildColInfoMap failed to get schema for %s: %v", schemaName, err)
 		return nil, err
 	}
-	log.Infof("DEBUG: buildColInfoMap got schema with %d table definitions", len(schema.TableDefinitions))
 	queryTemplate := "select character_set_name, collation_name, column_name, data_type, column_type, extra from information_schema.columns where table_schema=%s and table_name=%s;"
 	colInfoMap := make(map[string][]*ColumnInfo)
 	for _, td := range schema.TableDefinitions {
-		query := fmt.Sprintf(queryTemplate, encodeString(schemaName), encodeString(td.Name))
+		query := fmt.Sprintf(queryTemplate, encodeString(dbName), encodeString(td.Name))
 		qr, err := vr.mysqld.FetchSuperQuery(ctx, query)
 		if err != nil {
 			return nil, err
@@ -406,7 +402,7 @@ func (vr *vreplicator) buildColInfoMap(ctx context.Context) (map[string][]*Colum
 				// This sets wantfields to true.
 				return vr.dbClient.ExecuteFetch(query, maxrows)
 			}
-			if pks, _, err = mysqlctl.GetPrimaryKeyEquivalentColumns(ctx, executeFetch, schemaName, td.Name); err != nil {
+			if pks, _, err = mysqlctl.GetPrimaryKeyEquivalentColumns(ctx, executeFetch, dbName, td.Name); err != nil {
 				return nil, err
 			}
 			// Fall back to using every column in the table if there's no PK or PKE.
@@ -743,13 +739,13 @@ func (vr *vreplicator) stashSecondaryKeys(ctx context.Context, tableName string)
 	if len(secondaryKeys) > 0 {
 		alterDrop := &sqlparser.AlterTable{
 			Table: sqlparser.TableName{
-				Qualifier: sqlparser.NewIdentifierCS(vr.getTargetSchemaName()),
+				Qualifier: sqlparser.NewIdentifierCS(vr.getTargetDBName()),
 				Name:      sqlparser.NewIdentifierCS(tableName),
 			},
 		}
 		alterReAdd := &sqlparser.AlterTable{
 			Table: sqlparser.TableName{
-				Qualifier: sqlparser.NewIdentifierCS(vr.getTargetSchemaName()),
+				Qualifier: sqlparser.NewIdentifierCS(vr.getTargetDBName()),
 				Name:      sqlparser.NewIdentifierCS(tableName),
 			},
 		}
@@ -824,10 +820,9 @@ func (vr *vreplicator) stashSecondaryKeys(ctx context.Context, tableName string)
 func (vr *vreplicator) getTableSecondaryKeys(ctx context.Context, tableName string) ([]*sqlparser.IndexDefinition, error) {
 	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: []string{tableName}}
 
-	// Use the target schema for virtual keyspace support
-	schemaName := vr.getTargetSchemaName()
-
-	schema, err := vr.mysqld.GetSchema(ctx, schemaName, req)
+	// Use the target DB for virtual keyspace support
+	dbName := vr.getTargetDBName()
+	schema, err := vr.mysqld.GetSchema(ctx, dbName, req)
 	if err != nil {
 		return nil, err
 	}
@@ -876,10 +871,10 @@ func (vr *vreplicator) getTableSecondaryKeys(ctx context.Context, tableName stri
 	return secondaryKeys, err
 }
 
-// getTargetSchemaName returns the appropriate schema name for virtual keyspace support
-func (vr *vreplicator) getTargetSchemaName() string {
-	if vr.targetSchema != "" {
-		return vr.targetSchema
+// getTargetDBName returns the appropriate DB name for virtual keyspace support
+func (vr *vreplicator) getTargetDBName() string {
+	if vr.targetDBName != "" {
+		return vr.targetDBName
 	}
 	return vr.dbClient.DBName()
 }

@@ -316,8 +316,6 @@ func (tm *TabletManager) HasVReplicationWorkflows(ctx context.Context, req *tabl
 	return &tabletmanagerdatapb.HasVReplicationWorkflowsResponse{Has: has}, nil
 }
 
-// ReadVReplicationWorkflows will read all VReplication workflows
-// TODO: I'm not sure it supports virtual shards correctly
 func (tm *TabletManager) ReadVReplicationWorkflows(ctx context.Context, req *tabletmanagerdatapb.ReadVReplicationWorkflowsRequest) (*tabletmanagerdatapb.ReadVReplicationWorkflowsResponse, error) {
 	query, err := tm.buildReadVReplicationWorkflowsQuery(req)
 	if err != nil {

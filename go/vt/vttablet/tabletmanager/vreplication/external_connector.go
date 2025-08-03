@@ -23,7 +23,6 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/grpcclient"
-	"vitess.io/vitess/go/vt/log"
 	binlogdatapb "vitess.io/vitess/go/vt/proto/binlogdata"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -156,7 +155,6 @@ func (c *mysqlConnector) VStreamRows(ctx context.Context, query string, lastpk *
 	if options != nil && options.DbName != "" {
 		dbName = options.DbName
 	}
-	log.Infof("DEBUGZ: VStreamRows external connector request. DB:%s", dbName)
 	return c.vstreamer.StreamRows(ctx, dbName, query, row, send, options)
 }
 

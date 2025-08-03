@@ -96,7 +96,6 @@ func (tm *TabletManager) ApplySchema(ctx context.Context, change *tmutils.Schema
 		dbName = change.DbNameOverride
 	}
 	// apply the change
-	log.Infof("DEBUG Applying schema change: %s on db: %s", change.SQL, dbName)
 	scr, err := tm.MysqlDaemon.ApplySchemaChange(ctx, dbName, change)
 	if err != nil {
 		return nil, err

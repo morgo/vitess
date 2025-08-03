@@ -48,7 +48,7 @@ import (
 type vcopier struct {
 	vr               *vreplicator
 	throttlerAppName string
-	targetSchema     string
+	targetDBName     string
 }
 
 // vcopierCopyTask stores the args and lifecycle hooks of a copy task.
@@ -147,19 +147,19 @@ func newVCopier(vr *vreplicator) *vcopier {
 	return &vcopier{
 		vr:               vr,
 		throttlerAppName: throttlerapp.VCopierName.ConcatenateString(vr.throttlerAppName()),
-		targetSchema:     vr.targetSchema,
+		targetDBName:     vr.targetDBName,
 	}
 }
 
-// getTargetSchemaName returns the target schema name for VCopier operations.
-// For virtual keyspaces, it returns the specific schema name.
+// getTargetDBName returns the target DB name for VCopier operations.
+// For virtual keyspaces, it returns the specific DB name.
 // For regular keyspaces, it returns the database name from the vreplicator.
-func (vc *vcopier) getTargetSchemaName() string {
-	if vc.targetSchema != "" {
-		return vc.targetSchema
+func (vc *vcopier) getTargetDBName() string {
+	if vc.targetDBName != "" {
+		return vc.targetDBName
 	}
 	// Fall back to the vreplicator's target schema
-	return vc.vr.getTargetSchemaName()
+	return vc.vr.getTargetDBName()
 }
 
 func newVCopierCopyTask(args *vcopierCopyTaskArgs) *vcopierCopyTask {
@@ -234,18 +234,10 @@ func newVCopierCopyWorker(
 func (vc *vcopier) initTablesForCopy(ctx context.Context) error {
 	defer vc.vr.dbClient.Rollback()
 
-	log.Infof("DEBUG: initTablesForCopy starting for vreplication id %d, workflow %s", vc.vr.id, vc.vr.WorkflowName)
-	log.Infof("DEBUG: vcopier source: %+v", vc.vr.source)
-	log.Infof("DEBUG: vcopier target schema: %s", vc.targetSchema)
-
 	plan, err := vc.vr.buildReplicatorPlan(vc.vr.source, vc.vr.colInfoMap, nil, vc.vr.stats, vc.vr.vre.env.CollationEnv(), vc.vr.vre.env.Parser())
 	if err != nil {
-		log.Errorf("DEBUG: failed to build replicator plan: %v", err)
 		return err
 	}
-
-	log.Infof("DEBUG: built replicator plan with %d target tables: %v", len(plan.TargetTables), maps.Keys(plan.TargetTables))
-
 	if err := vc.vr.dbClient.Begin(); err != nil {
 		return err
 	}
@@ -287,12 +279,6 @@ func (vc *vcopier) initTablesForCopy(ctx context.Context) error {
 			}
 		}
 	} else {
-		log.Infof("DEBUG: No target tables found in replicator plan - stopping vreplication with 'There is nothing to replicate'")
-		log.Infof("DEBUG: Source BinlogSource: %+v", vc.vr.source)
-		log.Infof("DEBUG: ColInfoMap has %d entries", len(vc.vr.colInfoMap))
-		for tableName, colInfo := range vc.vr.colInfoMap {
-			log.Infof("DEBUG: ColInfoMap[%s]: %+v", tableName, colInfo)
-		}
 		if err := vc.vr.setState(binlogdatapb.VReplicationWorkflowState_Stopped, "There is nothing to replicate"); err != nil {
 			return err
 		}
@@ -318,15 +304,10 @@ func (vc *vcopier) initTablesForCopy(ctx context.Context) error {
 // primary key that was copied. A nil Result means that nothing has been copied.
 // A table that was fully copied is removed from copyState.
 func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSettings) error {
-	log.Infof("DEBUG: copyNext starting for vreplication id %d", vc.vr.id)
-
 	qr, err := vc.vr.dbClient.Execute(fmt.Sprintf("select cs.table_name, cs.lastpk, vr.db_name, vr.source from _vt.copy_state cs join _vt.vreplication vr on cs.vrepl_id = vr.id where cs.vrepl_id = %d and cs.id in (select max(id) from _vt.copy_state group by vrepl_id, table_name) order by cs.table_name", vc.vr.id))
 	if err != nil {
-		log.Errorf("DEBUG: copyNext failed to query copy_state: %v", err)
 		return err
 	}
-
-	log.Infof("DEBUG: copyNext found %d rows in copy_state", len(qr.Rows))
 
 	var tableToCopy string
 	var dbName string
@@ -339,16 +320,12 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 			destDbName := row[2].ToString()
 			sourceBlob, err := row[3].ToBytes()
 			if err != nil {
-				log.Errorf("DEBUG: copyNext failed to get BinlogSource from row: %v", err)
 				return vterrors.Wrapf(err, "failed to get BinlogSource from row")
 			}
 			var source binlogdatapb.BinlogSource
 			if err := prototext.Unmarshal(sourceBlob, &source); err != nil {
-				log.Errorf("DEBUG: copyNext failed to unmarshal BinlogSource: %v", err)
 				return vterrors.Wrapf(err, "failed to unmarshal BinlogSource")
 			}
-
-			log.Infof("DEBUG: copyNext destDbName from vreplication table: %s", destDbName)
 
 			// For virtual keyspace support, use the source keyspace from BinlogSource
 			// to construct the proper database name
@@ -356,11 +333,8 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 				// Construct the source database name from keyspace and shard
 				// TODO: in future we should use the registry to get the dbName
 				dbName = topoproto.DefaultDatabaseName(source.Keyspace, source.Shard)
-				log.Infof("DEBUG: copyNext constructed source dbName from BinlogSource: %s (keyspace=%s, shard=%s)",
-					dbName, source.Keyspace, source.Shard)
 			} else {
 				// TODO: I'm not sure if this is ever correct.
-				log.Infof("DEBUG: copyNext using original dbName from vreplication table: %s", destDbName)
 				dbName = destDbName
 			}
 		}
@@ -374,11 +348,8 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 		}
 	}
 	if len(copyState) == 0 {
-		log.Errorf("DEBUG: copyNext no tables to copy")
 		return fmt.Errorf("unexpected: there are no tables to copy")
 	}
-
-	log.Infof("DEBUG: copyNext will copy table %s using dbName %s", tableToCopy, dbName)
 
 	if err := vc.catchup(ctx, copyState); err != nil {
 		return err
@@ -489,7 +460,6 @@ func (vc *vcopier) copyTable(ctx context.Context, tableName string, dbName strin
 		ConfigOverrides: vc.vr.workflowConfig.Overrides,
 		DbName:          dbName,
 	}
-	log.Infof("Starting VStreamRows for table %s with options: %#v, dbName: %s", tableName, vstreamOptions, dbName)
 	serr := vc.vr.sourceVStreamer.VStreamRows(ctx, initialPlan.SendRule.Filter, lastpkpb, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		for {
 			select {
