@@ -31,8 +31,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"vitess.io/vitess/go/vt/registry"
+	"vitess.io/vitess/go/vt/vttablet/registry"
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/mysql/sqlerror"
