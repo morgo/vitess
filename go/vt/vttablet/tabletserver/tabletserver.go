@@ -171,11 +171,11 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.statelessql = NewQueryList("oltp-stateless", env.Parser())
 	tsv.statefulql = NewQueryList("oltp-stateful", env.Parser())
 	tsv.olapql = NewQueryList("olap", env.Parser())
-	tsv.se = schema.NewEngine(tsv)
+	tsv.se = schema.NewEngine(tsv, tsv.registry)
 	tsv.hs = newHealthStreamer(tsv, alias, tsv.se)
 	tsv.rt = repltracker.NewReplTracker(tsv, alias)
-	// Initialize vstreamer with nil throttler - we'll update it later
-	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, nil, alias.Cell)
+	// Initialize vstreamer with registry and nil throttler - we'll update it later
+	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, nil, alias.Cell, tsv.registry)
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
 	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
@@ -320,7 +320,6 @@ func (tsv *TabletServer) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.
 	tsv.se.InitDBConfig(tsv.config.DB.DbaWithoutDB())
 	tsv.rt.InitDBConfig(target, mysqld)
 	tsv.txThrottler.InitDBConfig(target)
-	//tsv.vstreamer.InitDBConfig(target.Keyspace, target.Shard)
 	tsv.hs.InitDBConfig(target)
 	// TODO: this should cover all keyspaces
 	tsv.onlineDDLExecutor.InitDBConfig(target.Keyspace, target.Shard, dbcfgs.DBName)
@@ -543,6 +542,11 @@ func (tsv *TabletServer) TableGC() *gc.TableGC {
 // SchemaEngine returns the SchemaEngine part of TabletServer.
 func (tsv *TabletServer) SchemaEngine() *schema.Engine {
 	return tsv.se
+}
+
+// Registry returns the Registry part of TabletServer.
+func (tsv *TabletServer) Registry() *registry.TopoRegistry {
+	return tsv.registry
 }
 
 // Begin starts a new transaction. This is allowed only if the state is StateServing.

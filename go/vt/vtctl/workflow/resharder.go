@@ -28,6 +28,7 @@ import (
 	"vitess.io/vitess/go/ptr"
 	"vitess.io/vitess/go/vt/discovery"
 	"vitess.io/vitess/go/vt/key"
+	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/proto/vtctldata"
 	"vitess.io/vitess/go/vt/schema"
 	"vitess.io/vitess/go/vt/topo"
@@ -96,12 +97,14 @@ func (s *Server) buildResharder(ctx context.Context, req *vtctldata.ReshardCreat
 		if !si.IsPrimaryServing {
 			return nil, fmt.Errorf("source shard %v is not in serving state", shard)
 		}
-		rs.sourceShards = append(rs.sourceShards, si)
+		// Si could be an unresolved virtual shard,
+		// but after we call s.ts.GetTablet, it will be resolved.
 		primary, err := s.ts.GetTablet(ctx, si.PrimaryAlias)
 		if err != nil {
 			return nil, vterrors.Wrapf(err, "GetTablet(%s) failed", si.PrimaryAlias)
 		}
-		rs.sourcePrimaries[si.ShardName()] = primary
+		rs.sourceShards = append(rs.sourceShards, si) // still unresolved
+		rs.sourcePrimaries[si.ShardName()] = primary  // resolved
 	}
 	for _, shard := range targets {
 		si, err := s.ts.GetShard(ctx, keyspace, shard)
@@ -114,16 +117,19 @@ func (s *Server) buildResharder(ctx context.Context, req *vtctldata.ReshardCreat
 		if si.IsPrimaryServing {
 			return nil, fmt.Errorf("target shard %v is in serving state", shard)
 		}
-		rs.targetShards = append(rs.targetShards, si)
+		// Si could be an unresolved virtual shard,
+		// but after we call s.ts.GetTablet, it will be resolved.
 		primary, err := s.ts.GetTablet(ctx, si.PrimaryAlias)
 		if err != nil {
 			return nil, vterrors.Wrapf(err, "GetTablet(%s) failed", si.PrimaryAlias)
 		}
-		rs.targetPrimaries[si.ShardName()] = primary
+		rs.targetShards = append(rs.targetShards, si) // still unresolved
+		rs.targetPrimaries[si.ShardName()] = primary  // resolved
 	}
 	if err := topotools.ValidateForReshard(rs.sourceShards, rs.targetShards); err != nil {
 		return nil, vterrors.Wrap(err, "ValidateForReshard")
 	}
+	log.Infof("DEBUG: Running validateTargets")
 	if err := rs.validateTargets(ctx); err != nil {
 		return nil, vterrors.Wrap(err, "validateTargets")
 	}
@@ -143,6 +149,7 @@ func (s *Server) buildResharder(ctx context.Context, req *vtctldata.ReshardCreat
 // validateTargets ensures that the target shards have no existing
 // VReplication workflow streams as that is an invalid starting
 // state for the non-serving shards involved in a Reshard.
+// Note: target is unresolved, but rs.targetPrimaries is resolved.
 func (rs *resharder) validateTargets(ctx context.Context) error {
 	err := forAllShards(rs.targetShards, func(target *topo.ShardInfo) error {
 		targetPrimary := rs.targetPrimaries[target.ShardName()]
@@ -160,6 +167,7 @@ func (rs *resharder) validateTargets(ctx context.Context) error {
 	return err
 }
 
+// Note: rs.sourceShards is unresolved, but rs.sourcePrimaries is resolved.
 func (rs *resharder) readRefStreams(ctx context.Context) error {
 	var mu sync.Mutex
 	err := forAllShards(rs.sourceShards, func(source *topo.ShardInfo) error {
@@ -267,9 +275,12 @@ func (rs *resharder) identifyRuleType(rule *binlogdatapb.Rule) (StreamType, erro
 	return StreamTypeSharded, nil
 }
 
+// // Note: rs.sourceShards is unresolved, but rs.sourcePrimaries is resolved.
+
 func (rs *resharder) copySchema(ctx context.Context) error {
-	oneSource := rs.sourceShards[0].PrimaryAlias
+	oneSource := rs.sourceShards[0].PrimaryAlias // VIRTUAL
 	err := forAllShards(rs.targetShards, func(target *topo.ShardInfo) error {
+		// oneSource and target.ShardName() are both unresolved VIRTUAL targets.
 		return rs.s.CopySchemaShard(ctx, oneSource, []string{"/.*"}, nil, false, rs.keyspace, target.ShardName(), 1*time.Second, false)
 	})
 	return err

@@ -20,23 +20,22 @@
 
 source ../common/env.sh
 
-vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync main2 || fail "Failed to create and configure the main2 keyspace"
-
-
-for i in 200 201 202; do
-	CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh
-	CELL=zone1 KEYSPACE=main2 TABLET_UID=$i ../common/scripts/vttablet-up.sh
-done
-
+PHYSICAL_KEYSPACE=main
+# vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync main2 || fail "Failed to create and configure the main2 keyspace"
+#
+# for i in 200 201 202; do
+# 	CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh
+# 	CELL=zone1 KEYSPACE=main2 TABLET_UID=$i ../common/scripts/vttablet-up.sh
+# done
 
 # Wait for all the tablets to be up and registered in the topology server
 # and for a primary tablet to be elected in the shard and become healthy/serving.
-wait_for_healthy_shard main2 0 || exit 1
+wait_for_healthy_shard $PHYSICAL_KEYSPACE 0 || exit 1
 
 
 vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync customer || fail "Failed to create keyspace 'customer'"
 
-vtctldclient CreateVirtualShard customer/0 main2/0 || fail "Failed to create virtual shard 'customer/0'"
+vtctldclient CreateVirtualShard customer/0 $PHYSICAL_KEYSPACE/0 || fail "Failed to create virtual shard 'customer/0'"
 
 
 # todo: currently we need to create an empty table for the schema to be created.

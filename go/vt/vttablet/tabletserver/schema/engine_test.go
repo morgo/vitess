@@ -851,7 +851,7 @@ func newEngine(reloadTime time.Duration, idleTimeout time.Duration, schemaMaxAge
 	if env == nil {
 		env = vtenv.NewTestEnv()
 	}
-	se := NewEngine(tabletenv.NewEnv(env, cfg, "SchemaTest"))
+	se := NewEngine(tabletenv.NewEnv(env, cfg, "SchemaTest"), nil)
 	se.InitDBConfig(dbConfigs.DbaWithDB())
 	return se
 }

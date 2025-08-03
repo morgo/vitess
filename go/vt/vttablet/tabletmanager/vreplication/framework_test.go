@@ -143,8 +143,7 @@ func setup(ctx context.Context) (func(), int) {
 	vttablet.InitVReplicationConfigDefaults()
 
 	// Engines cannot be initialized in testenv because it introduces circular dependencies.
-	streamerEngine = vstreamer.NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
-	streamerEngine.InitDBConfig(env.KeyspaceName, env.ShardName)
+	streamerEngine = vstreamer.NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0], nil)
 	streamerEngine.Open()
 
 	if err := env.Mysqld.ExecuteSuperQuery(ctx, fmt.Sprintf("create database %s", vrepldb)); err != nil {

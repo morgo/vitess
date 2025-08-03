@@ -129,17 +129,22 @@ func (uvs *uvstreamer) sendFieldEvent(ctx context.Context, gtid string, fieldEve
 }
 
 // send one RowEvent per row, followed by a LastPK (merged in VTGate with vgtid)
-func (uvs *uvstreamer) sendEventsForRows(ctx context.Context, tableName string, rows *binlogdatapb.VStreamRowsResponse, qr *querypb.QueryResult) error {
+func (uvs *uvstreamer) sendEventsForRows(ctx context.Context, dbName, tableName string, rows *binlogdatapb.VStreamRowsResponse, qr *querypb.QueryResult) error {
 	var evs []*binlogdatapb.VEvent
+	ks, shard, err := uvs.vse.registry.GetKeyspaceShardByDbName(dbName) // ensure keyspace is registered
+	if err != nil {
+		log.Errorf("failed to get keyspace/shard for dbName %s: %v", dbName, err)
+		return err
+	}
 	for _, row := range rows.Rows {
 		ev := &binlogdatapb.VEvent{
 			Type:     binlogdatapb.VEventType_ROW,
-			Keyspace: uvs.vse.keyspace,
-			Shard:    uvs.vse.shard,
+			Keyspace: ks,
+			Shard:    shard,
 			RowEvent: &binlogdatapb.RowEvent{
 				TableName: tableName,
-				Keyspace:  uvs.vse.keyspace,
-				Shard:     uvs.vse.shard,
+				Keyspace:  ks,
+				Shard:     shard,
 				RowChanges: []*binlogdatapb.RowChange{{
 					Before: nil,
 					After:  row,
@@ -158,15 +163,15 @@ func (uvs *uvstreamer) sendEventsForRows(ctx context.Context, tableName string, 
 
 	ev := &binlogdatapb.VEvent{
 		Type:        binlogdatapb.VEventType_LASTPK,
-		Keyspace:    uvs.vse.keyspace,
-		Shard:       uvs.vse.shard,
+		Keyspace:    ks,
+		Shard:       shard,
 		LastPKEvent: lastPKEvent,
 	}
 	evs = append(evs, ev)
 	evs = append(evs, &binlogdatapb.VEvent{
 		Type:     binlogdatapb.VEventType_COMMIT,
-		Keyspace: uvs.vse.keyspace,
-		Shard:    uvs.vse.shard,
+		Keyspace: ks,
+		Shard:    shard,
 	})
 
 	if err := uvs.send(evs); err != nil {
@@ -254,11 +259,17 @@ func (uvs *uvstreamer) copyTable(ctx context.Context, dbName string, tableName s
 				return f.CloneVT()
 			})
 
+			ks, shard, err := uvs.vse.registry.GetKeyspaceShardByDbName(dbName) // ensure keyspace is registered
+			if err != nil {
+				log.Errorf("failed to get keyspace/shard for dbName %s: %v", dbName, err)
+				return err
+			}
+
 			fieldEvent := &binlogdatapb.FieldEvent{
 				TableName: tableName,
 				Fields:    uvs.fields,
-				Keyspace:  uvs.vse.keyspace,
-				Shard:     uvs.vse.shard,
+				Keyspace:  ks,
+				Shard:     shard,
 				// In the copy phase the values for ENUM and SET fields are always strings.
 				// We are including this extra uint8 in the message even though there may
 				// not be an ENUM or SET column in the table because we only have one field
@@ -297,7 +308,7 @@ func (uvs *uvstreamer) copyTable(ctx context.Context, dbName string, tableName s
 		})
 		qrLastPK := sqltypes.ResultToProto3(newLastPK)
 		log.V(2).Infof("Calling sendEventForRows with gtid %s", rows.Gtid)
-		if err := uvs.sendEventsForRows(ctx, tableName, rows, qrLastPK); err != nil {
+		if err := uvs.sendEventsForRows(ctx, dbName, tableName, rows, qrLastPK); err != nil {
 			log.Infof("sendEventsForRows returned error %v", err)
 			return err
 		}

@@ -98,12 +98,10 @@ func (ec *externalConnector) Get(name string) (*mysqlConnector, error) {
 	}
 	c := &mysqlConnector{}
 	c.env = tabletenv.NewEnv(ec.env, config, name)
-	c.se = schema.NewEngine(c.env)
+	c.se = schema.NewEngine(c.env, nil)
 	// Initialize schema engine with proper database connector
 	c.se.InitDBConfig(config.DB.AllPrivsWithDB())
-	c.vstreamer = vstreamer.NewEngine(c.env, nil, c.se, nil, "")
-	// Initialize vstreamer with proper keyspace and shard - use the database name as keyspace
-	c.vstreamer.InitDBConfig(config.DB.DBName, "0")
+	c.vstreamer = vstreamer.NewEngine(c.env, nil, c.se, nil, "", nil)
 
 	// Open schema engine first
 	if err := c.se.Open(); err != nil {

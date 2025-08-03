@@ -41,6 +41,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconnpool"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
+	"vitess.io/vitess/go/vt/registry"
 	"vitess.io/vitess/go/vt/schema"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/sidecardb"
@@ -71,7 +72,7 @@ type Engine struct {
 	mu     sync.Mutex
 	isOpen bool
 
-	physicalDBName string // physicalDBName is the name of the physical database this engine is connected to.
+	registry registry.Registry
 
 	// tables is a map of the schemas
 	// which has the table name as the key.
@@ -113,7 +114,7 @@ type Engine struct {
 }
 
 // NewEngine creates a new Engine.
-func NewEngine(env tabletenv.Env) *Engine {
+func NewEngine(env tabletenv.Env, registry registry.Registry) *Engine {
 	reloadTime := env.Config().SchemaReloadInterval
 	se := &Engine{
 		env: env,
@@ -125,8 +126,8 @@ func NewEngine(env tabletenv.Env) *Engine {
 		}),
 		ticks:           timer.NewTimer(reloadTime),
 		throttledLogger: logutil.NewThrottledLogger("schema-tracker", 1*time.Minute),
+		registry:        registry,
 	}
-	se.physicalDBName = env.Config().DB.DBName
 	se.schemaCopy = env.Config().SignalWhenSchemaChange
 	_ = env.Exporter().NewGaugeDurationFunc("SchemaReloadTime", "vttablet keeps table schemas in its own memory and periodically refreshes it from MySQL. This config controls the reload time.", se.ticks.Interval)
 	se.tableFileSizeGauge = env.Exporter().NewGaugesWithSingleLabel("TableFileSize", "tracks table file size", "Table")
@@ -256,6 +257,7 @@ func (se *Engine) initTables(ctx context.Context) error {
 
 	// For test environments, we just create a default database
 	if se.env.Config().DB.DBName == "" {
+		log.Infof("DEBUG: initTables() creating empty default database")
 		se.tables[""] = make(map[string]*Table)
 		se.tables[""]["dual"] = NewTable("dual", NoType)
 		return nil
@@ -263,6 +265,7 @@ func (se *Engine) initTables(ctx context.Context) error {
 
 	// Create a map for the default database
 	dbName := se.env.Config().DB.DBName
+	log.Infof("DEBUG: initTables() creating database '%s'", dbName)
 	se.tables[dbName] = make(map[string]*Table)
 	se.tables[dbName]["dual"] = NewTable("dual", NoType)
 	return nil
@@ -534,6 +537,13 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		return vterrors.Wrapf(err, "in Engine.reload(), reading tables")
 	}
 
+	log.Infof("DEBUG: reload() found %d tables", len(tableData.Rows))
+	for i, row := range tableData.Rows {
+		if i < 10 { // Only log first 10 tables to avoid spam
+			log.Infof("DEBUG: reload() table %d: schema='%s', table='%s'", i, row[0].ToString(), row[1].ToString())
+		}
+	}
+
 	// On the primary tablet, we also check the data we have stored
 	// in our schema tables to see what all needs reloading.
 	shouldUseDatabase := se.isServingPrimary && se.schemaCopy
@@ -576,14 +586,21 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	// created and altered contain the names of created and altered tables for broadcast.
 	var created, altered []*Table
 	for _, row := range tableData.Rows {
-		// tableName is now encoded as schema.table.
-		schemaName := row[0].ToString()
+		dbName := row[0].ToString()
+		// Try to resolve the dbName to a known keyspace.
+		// We don't need to check the keyspace, but if it errors, we know
+		// that this is not for a database we manage.
+		_, err := se.registry.ResolveDbName(dbName)
+		if err != nil {
+			log.Infof("DEBUG: Skipping reload of table %s.%s: %v", dbName, row[1].ToString(), err)
+			continue // not a table we manage.
+		}
 		tableName := row[1].ToString()
 		var innodbTable *Table
 		if innodbTablesStats != nil {
 			// The innodb table name is created by converting schema.table to schema/table.
 			// This is because the innodb table sizes query returns the table name in the form of `schema/table`.
-			innodbTableName := fmt.Sprintf("%s/%s", schemaName, tableName)
+			innodbTableName := fmt.Sprintf("%s/%s", dbName, tableName)
 			innodbTable = innodbTablesStats[innodbTableName]
 		}
 		curTables[tableName] = true
@@ -622,8 +639,8 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		//      We check this by consulting the changedViews map.
 		var tbl *Table
 		var isInTablesMap bool
-		if _, ok := se.tables[schemaName]; ok {
-			tbl, isInTablesMap = se.tables[schemaName][tableName]
+		if _, ok := se.tables[dbName]; ok {
+			tbl, isInTablesMap = se.tables[dbName][tableName]
 		}
 		_, isInChangedViewMap := changedViews[tableName]
 		_, isInMismatchTableMap := mismatchTables[tableName]
@@ -640,7 +657,7 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 
 		log.V(2).Infof("Reading schema for table: %s", tableName)
 		tableType := row[2].String()
-		table, err := LoadTable(conn, schemaName, tableName, tableType, row[4].ToString(), se.env.Environment().CollationEnv())
+		table, err := LoadTable(conn, dbName, tableName, tableType, row[4].ToString(), se.env.Environment().CollationEnv())
 		if err != nil {
 			// Non recoverable error:
 			rec.RecordError(vterrors.Wrapf(err, "in Engine.reload(), reading table %s", tableName))
@@ -714,6 +731,7 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		if _, ok := se.tables[actualSchemaName]; !ok {
 			se.tables[actualSchemaName] = make(map[string]*Table)
 		}
+		log.Infof("DEBUG: reload() adding table '%s' to schema '%s'", t.Name.String(), actualSchemaName)
 		se.tables[actualSchemaName][t.Name.String()] = t
 	}
 	se.lastChange = curTime
@@ -983,18 +1001,31 @@ func (se *Engine) RegisterVersionEvent() error {
 // after the last schema reload or the cache has not yet been initialized. This function
 // makes the schema cache a read-through cache for VReplication purposes.
 func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName sqlparser.IdentifierCS, gtid string) (*binlogdatapb.MinimalTable, error) {
+	log.Infof("DEBUG: GetTableForPos called with dbName='%s', tableName='%s', gtid='%s'", dbName, tableName.String(), gtid)
+
 	mt, err := se.historian.GetTableForPos(dbName, tableName, gtid)
 	if err != nil {
-		log.Infof("GetTableForPos returned error: %s", err.Error())
+		log.Infof("DEBUG: GetTableForPos historian returned error: %s", err.Error())
 		return nil, err
 	}
 	if mt != nil {
+		log.Infof("DEBUG: GetTableForPos historian returned table: %+v", mt)
 		return mt, nil
 	}
+	log.Infof("DEBUG: GetTableForPos historian returned nil, proceeding to check cache")
+
 	// We got nothing from the historian, which typically means that it's not enabled.
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	tableNameStr := tableName.String()
+
+	log.Infof("DEBUG: GetTableForPos searching for table '%s' in cache, available schemas: %v", tableNameStr, func() []string {
+		var schemas []string
+		for schema := range se.tables {
+			schemas = append(schemas, schema)
+		}
+		return schemas
+	}())
 
 	// First try to find the table in the provided dbName
 	var st *Table
@@ -1011,8 +1042,17 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 
 	// If not found, search across all databases for this table name
 	if !ok {
-		for _, schemaMap := range se.tables {
+		log.Infof("DEBUG: GetTableForPos searching across all schemas for table '%s'", tableNameStr)
+		for schemaName, schemaMap := range se.tables {
+			log.Infof("DEBUG: GetTableForPos checking schema '%s', tables: %v", schemaName, func() []string {
+				var tables []string
+				for table := range schemaMap {
+					tables = append(tables, table)
+				}
+				return tables
+			}())
 			if st, ok = schemaMap[tableNameStr]; ok {
+				log.Infof("DEBUG: GetTableForPos found table '%s' in schema '%s'", tableNameStr, schemaName)
 				break
 			}
 		}

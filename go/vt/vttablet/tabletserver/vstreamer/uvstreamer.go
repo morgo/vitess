@@ -109,11 +109,18 @@ func newUVStreamer(ctx context.Context, vse *Engine, cp dbconfigs.Connector, se 
 	}
 	send2 := func(evs []*binlogdatapb.VEvent) error {
 		vse.vstreamerEventsStreamed.Add(int64(len(evs)))
-		for _, ev := range evs {
-			ev.Keyspace = vse.keyspace
-			ev.Shard = vse.shard
+		// Resolve keyspace/shard from database context for this stream
+		keyspace, shard, err := vse.registry.GetKeyspaceShardByDbName(cp.DBName())
+		if err != nil {
+			log.Errorf("Failed to resolve keyspace/shard for dbName %s: %v", cp.DBName(), err)
+			// Fall back to physical keyspace/shard if resolution fails
+			keyspace, shard = vse.registry.GetPhysicalKeyspaceShard()
 		}
-		err := send(evs)
+		for _, ev := range evs {
+			ev.Keyspace = keyspace
+			ev.Shard = shard
+		}
+		err = send(evs)
 		if err != nil {
 			log.Infof("uvstreamer replicate send() returned with err %v", err)
 		}
@@ -591,27 +598,36 @@ func (uvs *uvstreamer) setPosition(gtid string, isInTx bool) error {
 	if pos.Equal(uvs.pos) {
 		return nil
 	}
+
+	// Resolve keyspace/shard from database context for this stream
+	keyspace, shard, err := uvs.vse.registry.GetKeyspaceShardByDbName(uvs.cp.DBName())
+	if err != nil {
+		log.Errorf("Failed to resolve keyspace/shard for dbName %s: %v", uvs.cp.DBName(), err)
+		// Fall back to physical keyspace/shard if resolution fails
+		keyspace, shard = uvs.vse.registry.GetPhysicalKeyspaceShard()
+	}
+
 	gtidEvent := &binlogdatapb.VEvent{
 		Type:     binlogdatapb.VEventType_GTID,
 		Gtid:     gtid,
-		Keyspace: uvs.vse.keyspace,
-		Shard:    uvs.vse.shard,
+		Keyspace: keyspace,
+		Shard:    shard,
 	}
 
 	var evs []*binlogdatapb.VEvent
 	if !isInTx {
 		evs = append(evs, &binlogdatapb.VEvent{
 			Type:     binlogdatapb.VEventType_BEGIN,
-			Keyspace: uvs.vse.keyspace,
-			Shard:    uvs.vse.shard,
+			Keyspace: keyspace,
+			Shard:    shard,
 		})
 	}
 	evs = append(evs, gtidEvent)
 	if !isInTx {
 		evs = append(evs, &binlogdatapb.VEvent{
 			Type:     binlogdatapb.VEventType_COMMIT,
-			Keyspace: uvs.vse.keyspace,
-			Shard:    uvs.vse.shard,
+			Keyspace: keyspace,
+			Shard:    shard,
 		})
 	}
 	if err := uvs.send(evs); err != nil {

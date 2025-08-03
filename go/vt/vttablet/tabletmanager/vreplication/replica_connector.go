@@ -46,9 +46,9 @@ func NewReplicaConnector(venv *vtenv.Environment, connParams *mysql.ConnParams) 
 	config.DB = dbCfg
 	c := &ReplicaConnector{conn: connParams}
 	env := tabletenv.NewEnv(venv, config, "source")
-	c.se = schema.NewEngine(env)
+	c.se = schema.NewEngine(env, nil)
 	c.se.SkipMetaCheck = true
-	c.vstreamer = vstreamer.NewEngine(env, nil, c.se, nil, "")
+	c.vstreamer = vstreamer.NewEngine(env, nil, c.se, nil, "", nil)
 	c.se.InitDBConfig(dbconfigs.New(connParams))
 
 	// Open

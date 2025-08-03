@@ -38,7 +38,7 @@ func GetSchema(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerC
 	if err != nil {
 		return nil, vterrors.Errorf(vtrpcpb.Code_NOT_FOUND, "GetTablet(%v) failed: %v", alias, err)
 	}
-
+	request.DbNameOverride = ti.DbNameOverride
 	sd, err := tmc.GetSchema(ctx, ti.Tablet, request)
 	if err != nil {
 		return nil, vterrors.Wrapf(err, "GetSchema(%v, %v) failed: %v", ti.Tablet, request, err)

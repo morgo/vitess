@@ -1521,7 +1521,6 @@ func (s *Server) ReshardCreate(ctx context.Context, req *vtctldatapb.ReshardCrea
 		s.Logger().Errorf("%v", err2)
 		return nil, err
 	}
-	log.Infof("DEBUG: building resharder for workflow %s in keyspace %s", req.Workflow, keyspace)
 	rs, err := s.buildResharder(ctx, req)
 	if err != nil {
 		return nil, vterrors.Wrap(err, "buildResharder")
@@ -1530,23 +1529,18 @@ func (s *Server) ReshardCreate(ctx context.Context, req *vtctldatapb.ReshardCrea
 	rs.stopAfterCopy = req.StopAfterCopy
 	rs.deferSecondaryKeys = req.DeferSecondaryKeys
 	if !req.SkipSchemaCopy {
-		log.Infof("DEBUG: running copySchema for workflow %s in keyspace %s", req.Workflow, keyspace)
 		if err := rs.copySchema(ctx); err != nil {
 			return nil, vterrors.Wrap(err, "copySchema")
 		}
 	}
-	log.Infof("DEBUG: creating reshard streams for workflow %s in keyspace %s", req.Workflow, keyspace)
 	if err := rs.createStreams(ctx); err != nil {
 		return nil, vterrors.Wrap(err, "createStreams")
 	}
-	log.Infof("DEBUG: finished creating reshard streams")
 
 	if req.AutoStart {
-		log.Infof("DEBUG: running startstreams for workflow %s in keyspace %s", req.Workflow, keyspace)
 		if err := rs.startStreams(ctx); err != nil {
 			return nil, vterrors.Wrap(err, "startStreams")
 		}
-		log.Infof("DEBUG: finished running start streams")
 	} else {
 		s.Logger().Warningf("Streams will not be started since --auto-start is set to false")
 	}
@@ -3406,7 +3400,6 @@ func (s *Server) CopySchemaShard(ctx context.Context, sourceTabletAlias *topodat
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "GetShard(%v, %v) failed: %v", destKeyspace, destShard, err)
 	}
-
 	if destShardInfo.PrimaryAlias == nil {
 		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "no primary in shard record %v/%v. Consider running 'vtctl InitShardPrimary' in case of a new shard or reparenting the shard to fix the topology data", destKeyspace, destShard)
 	}
@@ -3427,7 +3420,6 @@ func (s *Server) CopySchemaShard(ctx context.Context, sourceTabletAlias *topodat
 	}
 
 	createSQLstmts := tmutils.SchemaDefinitionToSQLStrings(sourceSd)
-
 	destTabletInfo, err := s.ts.GetTablet(ctx, destShardInfo.PrimaryAlias)
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "GetTablet(%v) failed: %v", destShardInfo.PrimaryAlias, err)
@@ -3470,7 +3462,6 @@ func (s *Server) CopySchemaShard(ctx context.Context, sourceTabletAlias *topodat
 	if !ok {
 		s.Logger().Error(vterrors.Errorf(vtrpcpb.Code_INTERNAL, "CopySchemaShard: failed to reload schema on all replicas"))
 	}
-
 	return err
 }
 

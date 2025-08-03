@@ -11,6 +11,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vtgate/vindexes"
 )
 
 type Registry interface {
@@ -20,10 +21,20 @@ type Registry interface {
 	ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error)
 	// ResolveDbName resolves a database name to a tablet.
 	ResolveDbName(dbName string) (*topo.TabletInfo, error)
+	// GetKeyspaceShardByDbName returns the keyspace and shard for a given database name.
+	GetKeyspaceShardByDbName(dbName string) (string, string, error)
+	// GetVSchemaByKeyspace returns the vschema for a given keyspace.
+	GetVSchemaByKeyspace(keyspace string) (*vindexes.VSchema, error)
+	// SetVSchema updates the vschema for a keyspace.
+	SetVSchema(keyspace string, vschema *vindexes.VSchema)
+	// GetAllKeyspaces returns all keyspaces known to the registry.
+	GetAllKeyspaces() []string
 	// AddTablet adds a tablet to the registry.
 	AddTablet(tablet *topo.TabletInfo) error
 	// RemoveTablet removes a tablet from the registry.
 	RemoveTablet(keyspace, shard string) error
+
+	GetPhysicalKeyspaceShard() (string, string)
 }
 type TopoRegistry struct {
 	ts             *topo.Server
@@ -34,6 +45,8 @@ type TopoRegistry struct {
 	targetTablets map[targetKey]*topo.TabletInfo
 	// dbNameTablets maps a database name to the virtual tablet that serves it.
 	dbNameTablets map[string]*topo.TabletInfo
+	// vschemaMap maps keyspace to vschema for vstreamer support
+	vschemaMap map[string]*vindexes.VSchema
 }
 
 var _ Registry = (*TopoRegistry)(nil)
@@ -49,6 +62,7 @@ func NewTopoRegistry(topoServer *topo.Server) *TopoRegistry {
 		r:             topo.NewDefaultTabletResolver(topoServer),
 		targetTablets: make(map[targetKey]*topo.TabletInfo),
 		dbNameTablets: make(map[string]*topo.TabletInfo),
+		vschemaMap:    make(map[string]*vindexes.VSchema),
 	}
 }
 
@@ -72,6 +86,12 @@ func (reg *TopoRegistry) Init(ctx context.Context, target *querypb.Target) error
 	}
 	log.Infof("TopoRegistry initialized for cell %s with %d tablets", reg.physicalTarget.Cell, len(reg.targetTablets))
 	return nil
+}
+
+func (reg *TopoRegistry) GetPhysicalKeyspaceShard() (string, string) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	return reg.physicalTarget.Keyspace, reg.physicalTarget.Shard
 }
 
 func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error) {
@@ -159,6 +179,12 @@ func (reg *TopoRegistry) ResolveDbName(dbName string) (*topo.TabletInfo, error) 
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 
+	// TODO: This is a hack - the addTablet() method is not working correctly
+	// when we add tablets. I'll fix it soon.
+	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
+		return nil, err
+	}
+
 	tablet, exists := reg.dbNameTablets[dbName]
 	if !exists {
 		return nil, vterrors.New(vtrpcpb.Code_NOT_FOUND, fmt.Sprintf("no tablet found for dbName %s", dbName))
@@ -166,6 +192,76 @@ func (reg *TopoRegistry) ResolveDbName(dbName string) (*topo.TabletInfo, error) 
 
 	log.Infof("Resolved dbName %s to tablet %s/%s", dbName, tablet.Keyspace, tablet.Shard)
 	return tablet, nil
+}
+
+func (reg *TopoRegistry) GetKeyspaceShardByDbName(dbName string) (string, string, error) {
+	if dbName == "" {
+		// Fallback to physical keyspace for empty dbName
+		return reg.physicalTarget.Keyspace, reg.physicalTarget.Shard, nil
+	}
+
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+
+	tablet, exists := reg.dbNameTablets[dbName]
+	if !exists {
+		// Fallback to physical keyspace if not found
+		log.Infof("No tablet found for dbName %s, falling back to physical keyspace %s", dbName, reg.physicalTarget.Keyspace)
+		return reg.physicalTarget.Keyspace, reg.physicalTarget.Shard, nil
+	}
+
+	log.Infof("Resolved dbName %s to keyspace %s", dbName, tablet.Keyspace)
+	return tablet.Keyspace, tablet.Shard, nil
+}
+
+func (reg *TopoRegistry) GetVSchemaByKeyspace(keyspace string) (*vindexes.VSchema, error) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+
+	if vschema, exists := reg.vschemaMap[keyspace]; exists {
+		return vschema, nil
+	}
+
+	// Return nil if not found - caller should handle creating empty vschema
+	return nil, nil
+}
+
+func (reg *TopoRegistry) SetVSchema(keyspace string, vschema *vindexes.VSchema) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+
+	reg.vschemaMap[keyspace] = vschema
+	log.Infof("Set vschema for keyspace %s", keyspace)
+}
+
+func (reg *TopoRegistry) GetAllKeyspaces() []string {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+
+	// Create a set to avoid duplicates
+	keyspaceSet := make(map[string]bool)
+
+	// Add the physical keyspace
+	keyspaceSet[reg.physicalTarget.Keyspace] = true
+
+	// Add all virtual keyspaces from the targetTablets
+	for tk := range reg.targetTablets {
+		keyspaceSet[tk.Keyspace] = true
+	}
+
+	// Add any keyspaces from the vschemaMap that might not be in targetTablets
+	for keyspace := range reg.vschemaMap {
+		keyspaceSet[keyspace] = true
+	}
+
+	// Convert set to slice
+	keyspaces := make([]string, 0, len(keyspaceSet))
+	for keyspace := range keyspaceSet {
+		keyspaces = append(keyspaces, keyspace)
+	}
+
+	log.Infof("GetAllKeyspaces returning %d keyspaces: %v", len(keyspaces), keyspaces)
+	return keyspaces
 }
 
 func (reg *TopoRegistry) AddTablet(tablet *topo.TabletInfo) error {

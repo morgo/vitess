@@ -175,7 +175,7 @@ func Init(ctx context.Context) (*Env, error) {
 	te.DBMinorVersion = version.Minor
 	te.DBPatchVersion = version.Patch
 
-	te.SchemaEngine = schema.NewEngine(te.TabletEnv)
+	te.SchemaEngine = schema.NewEngine(te.TabletEnv, nil)
 	te.SchemaEngine.InitDBConfig(te.Dbcfgs.DbaWithDB())
 	if err := te.SchemaEngine.Open(); err != nil {
 		return nil, err
