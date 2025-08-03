@@ -45,3 +45,10 @@ mysql --table < ../common/select_commerce_data.sql
 
 ./303_reshard.sh
 
+./304_switch_reads.sh
+
+./305_switch_writes.sh
+
+./306_down_shard_0.sh
+
+./307_delete_shard_0.sh

@@ -63,7 +63,7 @@ func IsTrivialTypeChange(oldTabletType, newTabletType topodatapb.TabletType) boo
 // IsInServingGraph returns if a tablet appears in the serving graph
 func IsInServingGraph(tt topodatapb.TabletType) bool {
 	switch tt {
-	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY, topodatapb.TabletType_VIRTUAL:
+	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
 		return true
 	}
 	return false
@@ -74,9 +74,6 @@ func IsRunningQueryService(tt topodatapb.TabletType) bool {
 	switch tt {
 	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY, topodatapb.TabletType_EXPERIMENTAL, topodatapb.TabletType_DRAINED:
 		return true
-	case topodatapb.TabletType_VIRTUAL:
-		// VIRTUAL tablets don't run query service themselves, but they reference physical tablets that do
-		return false
 	}
 	return false
 }
@@ -87,9 +84,6 @@ func IsRunningUpdateStream(tt topodatapb.TabletType) bool {
 	switch tt {
 	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY:
 		return true
-	case topodatapb.TabletType_VIRTUAL:
-		// VIRTUAL tablets don't run update stream themselves, but they reference physical tablets that do
-		return false
 	}
 	return false
 }
@@ -100,7 +94,7 @@ func IsRunningUpdateStream(tt topodatapb.TabletType) bool {
 // BACKUP, RESTORE, DRAINED may or may not be, but we don't know for sure
 func IsReplicaType(tt topodatapb.TabletType) bool {
 	switch tt {
-	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_BACKUP, topodatapb.TabletType_RESTORE, topodatapb.TabletType_DRAINED, topodatapb.TabletType_VIRTUAL:
+	case topodatapb.TabletType_PRIMARY, topodatapb.TabletType_BACKUP, topodatapb.TabletType_RESTORE, topodatapb.TabletType_DRAINED:
 		return false
 	}
 	return true
@@ -422,14 +416,6 @@ func (ts *Server) UpdateTabletFields(ctx context.Context, alias *topodatapb.Tabl
 		if err != nil {
 			return nil, err
 		}
-
-		// Prevent updates to VIRTUAL tablets
-		if IsVirtualType(ti.Type) {
-			return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
-				"cannot update VIRTUAL tablet %s directly, update the physical tablet instead",
-				topoproto.TabletAliasString(alias))
-		}
-
 		if err = update(ti.Tablet); err != nil {
 			if IsErrType(err, NoUpdateNeeded) {
 				return nil, nil
@@ -743,7 +729,8 @@ func (ts *Server) GetTabletList(ctx context.Context, tabletAliases []*topodatapb
 	return tabletList, returnErr
 }
 
-// GetVirtualTablets returns all the VIRTUAL tablets served by a physical keyspace and shard.
+// GetVirtualTablets returns all the VIRTUAL tablets served by a physical keyspace and shard
+// This is primarily used by the tablet's registry.
 func (ts *Server) GetVirtualTablets(ctx context.Context, cell, keyspace, shard string) ([]*TabletInfo, error) {
 	// Get all tablets in the cell for the given keyspace and shard.
 	tabletInfos, err := ts.GetTabletsByCell(ctx, cell, nil)

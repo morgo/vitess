@@ -1329,30 +1329,8 @@ func setupInitialDeniedTables(ctx context.Context, ts *trafficSwitcher) error {
 		return nil
 	}
 	return ts.ForAllTargets(func(target *MigrationTarget) error {
-		// For virtual shards, we need to use the physical keyspace name for shard operations
-		// but maintain virtual shard-specific denied tables
-		keyspaceName := ts.TargetKeyspaceName()
-		physicalKeyspaceName := keyspaceName
-
-		// Use physical keyspace for shard operations but maintain virtual shard context
-		if _, err := ts.TopoServer().UpdateShardFields(ctx, physicalKeyspaceName, target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
-			// Check if target has virtual shards
-			if isVirtual, err := topo.IsVirtualShard(ctx, ts.TopoServer(), keyspaceName, target.GetShard().ShardName()); err == nil && isVirtual {
-				// For virtual shards, get the physical keyspace and schema name
-				physicalKeyspace, schemaName, err := topo.GetPhysicalShardInfo(ctx, ts.TopoServer(), keyspaceName, target.GetShard().ShardName())
-				if err == nil {
-					physicalKeyspaceName = physicalKeyspace
-					// Create virtual shard-specific denied tables entry
-					virtualShardTables := make([]string, len(ts.Tables()))
-					for i, table := range ts.Tables() {
-						// Prefix table names with virtual shard schema to avoid conflicts
-						virtualShardTables[i] = fmt.Sprintf("%s.%s", schemaName, table)
-					}
-					return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, false, virtualShardTables)
-				}
-			}
-
-			// For regular keyspaces or if virtual shard detection fails
+		if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.TargetKeyspaceName(), target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+			// TODO: does this handle virtual shards correctly?
 			return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, false, ts.Tables())
 		}); err != nil {
 			return err
