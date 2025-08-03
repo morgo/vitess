@@ -113,6 +113,12 @@ func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Targ
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 
+	// TODO: This is a hack - the addTablet() method is not working correctly
+	// when we add tablets. I'll fix it soon.
+	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
+		return nil, "", err
+	}
+
 	tk := targetKey{
 		Keyspace: target.Keyspace,
 		Shard:    target.Shard,
@@ -203,6 +209,12 @@ func (reg *TopoRegistry) GetKeyspaceShardByDbName(dbName string) (string, string
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 
+	// TODO: This is a hack - the addTablet() method is not working correctly
+	// when we add tablets. I'll fix it soon.
+	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
+		return "", "", err
+	}
+
 	tablet, exists := reg.dbNameTablets[dbName]
 	if !exists {
 		// Fallback to physical keyspace if not found
@@ -231,12 +243,17 @@ func (reg *TopoRegistry) SetVSchema(keyspace string, vschema *vindexes.VSchema) 
 	defer reg.mu.Unlock()
 
 	reg.vschemaMap[keyspace] = vschema
-	log.Infof("Set vschema for keyspace %s", keyspace)
 }
 
 func (reg *TopoRegistry) GetAllKeyspaces() []string {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
+
+	// TODO: This is a hack - the addTablet() method is not working correctly
+	// when we add tablets. I'll fix it soon.
+	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
+		return []string{}
+	}
 
 	// Create a set to avoid duplicates
 	keyspaceSet := make(map[string]bool)
@@ -309,18 +326,10 @@ func (reg *TopoRegistry) loadTabletsAndShards(ctx context.Context) error {
 	}
 
 	for _, tablet := range tablets {
-		if tablet.Alias == nil || tablet.Alias.Cell != reg.physicalTarget.Cell {
-			continue // Skip tablets not in the same cell
-		}
-		if tablet.Keyspace != reg.physicalTarget.Keyspace || tablet.Shard != reg.physicalTarget.Shard {
-			log.Warningf("Tablet %s/%s does not match physical target %s/%s, skipping", tablet.Keyspace, tablet.Shard, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
-			continue // Skip tablets not in the same keyspace/shard
-		}
 		if err := reg.storeTablet(tablet); err != nil {
 			return vterrors.Wrapf(err, "failed to store tablet %s/%s", tablet.Keyspace, tablet.Shard)
 		}
 	}
-
 	return nil
 }
 
