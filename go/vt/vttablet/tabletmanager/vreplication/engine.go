@@ -107,9 +107,7 @@ type Engine struct {
 
 	// Multi-schema support for virtual keyspaces
 	// dbName is kept for backward compatibility
-	dbName           string
-	schemaMap        map[string]string // keyspace -> schema_name mapping
-	physicalKeyspace string
+	dbName string
 
 	// Schema-aware database client factories
 	schemaClientFactories map[string]struct {
@@ -156,7 +154,6 @@ func NewEngine(env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.
 		journaler:       make(map[string]*journalEvent),
 		ec:              newExternalConnector(env, config.ExternalConnections),
 		throttlerClient: throttle.NewBackgroundClient(lagThrottler, throttlerapp.VReplicationName, base.UndefinedScope),
-		schemaMap:       make(map[string]string),
 		schemaClientFactories: make(map[string]struct {
 			filtered func() binlogplayer.DBClient
 			dba      func() binlogplayer.DBClient
@@ -181,109 +178,6 @@ func (vre *Engine) InitDBConfig(dbcfgs *dbconfigs.DBConfigs) {
 	}
 	vre.dbName = dbcfgs.DBName
 
-	// Initialize schema mapping for backward compatibility
-	// For now, we assume the physical keyspace name can be derived from the dbName
-	// This will be enhanced when we have proper keyspace context
-	if vre.physicalKeyspace == "" {
-		vre.physicalKeyspace = dbcfgs.DBName // Temporary assumption
-	}
-	if vre.schemaMap == nil {
-		vre.schemaMap = make(map[string]string)
-	}
-	vre.schemaMap[vre.physicalKeyspace] = dbcfgs.DBName
-}
-
-// InitDBConfigWithKeyspace initializes the engine with explicit keyspace information.
-// This is the new method that will be used for multi-schema support.
-func (vre *Engine) InitDBConfigWithKeyspace(physicalKeyspace string) error {
-	if vre.dbName == "" {
-		return fmt.Errorf("dbName must be set before calling InitDBConfigWithKeyspace")
-	}
-	vre.physicalKeyspace = physicalKeyspace
-	if vre.schemaMap == nil {
-		vre.schemaMap = make(map[string]string)
-	}
-	vre.schemaMap[physicalKeyspace] = vre.dbName
-	return nil
-}
-
-// AddVirtualShard adds a virtual shard's keyspace to the engine's schema mapping.
-func (vre *Engine) AddVirtualShard(virtualKeyspace, virtualShard, dbName string) error {
-	log.Infof("DEBUG: VReplication Engine AddVirtualShard called with virtualKeyspace=%s, virtualShard=%s, dbName=%s", virtualKeyspace, virtualShard, dbName)
-	vre.mu.Lock()
-	defer vre.mu.Unlock()
-
-	if vre.schemaMap == nil {
-		vre.schemaMap = make(map[string]string)
-	}
-
-	// Check if virtual keyspace already exists
-	if _, exists := vre.schemaMap[virtualKeyspace]; exists {
-		log.Infof("DEBUG: Virtual keyspace %s already exists in schemaMap", virtualKeyspace)
-		return nil // already done.
-	}
-
-	// Add the mapping
-	vre.schemaMap[virtualKeyspace] = dbName
-	log.Infof("DEBUG: Added mapping %s -> %s to schemaMap", virtualKeyspace, dbName)
-
-	// Create schema-specific client factories if needed
-	if vre.schemaClientFactories == nil {
-		vre.schemaClientFactories = make(map[string]struct {
-			filtered func() binlogplayer.DBClient
-			dba      func() binlogplayer.DBClient
-		})
-	}
-
-	// For now, we'll use the same connection config but different schema
-	// This will be enhanced to support per-schema configurations
-	vre.schemaClientFactories[virtualKeyspace] = struct {
-		filtered func() binlogplayer.DBClient
-		dba      func() binlogplayer.DBClient
-	}{
-		filtered: func() binlogplayer.DBClient {
-			client := vre.dbClientFactoryFiltered()
-			// Set the client to use the specific schema for this virtual shard
-			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
-				schemaClient.SetDBName(dbName)
-			}
-			return client
-		},
-		dba: func() binlogplayer.DBClient {
-			client := vre.dbClientFactoryDba()
-			// Set the client to use the specific schema for this virtual shard
-			if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
-				schemaClient.SetDBName(dbName)
-			}
-			return client
-		},
-	}
-
-	log.Infof("Added virtual shard %s with schema %s to VReplication engine", virtualKeyspace, dbName)
-	return nil
-}
-
-// ListManagedSchemas returns a list of all schemas managed by this engine.
-func (vre *Engine) ListManagedSchemas() []string {
-	vre.mu.Lock()
-	defer vre.mu.Unlock()
-
-	if vre.schemaMap == nil {
-		// Fallback to legacy behavior
-		return []string{vre.dbName}
-	}
-
-	schemas := make([]string, 0, len(vre.schemaMap))
-	for _, schema := range vre.schemaMap {
-		schemas = append(schemas, schema)
-	}
-
-	return schemas
-}
-
-// GetPhysicalKeyspace returns the physical keyspace name.
-func (vre *Engine) GetPhysicalKeyspace() string {
-	return vre.physicalKeyspace // called under a mutex already!
 }
 
 // NewTestEngine creates a new Engine for testing.
@@ -300,7 +194,6 @@ func NewTestEngine(ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaemon, db
 		dbName:                  dbname,
 		journaler:               make(map[string]*journalEvent),
 		ec:                      newExternalConnector(env, externalConfig),
-		schemaMap:               make(map[string]string),
 		schemaClientFactories: make(map[string]struct {
 			filtered func() binlogplayer.DBClient
 			dba      func() binlogplayer.DBClient
@@ -325,7 +218,6 @@ func NewSimpleTestEngine(ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaem
 		journaler:               make(map[string]*journalEvent),
 		ec:                      newExternalConnector(env, externalConfig),
 		shortcircuit:            true,
-		schemaMap:               make(map[string]string),
 		schemaClientFactories: make(map[string]struct {
 			filtered func() binlogplayer.DBClient
 			dba      func() binlogplayer.DBClient
@@ -990,12 +882,14 @@ func (vre *Engine) readAllRows(ctx context.Context) ([]map[string]string, error)
 	}
 	defer dbClient.Close()
 
+	dbNames := vre.reg.GetAllDBNames()
+
 	// For multi-schema support, we need to read rows for all managed schemas
-	if len(vre.schemaMap) > 1 {
+	if len(dbNames) > 1 {
 		// Multi-schema mode: read rows for all managed schemas
 		var allMaps []map[string]string
-		for _, schema := range vre.schemaMap {
-			qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(schema)), maxRows)
+		for _, dbName := range dbNames {
+			qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(dbName)), maxRows)
 			if err != nil {
 				return nil, err
 			}

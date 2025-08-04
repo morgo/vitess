@@ -7,9 +7,7 @@ import (
 	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/vt/log"
 	tabletmanagerdatapb "vitess.io/vitess/go/vt/proto/tabletmanagerdata"
-	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
-	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver"
 )
@@ -17,7 +15,7 @@ import (
 // AddVirtualShard adds a new virtual shard to the existing set of shards this tablet hosts.
 // Currently this requires two things:
 // 1. Create a schema for the virtual shard.
-// 2. Add a subscription in the VReplication engine.
+// 2. Asks the registry to refresh.
 func (tm *TabletManager) AddVirtualShard(ctx context.Context, req *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error) {
 	if req == nil {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid request, no request provided")
@@ -44,46 +42,14 @@ func (tm *TabletManager) AddVirtualShard(ctx context.Context, req *tabletmanager
 	}
 	log.Infof("AddVirtualShard: created schema %s for virtual shard %s/%s", req.SchemaName, req.VirtualKeyspace, req.VirtualShard)
 
-	// Add the virtual shard to the VReplication engine
-	err := tm.VREngine.AddVirtualShard(req.VirtualKeyspace, req.VirtualShard, req.SchemaName)
-	if err != nil {
-		return nil, vterrors.Wrapf(err, "failed to add virtual shard %s/%s to VReplication engine", req.VirtualKeyspace, req.VirtualShard)
-	}
-
-	// Add the virtual tablet to the registry
-	// Create a virtual tablet info for the registry
-	virtualTabletInfo := &topo.TabletInfo{
-		Tablet: &topodatapb.Tablet{
-			Alias:          tm.Tablet().Alias,
-			Hostname:       tm.Tablet().Hostname,
-			PortMap:        tm.Tablet().PortMap,
-			Keyspace:       req.VirtualKeyspace,
-			Shard:          req.VirtualShard,
-			Type:           tm.Tablet().Type,
-			MysqlHostname:  tm.Tablet().MysqlHostname,
-			MysqlPort:      tm.Tablet().MysqlPort,
-			DbNameOverride: req.SchemaName,
-			Tags: map[string]string{
-				topo.PhysicalKeyspaceTag: req.PhysicalKeyspace,
-				topo.PhysicalShardTag:    req.PhysicalShard,
-			},
-		},
-	}
-
-	// Add the virtual tablet to the registry through the query service
-	if tm.QueryServiceControl != nil {
-		if tabletServer, ok := tm.QueryServiceControl.(*tabletserver.TabletServer); ok {
-			// Access the registry through the TabletServer
-			registry := tabletServer.Registry()
-			if registry != nil {
-				err = registry.AddTablet(virtualTabletInfo)
-				if err != nil {
-					return nil, vterrors.Wrapf(err, "failed to add virtual tablet %s/%s to registry", req.VirtualKeyspace, req.VirtualShard)
-				}
-				log.Infof("AddVirtualShard: added virtual tablet %s/%s to registry", req.VirtualKeyspace, req.VirtualShard)
-			}
+	// TODO: Add registry as a field for the TabletManager struct too.
+	if tabletServer, ok := tm.QueryServiceControl.(*tabletserver.TabletServer); ok {
+		err := tabletServer.Registry().Refresh(ctx)
+		if err != nil {
+			return nil, vterrors.Wrapf(err, "failed to refresh registry after adding virtual shard %s/%s", req.VirtualKeyspace, req.VirtualShard)
 		}
+	} else {
+		return nil, vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, "tablet server does not support registry refresh")
 	}
-
 	return &tabletmanagerdatapb.AddVirtualShardResponse{}, nil
 }

@@ -31,6 +31,8 @@ type Registry interface {
 	SetVSchema(keyspace string, vschema *vindexes.VSchema)
 	// GetAllKeyspaces returns all keyspaces known to the registry.
 	GetAllKeyspaces() []string
+	// GetAllDBNames returns all database names known to the registry.
+	GetAllDBNames() []string
 	// AddTablet adds a tablet to the registry.
 	AddTablet(tablet *topo.TabletInfo) error
 	// RemoveTablet removes a tablet from the registry.
@@ -320,6 +322,34 @@ func (reg *TopoRegistry) GetAllKeyspaces() []string {
 
 	log.Infof("GetAllKeyspaces returning %d keyspaces: %v", len(keyspaces), keyspaces)
 	return keyspaces
+}
+
+func (reg *TopoRegistry) GetAllDBNames() []string {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+
+	// TODO: This is a hack - the addTablet() method is not working correctly
+	// when we add tablets. I'll fix it soon.
+	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
+		return []string{}
+	}
+
+	// Create a set to avoid duplicates
+	dbNameSet := make(map[string]bool)
+
+	// Add all tablets' DB names
+	for _, tablet := range reg.targetTablets {
+		dbNameSet[tablet.DbNameOverride] = true
+	}
+
+	// Convert set to slice
+	dbNames := make([]string, 0, len(dbNameSet))
+	for dbName := range dbNameSet {
+		dbNames = append(dbNames, dbName)
+	}
+
+	log.Infof("GetAllDBNames returning %d DB names: %v", len(dbNames), dbNames)
+	return dbNames
 }
 
 func (reg *TopoRegistry) AddTablet(tablet *topo.TabletInfo) error {
