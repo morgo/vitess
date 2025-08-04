@@ -1,4 +1,5 @@
 /*
+
 Copyright 2019 The Vitess Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -550,7 +551,7 @@ func (tsv *TabletServer) SchemaEngine() *schema.Engine {
 }
 
 // Registry returns the Registry part of TabletServer.
-func (tsv *TabletServer) Registry() *registry.TopoRegistry {
+func (tsv *TabletServer) Registry() registry.Registry {
 	return tsv.registry
 }
 
