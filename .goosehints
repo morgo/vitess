@@ -2,7 +2,9 @@ You are working on a branch which is adding virtual shards to Vitess.
 
 Previously vitess could only handle one keyspace/shard per tablet, but in this branch there can be multiple.
 
-In the current implementation it is more "virtual keyspaces" than "virtual shards", but this is currently being worked on. At the keyspace-level everything should be mostly unchanged, and only at the shard level there are new VIRTUAL tablets stored in the topo server which know how to resolve to other physical shards. Each actual tablet server has one MySQL database (aka schema) per shard.
+At the keyspace-level everything should be mostly unchanged, and technically at the shard level it is unchanged as well. If a shard is virtual it will have one tablet that is of type VIRTUAL.
+
+The topo server will resolve most requests to automatically point shard requests to physical shards.
 
 This affects a lot of components because the vttablet has a lot of strong dependencies/expectations on there only being one dbName with data. We need to fix and remove all of those.
 
@@ -13,6 +15,5 @@ export VTROOT=~/go/src/github.com/morgo/vitess/
 cd $VTROOT
 make
 ```
-
 
 Because the tests take a long time to run, after you've done this it's better of testing package-by-package, and set a timeout for each test of 1 minute.

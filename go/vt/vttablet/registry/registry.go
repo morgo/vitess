@@ -25,6 +25,8 @@ type Registry interface {
 	ResolveDbName(dbName string) (*topo.TabletInfo, error)
 	// GetKeyspaceShardByDbName returns the keyspace and shard for a given database name.
 	GetKeyspaceShardByDbName(dbName string) (string, string, error)
+	// GetDBNameByKeyspaceShard returns the database name for a given keyspace and shard.
+	GetDBNameByKeyspaceShard(keyspace, shard string) (string, error)
 	// GetVSchemaByKeyspace returns the vschema for a given keyspace.
 	GetVSchemaByKeyspace(keyspace string) (*vindexes.VSchema, error)
 	// SetVSchema updates the vschema for a keyspace.
@@ -267,6 +269,25 @@ func (reg *TopoRegistry) GetKeyspaceShardByDbName(dbName string) (string, string
 
 	log.Infof("Resolved dbName %s to keyspace %s", dbName, tablet.Keyspace)
 	return tablet.Keyspace, tablet.Shard, nil
+}
+
+func (reg *TopoRegistry) GetDBNameByKeyspaceShard(keyspace, shard string) (string, error) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+
+	// TODO: This is a hack - the addTablet() method is not working correctly
+	// when we add tablets. I'll fix it soon.
+	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
+		return "", err
+	}
+
+	for _, tablet := range reg.targetTablets {
+		if tablet.Keyspace == keyspace && tablet.Shard == shard {
+			return tablet.DbNameOverride, nil
+		}
+	}
+
+	return "", vterrors.New(vtrpcpb.Code_NOT_FOUND, fmt.Sprintf("no tablet found for keyspace %s and shard %s", keyspace, shard))
 }
 
 func (reg *TopoRegistry) GetVSchemaByKeyspace(keyspace string) (*vindexes.VSchema, error) {

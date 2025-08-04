@@ -326,15 +326,10 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 			if err := prototext.Unmarshal(sourceBlob, &source); err != nil {
 				return vterrors.Wrapf(err, "failed to unmarshal BinlogSource")
 			}
-
-			// For virtual keyspace support, use the source keyspace from BinlogSource
-			// to construct the proper database name
-			if source.Keyspace != "" {
-				// Construct the source database name from keyspace and shard
-				// TODO: in future we should use the registry to get the dbName
-				dbName = topoproto.DefaultDatabaseName(source.Keyspace, source.Shard)
-			} else {
+			dbName, err = vc.vr.vre.registry.GetDBNameByKeyspaceShard(source.Keyspace, source.Shard)
+			if err != nil {
 				// TODO: I'm not sure if this is ever correct.
+				log.Warning("failed to get DB name for keyspace %s/%s", topoproto.KeyspaceShardString(source.Keyspace, source.Shard))
 				dbName = destDbName
 			}
 		}

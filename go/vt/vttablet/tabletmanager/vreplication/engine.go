@@ -99,7 +99,7 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ts                      *topo.Server
-	reg                     registry.Registry
+	registry                registry.Registry
 	cell                    string
 	mysqld                  mysqlctl.MysqlDaemon
 	dbClientFactoryFiltered func() binlogplayer.DBClient
@@ -148,7 +148,7 @@ func NewEngine(env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.
 		env:             env,
 		controllers:     make(map[int32]*controller),
 		ts:              ts,
-		reg:             registry,
+		registry:        registry,
 		cell:            cell,
 		mysqld:          mysqld,
 		journaler:       make(map[string]*journalEvent),
@@ -882,7 +882,7 @@ func (vre *Engine) readAllRows(ctx context.Context) ([]map[string]string, error)
 	}
 	defer dbClient.Close()
 
-	dbNames := vre.reg.GetAllDBNames()
+	dbNames := vre.registry.GetAllDBNames()
 
 	// For multi-schema support, we need to read rows for all managed schemas
 	if len(dbNames) > 1 {
