@@ -443,8 +443,8 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 				}
 			}
 		}
-		showTableRows = append(showTableRows, mysql.BaseShowTablesRow("", table, false, options))
-		showTableWithSizesRows = append(showTableWithSizesRows, mysql.BaseShowTablesWithSizesRow("", table, false, options))
+		showTableRows = append(showTableRows, mysql.BaseShowTablesRow(table, false, options))
+		showTableWithSizesRows = append(showTableWithSizesRows, mysql.BaseShowTablesWithSizesRow(table, false, options))
 	}
 
 	tEnv.addResult(mysql.BaseShowTables, &sqltypes.Result{
@@ -497,7 +497,7 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 				continue
 			}
 			for _, col := range idx.Columns {
-				row := mysql.ShowPrimaryRow("", table, col.Column.String())
+				row := mysql.ShowPrimaryRow(table, col.Column.String())
 				indexRows = append(indexRows, row)
 			}
 		}

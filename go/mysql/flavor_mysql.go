@@ -420,13 +420,13 @@ func (mysqlFlavor) baseShowTables() string {
 	return BaseShowTables
 }
 
-const BaseShowTables = `SELECT table_schema,
-		table_name,
-		table_type,
-		UNIX_TIMESTAMP(create_time) AS create_time,
-		table_comment
+const BaseShowTables = `SELECT t.table_name,
+		t.table_type,
+		UNIX_TIMESTAMP(t.create_time),
+		t.table_comment
 	FROM information_schema.tables t
-	WHERE t.table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')
+	WHERE
+		t.table_schema = :db_name
 `
 
 // InnoDBTableSizes: a query to return file/allocated sizes for InnoDB tables.
@@ -474,7 +474,8 @@ const InnoDBTableSizes = `
 		JOIN information_schema.innodb_tablespaces its
 		ON (its.space = it.space)
 		WHERE
-			its.name NOT LIKE CONCAT(database(), '/fts_%')
+					its.name LIKE CONCAT(:db_name, '/%')
+			AND     its.name NOT LIKE CONCAT(:db_name, '/fts_%')
 	UNION ALL
 	SELECT
 		it.name,
@@ -491,10 +492,10 @@ const InnoDBTableSizes = `
 		GROUP BY it.name
 `
 
-const ShowPartitions = `select table_schema, table_name, partition_name from information_schema.partitions where partition_name is not null AND table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')`
-const ShowTableRowCountClusteredIndex = `select database_name, table_name, n_rows, clustered_index_size * @@innodb_page_size from mysql.innodb_table_stats WHERE table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')`
-const ShowIndexSizes = `select database_name, table_name, index_name, stat_value * @@innodb_page_size from mysql.innodb_index_stats where stat_name = 'size' AND table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')`
-const ShowIndexCardinalities = `select table_schema, table_name, index_name, max(cardinality) from information_schema.statistics s WHERE table_schema NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt') GROUP BY s.table_schema, s.table_name, s.index_name`
+const ShowPartitions = `select table_name, partition_name from information_schema.partitions where table_schema = :db_name and partition_name is not null`
+const ShowTableRowCountClusteredIndex = `select table_name, n_rows, clustered_index_size * @@innodb_page_size from mysql.innodb_table_stats where database_name = :db_name`
+const ShowIndexSizes = `select table_name, index_name, stat_value * @@innodb_page_size from mysql.innodb_index_stats where database_name = :db_name and stat_name = 'size'`
+const ShowIndexCardinalities = `select table_name, index_name, max(cardinality) from information_schema.statistics s where table_schema = :db_name group by s.table_name, s.index_name`
 
 // baseShowTablesWithSizes is part of the Flavor interface.
 func (mysqlFlavor57) baseShowTablesWithSizes() string {

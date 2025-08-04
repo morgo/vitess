@@ -66,11 +66,11 @@ func AddDefaultQueries(db *fakesqldb.DB) {
 	db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows: [][]sqltypes.Value{
-			mysql.ShowPrimaryRow("fakesqldb", "test_table_01", "pk"),
-			mysql.ShowPrimaryRow("fakesqldb", "test_table_02", "pk"),
-			mysql.ShowPrimaryRow("fakesqldb", "test_table_03", "pk"),
-			mysql.ShowPrimaryRow("fakesqldb", "seq", "id"),
-			mysql.ShowPrimaryRow("fakesqldb", "msg", "id"),
+			mysql.ShowPrimaryRow("test_table_01", "pk"),
+			mysql.ShowPrimaryRow("test_table_02", "pk"),
+			mysql.ShowPrimaryRow("test_table_03", "pk"),
+			mysql.ShowPrimaryRow("seq", "id"),
+			mysql.ShowPrimaryRow("msg", "id"),
 		},
 	})
 

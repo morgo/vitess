@@ -246,26 +246,6 @@ func (se *Engine) EnsureConnectionAndDB(tabletType topodatapb.TabletType, servin
 	return nil
 }
 
-// initTables initializes the tables map, which contains a map
-// for each of the schemas. For historical purposes,
-// there is always a "dual" table in each schema.
-func (se *Engine) initTables(ctx context.Context) error {
-	se.tables = make(map[string]map[string]*Table)
-
-	// For test environments, we just create a default database
-	if se.env.Config().DB.DBName == "" {
-		se.tables[""] = make(map[string]*Table)
-		se.tables[""]["dual"] = NewTable("dual", NoType)
-		return nil
-	}
-
-	// Create a map for the default database
-	dbName := se.env.Config().DB.DBName
-	se.tables[dbName] = make(map[string]*Table)
-	se.tables[dbName]["dual"] = NewTable("dual", NoType)
-	return nil
-}
-
 // Open initializes the Engine. Calling Open on an already
 // open engine is a no-op.
 func (se *Engine) Open() error {
@@ -289,9 +269,12 @@ func (se *Engine) Open() error {
 		}
 	}()
 
-	// initTables
-	if err := se.initTables(ctx); err != nil {
-		return err
+	dbName := se.cp.DBName()
+
+	se.tables = map[string]map[string]*Table{
+		dbName: {
+			"dual": NewTable("dual", NoType),
+		},
 	}
 	se.notifiers = make(map[string]notifier)
 
@@ -438,7 +421,7 @@ func (se *Engine) ReloadAtEx(ctx context.Context, pos replication.Position, incl
 	return nil
 }
 
-func populateInnoDBStats(ctx context.Context, conn *connpool.Conn) (map[string]*Table, error) {
+func populateInnoDBStats(ctx context.Context, dbName string, conn *connpool.Conn) (map[string]*Table, error) {
 	innodbTableSizesQuery := conn.BaseShowInnodbTableSizes()
 	if innodbTableSizesQuery == "" {
 		return nil, nil
@@ -483,9 +466,7 @@ func populateInnoDBStats(ctx context.Context, conn *connpool.Conn) (map[string]*
 }
 
 // reload reloads the schema. It can also be used to initialize it.
-// It loads all tables across all schemas except:
-//
-//	_vt, mysql, information_schema, performance_schema, sys.
+// It loads all tables across all schemas that are in registry.
 func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	start := time.Now()
 	defer func() {
@@ -502,6 +483,18 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	ctx, cancel := context.WithTimeout(ctx, se.reloadTimeout)
 	defer cancel()
 
+	// We reload each of the DBs this tablet is responsible for
+	// one after the other.
+	dbNames := se.registry.GetAllDBNames()
+	for _, dbName := range dbNames {
+		if err := se.reloadIndividualDB(ctx, dbName, includeStats); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, includeStats bool) error {
 	conn, err := se.conns.Get(ctx, nil)
 	if err != nil {
 		return err
@@ -516,18 +509,18 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 
 	var innodbTablesStats map[string]*Table
 	if includeStats {
-		if innodbTablesStats, err = populateInnoDBStats(ctx, conn.Conn); err != nil {
+		if innodbTablesStats, err = populateInnoDBStats(ctx, dbName, conn.Conn); err != nil {
 			return err
 		}
 		// Since the InnoDB table size query is available to us on this MySQL version, we should use it.
 		// We therefore don't want to query for table sizes in getTableData()
 		includeStats = false
 
-		if err := se.updateTableIndexMetrics(ctx, conn.Conn); err != nil {
+		if err := se.updateTableIndexMetrics(ctx, dbName, conn.Conn); err != nil {
 			log.Errorf("Updating index/table statistics failed, error: %v", err)
 		}
 	}
-	tableData, err := getTableData(ctx, conn.Conn, includeStats)
+	tableData, err := getTableData(ctx, dbName, conn.Conn, includeStats)
 	if err != nil {
 		return vterrors.Wrapf(err, "in Engine.reload(), reading tables")
 	}
@@ -537,54 +530,44 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 
 	// changedViews are the views that have changed. We can't use the same createTime logic for views because, MySQL
 	// doesn't update the create_time field for views when they are altered. This is annoying, but something we have to work around.
-	changedViews, err := getChangedViewNames(ctx, conn.Conn, shouldUseDatabase)
+	changedViews, err := getChangedViewNames(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
 		return err
 	}
 	// mismatchTables stores the tables whose createTime in our cache doesn't match the createTime stored in the database.
 	// This can happen if a primary crashed right after a DML succeeded, before it could reload its state. If all the replicas
 	// are able to reload their cache before one of them is promoted, then the database information would be out of sync.
-	mismatchTables, err := se.getMismatchedTableNames(ctx, conn.Conn, shouldUseDatabase)
+	mismatchTables, err := se.getMismatchedTableNames(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
 		return err
 	}
 
-	err = se.updateInnoDBRowsRead(ctx, conn.Conn)
+	err = se.updateInnoDBRowsRead(ctx, dbName, conn.Conn)
 	if err != nil {
 		return err
 	}
 
-	udfsChanged, err := getChangedUserDefinedFunctions(ctx, conn.Conn, shouldUseDatabase)
+	udfsChanged, err := getChangedUserDefinedFunctions(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
 		se.throttledLogger.Errorf("error in getting changed UDFs: %v", err)
 	}
 
 	rec := concurrency.AllErrorRecorder{}
-
 	// curTables keeps track of tables in the new snapshot so we can detect what was dropped.
-	curTables := make(map[string]bool, len(tableData.Rows)+1)
-	curTables["dual"] = true // Always preserve the dual table
+	curTables := map[string]bool{"dual": true}
 	// changedTables keeps track of tables that have changed so we can reload their pk info.
 	changedTables := make(map[string]*Table)
 	// created and altered contain the names of created and altered tables for broadcast.
 	var created, altered []*Table
 	for _, row := range tableData.Rows {
-		dbName := row[0].ToString()
-		// Try to resolve the dbName to a known keyspace.
-		// We don't need to check the keyspace, but if it errors, we know
-		// that this is not for a database we manage.
-		_, err := se.registry.ResolveDbName(dbName)
-		if err != nil {
-			continue // not a table we manage.
-		}
-		tableName := row[1].ToString()
+		tableName := row[0].ToString()
 		var innodbTable *Table
 		if innodbTablesStats != nil {
 			innodbTableName := fmt.Sprintf("%s/%s", charset.TablenameToFilename(dbName), charset.TablenameToFilename(tableName))
 			innodbTable = innodbTablesStats[innodbTableName]
 		}
 		curTables[tableName] = true
-		createTime, _ := row[3].ToCastInt64()
+		createTime, _ := row[2].ToCastInt64()
 		var fileSize, allocatedSize uint64
 
 		// For 5.7 flavor, includeStats is ignored, so we don't get the additional columns
@@ -619,8 +602,8 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		//      We check this by consulting the changedViews map.
 		var tbl *Table
 		var isInTablesMap bool
-		if _, ok := se.tables[dbName]; ok {
-			tbl, isInTablesMap = se.tables[dbName][tableName]
+		if dbSchemaMap, ok := se.tables[dbName]; ok {
+			tbl, isInTablesMap = dbSchemaMap[tableName]
 		}
 		_, isInChangedViewMap := changedViews[tableName]
 		_, isInMismatchTableMap := mismatchTables[tableName]
@@ -636,8 +619,8 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		}
 
 		log.V(2).Infof("Reading schema for table: %s", tableName)
-		tableType := row[2].String()
-		table, err := LoadTable(conn, dbName, tableName, tableType, row[4].ToString(), se.env.Environment().CollationEnv())
+		tableType := row[1].String()
+		table, err := LoadTable(conn, dbName, tableName, tableType, row[3].ToString(), se.env.Environment().CollationEnv())
 		if err != nil {
 			// Non recoverable error:
 			rec.RecordError(vterrors.Wrapf(err, "in Engine.reload(), reading table %s", tableName))
@@ -665,22 +648,7 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	dropped := se.getDroppedTables(curTables, changedViews, mismatchTables)
 
 	// Populate PK Columns for changed tables.
-	// Convert changedTables to the new format expected by populatePrimaryKeys
-	changedTablesForPK := make(map[string]map[string]*Table)
-	for tableName, table := range changedTables {
-		// Find the schema name for this table
-		for _, row := range tableData.Rows {
-			if row[1].ToString() == tableName {
-				schemaName := row[0].ToString()
-				if _, ok := changedTablesForPK[schemaName]; !ok {
-					changedTablesForPK[schemaName] = make(map[string]*Table)
-				}
-				changedTablesForPK[schemaName][tableName] = table
-				break
-			}
-		}
-	}
-	if err := se.populatePrimaryKeys(ctx, conn.Conn, changedTablesForPK); err != nil {
+	if err := se.populatePrimaryKeys(ctx, dbName, conn.Conn, changedTables); err != nil {
 		return err
 	}
 
@@ -688,36 +656,24 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	if shouldUseDatabase {
 		// If reloadDataInDB succeeds, then we don't want to prevent sending the broadcast notification.
 		// So, we do this step in the end when we can receive no more errors that fail the reload operation.
-		err = reloadDataInDB(ctx, conn.Conn, altered, created, dropped, udfsChanged, se.env.Environment().Parser())
+		err = reloadDataInDB(ctx, dbName, conn.Conn, altered, created, dropped, udfsChanged, se.env.Environment().Parser())
 		if err != nil {
 			log.Errorf("error in updating schema information in Engine.reload() - %v", err)
 		}
 	}
 
 	// Update se.tables
-	for tableName, t := range changedTables {
-		// Find the schema name for this table
-		var actualSchemaName string
-		for _, row := range tableData.Rows {
-			if row[1].ToString() == tableName {
-				actualSchemaName = row[0].ToString()
-				break
-			}
-		}
-		if actualSchemaName == "" {
-			log.Errorf("Could not find schema name for table %s", tableName)
-			continue
-		}
-		if _, ok := se.tables[actualSchemaName]; !ok {
-			se.tables[actualSchemaName] = make(map[string]*Table)
-		}
-		se.tables[actualSchemaName][t.Name.String()] = t
+	if _, ok := se.tables[dbName]; !ok {
+		se.tables[dbName] = make(map[string]*Table)
+	}
+	for k, t := range changedTables {
+		se.tables[dbName][k] = t
 	}
 	se.lastChange = curTime
 	if len(created) > 0 || len(altered) > 0 || len(dropped) > 0 {
 		log.Infof("schema engine created %v, altered %v, dropped %v", extractNamesFromTablesList(created), extractNamesFromTablesList(altered), extractNamesFromTablesList(dropped))
 	}
-	se.broadcast(created, altered, dropped, udfsChanged)
+	se.broadcast(dbName, created, altered, dropped, udfsChanged)
 	return nil
 }
 
@@ -727,11 +683,6 @@ func (se *Engine) getDroppedTables(curTables map[string]bool, changedViews map[s
 	for schemaName, schemaMap := range se.tables {
 		for tableName, table := range schemaMap {
 			if !curTables[tableName] {
-				// Special handling for the "dual" table - it's a virtual table that doesn't exist in the database
-				// but is created by initTables for historical purposes. We should never drop it.
-				if tableName == "dual" {
-					continue
-				}
 				dropped[tableName] = table
 				delete(se.tables[schemaName], tableName)
 				// We can't actually delete the label from the stats, but we can set it to 0.
@@ -765,17 +716,19 @@ func (se *Engine) getDroppedTables(curTables map[string]bool, changedViews map[s
 	return maps.Values(dropped)
 }
 
-func getTableData(ctx context.Context, conn *connpool.Conn, includeStats bool) (*sqltypes.Result, error) {
+func getTableData(ctx context.Context, dbName string, conn *connpool.Conn, includeStats bool) (*sqltypes.Result, error) {
 	var showTablesQuery string
 	if includeStats {
 		showTablesQuery = conn.BaseShowTablesWithSizes()
 	} else {
 		showTablesQuery = conn.BaseShowTables()
 	}
-	return conn.Exec(ctx, showTablesQuery, maxTableCount, false)
+	// Use a simple string replacement for now since we can't use the new parser
+	finalQuery := strings.ReplaceAll(showTablesQuery, ":db_name", "'"+dbName+"'")
+	return conn.Exec(ctx, finalQuery, maxTableCount, false)
 }
 
-func (se *Engine) updateInnoDBRowsRead(ctx context.Context, conn *connpool.Conn) error {
+func (se *Engine) updateInnoDBRowsRead(ctx context.Context, dbName string, conn *connpool.Conn) error {
 	readRowsData, err := conn.Exec(ctx, mysql.ShowRowsRead, 10, false)
 	if err != nil {
 		return err
@@ -794,7 +747,7 @@ func (se *Engine) updateInnoDBRowsRead(ctx context.Context, conn *connpool.Conn)
 	return nil
 }
 
-func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Conn) error {
+func (se *Engine) updateTableIndexMetrics(ctx context.Context, dbName string, conn *connpool.Conn) error {
 	if conn.BaseShowIndexSizes() == "" ||
 		conn.BaseShowTableRowCountClusteredIndex() == "" ||
 		conn.BaseShowIndexSizes() == "" ||
@@ -807,7 +760,9 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 		partition string
 	}
 
-	partitionsResults, err := conn.Exec(ctx, conn.BaseShowPartitions(), 8192*maxTableCount, false)
+	// Use a simple string replacement for now since we can't use the new parser
+	partitionsQuery := strings.ReplaceAll(conn.BaseShowPartitions(), ":db_name", "'"+dbName+"'")
+	partitionsResults, err := conn.Exec(ctx, partitionsQuery, 8192*maxTableCount, false)
 	if err != nil {
 		return err
 	}
@@ -828,7 +783,10 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 		rowBytes int64
 	}
 	tables := make(map[string]table)
-	tableStatsResults, err := conn.Exec(ctx, conn.BaseShowTableRowCountClusteredIndex(), maxTableCount*maxPartitionsPerTable, false)
+
+	// Use a simple string replacement for now since we can't use the new parser
+	tableStatsQuery := strings.ReplaceAll(conn.BaseShowTableRowCountClusteredIndex(), ":db_name", "'"+dbName+"'")
+	tableStatsResults, err := conn.Exec(ctx, tableStatsQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -859,7 +817,8 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 	indexes := make(map[[2]string]index)
 
 	// Load the byte sizes of all indexes. Results contain one row for every index/partition combination.
-	bytesResults, err := conn.Exec(ctx, conn.BaseShowIndexSizes(), maxTableCount*maxIndexesPerTable, false)
+	indexSizesQuery := strings.ReplaceAll(conn.BaseShowIndexSizes(), ":db_name", "'"+dbName+"'")
+	bytesResults, err := conn.Exec(ctx, indexSizesQuery, maxTableCount*maxIndexesPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -885,7 +844,8 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 	}
 
 	// Load index cardinalities. Results contain one row for every index (pre-aggregated across partitions).
-	cardinalityResults, err := conn.Exec(ctx, conn.BaseShowIndexCardinalities(), maxTableCount*maxPartitionsPerTable, false)
+	cardinalitiesQuery := strings.ReplaceAll(conn.BaseShowIndexCardinalities(), ":db_name", "'"+dbName+"'")
+	cardinalityResults, err := conn.Exec(ctx, cardinalitiesQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -941,20 +901,19 @@ func (se *Engine) mysqlTime(ctx context.Context, conn *connpool.Conn) (int64, er
 }
 
 // populatePrimaryKeys populates the PKColumns for the specified tables.
-// tables uses the new structure, which is schema.table name.
-func (se *Engine) populatePrimaryKeys(ctx context.Context, conn *connpool.Conn, tables map[string]map[string]*Table) error {
-	pkData, err := conn.Exec(ctx, mysql.BaseShowPrimary, maxTableCount, false)
+func (se *Engine) populatePrimaryKeys(ctx context.Context, dbName string, conn *connpool.Conn, tables map[string]*Table) error {
+	pkDataQuery := sqlparser.BuildParsedQuery(mysql.BaseShowPrimary, dbName).Query
+	pkData, err := conn.Exec(ctx, pkDataQuery, maxTableCount, false)
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_UNKNOWN, "could not get table primary key info: %v", err)
 	}
 	for _, row := range pkData.Rows {
-		dbName := row[0].ToString()
-		tableName := row[1].ToString()
-		table, ok := tables[dbName][tableName]
+		tableName := row[0].ToString()
+		table, ok := tables[tableName]
 		if !ok {
 			continue
 		}
-		colName := row[2].ToString()
+		colName := row[1].ToString()
 		index := table.FindColumn(sqlparser.NewIdentifierCI(colName))
 		if index < 0 {
 			return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "column %v is listed as primary key, but not present in table %v", colName, tableName)
@@ -987,42 +946,12 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 	if mt != nil {
 		return mt, nil
 	}
-
 	// We got nothing from the historian, which typically means that it's not enabled.
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	tableNameStr := tableName.String()
+	if st, ok := se.tables[dbName][tableNameStr]; ok && tableNameStr != "dual" { // No need to refresh dual
 
-	// First try to find the table in the provided dbName
-	var st *Table
-	var ok bool
-	/* TODO: what is happening here?
-	if dbName != "" {
-		if schemaMap, ok := se.tables[dbName]; ok {
-			if st, ok = schemaMap[tableNameStr]; ok {
-				// Found it
-			}
-		}
-	}
-	*/
-
-	// If not found, search across all databases for this table name
-	if !ok {
-		for schemaName, schemaMap := range se.tables {
-			log.Infof("DEBUG: GetTableForPos checking schema '%s', tables: %v", schemaName, func() []string {
-				var tables []string
-				for table := range schemaMap {
-					tables = append(tables, table)
-				}
-				return tables
-			}())
-			if st, ok = schemaMap[tableNameStr]; ok {
-				break
-			}
-		}
-	}
-
-	if ok && tableNameStr != "dual" { // No need to refresh dual
 		// Test Engines (NewEngineForTests()) don't have a conns pool and are not
 		// supposed to talk to the database, so don't update the cache entry in that
 		// case.
@@ -1038,36 +967,15 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 		defer conn.Recycle()
 		cst := *st       // Make a copy
 		cst.Fields = nil // We're going to refresh the columns/fields
-
-		// Use the provided dbName or find the schema name from our search
-		refreshDbName := dbName
-		if refreshDbName == "" {
-			// Find which schema this table belongs to
-			for schemaName, schemaMap := range se.tables {
-				if _, ok := schemaMap[tableNameStr]; ok {
-					refreshDbName = schemaName
-					break
-				}
-			}
-		}
-
-		if err := fetchColumns(&cst, conn, refreshDbName, tableNameStr); err != nil {
+		if err := fetchColumns(&cst, conn, dbName, tableNameStr); err != nil {
 			return nil, err
 		}
 		// Update the PK columns for the table as well as they may have changed.
 		cst.PKColumns = nil // We're going to repopulate the PK columns
-		pkTablesMap := make(map[string]map[string]*Table)
-		pkTablesMap[refreshDbName] = make(map[string]*Table)
-		pkTablesMap[refreshDbName][tableNameStr] = &cst
-		if err := se.populatePrimaryKeys(ctx, conn.Conn, pkTablesMap); err != nil {
+		if err := se.populatePrimaryKeys(ctx, dbName, conn.Conn, map[string]*Table{tableNameStr: &cst}); err != nil {
 			return nil, err
 		}
-
-		// Update the cache with the refreshed table
-		if _, ok := se.tables[refreshDbName]; !ok {
-			se.tables[refreshDbName] = make(map[string]*Table)
-		}
-		se.tables[refreshDbName][tableNameStr] = &cst
+		se.tables[dbName][tableNameStr] = &cst
 		return newMinimalTable(&cst), nil
 	}
 	// It's expected that internal tables are not found within VReplication workflows.
@@ -1092,22 +1000,12 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 		if err := se.reload(ctx, false); err != nil {
 			return nil, err
 		}
-		// Try again after reload
-		if dbName != "" {
-			if schemaMap, ok := se.tables[dbName]; ok {
-				if st, ok := schemaMap[tableNameStr]; ok {
-					return newMinimalTable(st), nil
-				}
-			}
-		}
-		// Search across all databases again
-		for _, schemaMap := range se.tables {
-			if st, ok := schemaMap[tableNameStr]; ok {
-				return newMinimalTable(st), nil
-			}
+		if st, ok := se.tables[dbName][tableNameStr]; ok {
+			return newMinimalTable(st), nil
 		}
 	}
 
+	log.Infof("table %v.%v not found in vttablet schema, current tables: %v", dbName, tableNameStr, se.tables)
 	return nil, fmt.Errorf("table %v.%v not found in vttablet schema", dbName, tableNameStr)
 }
 
@@ -1153,7 +1051,7 @@ func (se *Engine) UnregisterNotifier(name string) {
 }
 
 // broadcast must be called while holding a lock on se.mu.
-func (se *Engine) broadcast(created, altered, dropped []*Table, udfsChanged bool) {
+func (se *Engine) broadcast(dbName string, created, altered, dropped []*Table, udfsChanged bool) {
 	if !se.isOpen {
 		return
 	}
@@ -1167,27 +1065,20 @@ func (se *Engine) broadcast(created, altered, dropped []*Table, udfsChanged bool
 }
 
 // BroadcastForTesting is meant to be a testing function that triggers a broadcast call.
-func (se *Engine) BroadcastForTesting(created, altered, dropped []*Table, udfsChanged bool) {
+func (se *Engine) BroadcastForTesting(dbName string, created, altered, dropped []*Table, udfsChanged bool) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	se.broadcast(created, altered, dropped, udfsChanged)
+	se.broadcast(dbName, created, altered, dropped, udfsChanged)
 }
 
 // GetTable returns the info for a table.
-// For Virtual Keyspaces, it tries to find the table with qualified name first,
-// then falls back to unqualified name for backward compatibility.
 func (se *Engine) GetTable(dbName string, tableName sqlparser.IdentifierCS) *Table {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-
 	tableNameStr := tableName.String()
-
-	// First try to find with the exact name in the specified database
-	if dbName != "" {
-		if schemaMap, ok := se.tables[dbName]; ok {
-			if table, ok := schemaMap[tableNameStr]; ok {
-				return table
-			}
+	if schemaMap, ok := se.tables[dbName]; ok {
+		if table, ok := schemaMap[tableNameStr]; ok {
+			return table
 		}
 	}
 	return nil

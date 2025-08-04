@@ -28,11 +28,10 @@ import (
 const (
 	// BaseShowPrimary is the base query for fetching primary key info.
 	BaseShowPrimary = `
-		SELECT TABLE_SCHEMA as table_schema, TABLE_NAME as table_name, COLUMN_NAME as column_name
+		SELECT TABLE_NAME as table_name, COLUMN_NAME as column_name
 		FROM information_schema.STATISTICS
-		WHERE LOWER(INDEX_NAME) = 'primary'
-		AND TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys', '_vt')
-		ORDER BY table_schema, table_name, SEQ_IN_INDEX`
+		WHERE TABLE_SCHEMA = DATABASE() AND LOWER(INDEX_NAME) = 'primary'
+		ORDER BY table_name, SEQ_IN_INDEX`
 	// ShowRowsRead is the query used to find the number of rows read.
 	ShowRowsRead = "show status like 'Innodb_rows_read'"
 
@@ -44,17 +43,7 @@ const (
 // They are validated by the
 // testBaseShowTables test.
 var BaseShowTablesFields = []*querypb.Field{{
-	Name:         "table_schema",
-	Type:         querypb.Type_VARCHAR,
-	Table:        "tables",
-	OrgTable:     "TABLES",
-	Database:     "information_schema",
-	OrgName:      "TABLE_SCHEMA",
-	ColumnLength: 192,
-	Charset:      uint32(collations.SystemCollation.Collation),
-	Flags:        uint32(querypb.MySqlFlag_NOT_NULL_FLAG),
-}, {
-	Name:         "table_name",
+	Name:         "t.table_name",
 	Type:         querypb.Type_VARCHAR,
 	Table:        "tables",
 	OrgTable:     "TABLES",
@@ -64,7 +53,7 @@ var BaseShowTablesFields = []*querypb.Field{{
 	Charset:      uint32(collations.SystemCollation.Collation),
 	Flags:        uint32(querypb.MySqlFlag_NOT_NULL_FLAG),
 }, {
-	Name:         "table_type",
+	Name:         "t.table_type",
 	Type:         querypb.Type_VARCHAR,
 	Table:        "tables",
 	OrgTable:     "TABLES",
@@ -74,13 +63,13 @@ var BaseShowTablesFields = []*querypb.Field{{
 	Charset:      uint32(collations.SystemCollation.Collation),
 	Flags:        uint32(querypb.MySqlFlag_NOT_NULL_FLAG),
 }, {
-	Name:         "create_time",
+	Name:         "unix_timestamp(t.create_time)",
 	Type:         querypb.Type_INT64,
 	ColumnLength: 11,
 	Charset:      collations.CollationBinaryID,
 	Flags:        uint32(querypb.MySqlFlag_BINARY_FLAG | querypb.MySqlFlag_NUM_FLAG),
 }, {
-	Name:         "table_comment",
+	Name:         "t.table_comment",
 	Type:         querypb.Type_VARCHAR,
 	Table:        "tables",
 	OrgTable:     "TABLES",
@@ -130,13 +119,12 @@ var BaseInnoDBTableSizesFields = []*querypb.Field{{
 
 // BaseShowTablesRow returns the fields from a BaseShowTables or
 // BaseShowTablesForTable command.
-func BaseShowTablesRow(dbName, tableName string, isView bool, comment string) []sqltypes.Value {
+func BaseShowTablesRow(tableName string, isView bool, comment string) []sqltypes.Value {
 	tableType := "BASE TABLE"
 	if isView {
 		tableType = "VIEW"
 	}
 	return []sqltypes.Value{
-		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(dbName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(tableName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(tableType)),
 		sqltypes.MakeTrusted(sqltypes.Int64, []byte("1427325875")), // unix_timestamp(create_time)
@@ -144,8 +132,8 @@ func BaseShowTablesRow(dbName, tableName string, isView bool, comment string) []
 	}
 }
 
-func BaseShowTablesWithSizesRow(dbName, tableName string, isView bool, comment string) []sqltypes.Value {
-	return append(BaseShowTablesRow(dbName, tableName, isView, comment),
+func BaseShowTablesWithSizesRow(tableName string, isView bool, comment string) []sqltypes.Value {
+	return append(BaseShowTablesRow(tableName, isView, comment),
 		sqltypes.MakeTrusted(sqltypes.Int64, []byte("100")), // file_size
 		sqltypes.MakeTrusted(sqltypes.Int64, []byte("150")), // allocated_size
 	)
@@ -161,9 +149,6 @@ func BaseInnoDBTableSizesRow(dbName string, tableName string) []sqltypes.Value {
 
 // ShowPrimaryFields contains the fields for a BaseShowPrimary.
 var ShowPrimaryFields = []*querypb.Field{{
-	Name: "table_schema",
-	Type: sqltypes.VarChar,
-}, {
 	Name: "table_name",
 	Type: sqltypes.VarChar,
 }, {
@@ -172,9 +157,8 @@ var ShowPrimaryFields = []*querypb.Field{{
 }}
 
 // ShowPrimaryRow returns a row for a primary key column.
-func ShowPrimaryRow(dbName, tableName, colName string) []sqltypes.Value {
+func ShowPrimaryRow(tableName, colName string) []sqltypes.Value {
 	return []sqltypes.Value{
-		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(dbName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(tableName)),
 		sqltypes.MakeTrusted(sqltypes.VarChar, []byte(colName)),
 	}

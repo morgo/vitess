@@ -18,6 +18,7 @@ package schema
 
 import (
 	"context"
+	"strings"
 
 	"vitess.io/vitess/go/vt/log"
 
@@ -31,60 +32,63 @@ import (
 const (
 	// insertTableIntoSchemaEngineTables inserts a record in the datastore for the schema-engine tables.
 	insertTableIntoSchemaEngineTables = `INSERT INTO %s.tables(TABLE_SCHEMA, TABLE_NAME, CREATE_STATEMENT, CREATE_TIME)
-values (database(), :table_name, :create_statement, :create_time)`
+values (:db_name, :table_name, :create_statement, :create_time)`
 
 	// deleteFromSchemaEngineTablesTable removes the tables from the table that have been modified.
-	deleteFromSchemaEngineTablesTable = `DELETE FROM %s.tables WHERE TABLE_SCHEMA = database() AND TABLE_NAME IN ::tableNames`
+	deleteFromSchemaEngineTablesTable = `DELETE FROM %s.tables WHERE TABLE_SCHEMA = :db_name AND TABLE_NAME IN ::tableNames`
 
 	// readTableCreateTimes reads the tables create times
 	readTableCreateTimes = "SELECT TABLE_NAME, CREATE_TIME FROM %s.`tables`"
 
 	// fetchUpdatedTables queries fetches information about updated tables
-	fetchUpdatedTables = `select table_name, create_statement from %s.tables where table_schema = database() and table_name in ::tableNames`
+	fetchUpdatedTables = `select table_name, create_statement from %s.tables where table_schema = :db_name and table_name in ::tableNames`
 
 	// fetchTables queries fetches all information about tables
-	fetchTables = `select table_name, create_statement from %s.tables where table_schema = database()`
+	fetchTables = `select table_name, create_statement from %s.tables where table_schema = :db_name`
 
 	// detectViewChange query detects if there is any view change from previous copy.
 	detectViewChange = `
-SELECT distinct table_schema, table_name
+SELECT distinct table_name
 FROM (
-	SELECT table_schema, table_name, view_definition
+	SELECT table_name, view_definition
 	FROM information_schema.views
+	WHERE table_schema = :db_name
+
 	UNION ALL
-	SELECT table_schema, table_name, view_definition
+
+	SELECT table_name, view_definition
 	FROM %s.views
-	
+	WHERE table_schema = :db_name
 ) _inner
-GROUP BY table_schema, table_name, view_definition
+GROUP BY table_name, view_definition
 HAVING COUNT(*) = 1
 `
 
 	// insertViewIntoSchemaEngineViews using information_schema.views.
 	insertViewIntoSchemaEngineViews = `INSERT INTO %s.views(TABLE_SCHEMA, TABLE_NAME, CREATE_STATEMENT, VIEW_DEFINITION)
-values (database(), :view_name, :create_statement, :view_definition)`
+values (:db_name, :view_name, :create_statement, :view_definition)`
 
 	// deleteFromSchemaEngineViewsTable removes the views from the table that have been modified.
-	deleteFromSchemaEngineViewsTable = `DELETE FROM %s.views WHERE TABLE_SCHEMA = database() AND TABLE_NAME IN ::viewNames`
+	deleteFromSchemaEngineViewsTable = `DELETE FROM %s.views WHERE TABLE_SCHEMA = :db_name AND TABLE_NAME IN ::viewNames`
 
 	// fetchViewDefinitions retrieves view definition from information_schema.views table.
 	fetchViewDefinitions = `select table_name, view_definition from information_schema.views
-where table_schema = database() and table_name in ::viewNames`
+where table_schema = :db_name and table_name in ::viewNames`
 
 	// fetchCreateStatement retrieves create statement.
-	fetchCreateStatement = `show create table %s`
+	fetchCreateStatement = `show create table %s.%s`
 
 	// fetchUpdatedViews queries fetches information about updated views
-	fetchUpdatedViews = `select table_name, create_statement from %s.views where table_schema = database() and table_name in ::viewNames`
+	fetchUpdatedViews = `select table_name, create_statement from %s.views where table_schema = :db_name and table_name in ::viewNames`
 
 	// fetchViews queries fetches all views
-	fetchViews = `select table_name, create_statement from %s.views where table_schema = database()`
+	fetchViews = `select table_name, create_statement from %s.views where table_schema = :db_name`
 
 	// fetchUpdatedTablesAndViews queries fetches information about updated tables and views
-	fetchUpdatedTablesAndViews = `select table_name, create_statement from %s.tables where table_schema = database() and table_name in ::tableNames union select table_name, create_statement from %s.views where table_schema = database() and table_name in ::tableNames`
+	fetchUpdatedTablesAndViews = `select table_name, create_statement from %s.tables where table_schema = :db_name and table_name in ::tableNames union select table_name, create_statement from %s.views where table_schema = :db_name and table_name in ::tableNames`
 
 	// fetchTablesAndViews queries fetches all information about tables and views
-	fetchTablesAndViews = `select table_name, create_statement from %s.tables where table_schema = database() union select table_name, create_statement from %s.views where table_schema = database()`
+	fetchTablesAndViews = `select table_name, create_statement from %s.tables where table_schema = :db_name union select table_name, create_statement from %s.views where table_schema = :db_name`
 
 	// detectUdfChange query detects if there is any udf change from previous copy.
 	detectUdfChange = `SELECT name
@@ -114,7 +118,7 @@ SELECT f.name, i.UDF_RETURN_TYPE, f.type FROM mysql.func f left join performance
 )
 
 // reloadTablesDataInDB reloads teh tables information we have stored in our database we use for schema-tracking.
-func reloadTablesDataInDB(ctx context.Context, conn *connpool.Conn, tables []*Table, droppedTables []string, parser *sqlparser.Parser) error {
+func reloadTablesDataInDB(ctx context.Context, dbName string, conn *connpool.Conn, tables []*Table, droppedTables []string, parser *sqlparser.Parser) error {
 	// No need to do anything if we have no tables to refresh or drop.
 	if len(tables) == 0 && len(droppedTables) == 0 {
 		return nil
@@ -129,12 +133,15 @@ func reloadTablesDataInDB(ctx context.Context, conn *connpool.Conn, tables []*Ta
 	if err != nil {
 		return err
 	}
-	bv := map[string]*querypb.BindVariable{"tableNames": tablesBV}
+	bv := map[string]*querypb.BindVariable{
+		"db_name":    sqltypes.StringBindVariable(dbName),
+		"tableNames": tablesBV,
+	}
 
 	// Get the create statements for all the tables that are modified.
 	var createStatements []string
 	for _, table := range tables {
-		cs, err := getCreateStatement(ctx, conn, sqlparser.String(table.Name))
+		cs, err := getCreateStatement(ctx, conn, dbName, sqlparser.String(table.Name))
 		if err != nil {
 			return err
 		}
@@ -199,7 +206,7 @@ func generateFullQuery(query string, parser *sqlparser.Parser) (*sqlparser.Parse
 }
 
 // reloadViewsDataInDB reloads teh views information we have stored in our database we use for schema-tracking.
-func reloadViewsDataInDB(ctx context.Context, conn *connpool.Conn, views []*Table, droppedViews []string, parser *sqlparser.Parser) error {
+func reloadViewsDataInDB(ctx context.Context, dbName string, conn *connpool.Conn, views []*Table, droppedViews []string, parser *sqlparser.Parser) error {
 	// No need to do anything if we have no views to refresh or drop.
 	if len(views) == 0 && len(droppedViews) == 0 {
 		return nil
@@ -214,12 +221,15 @@ func reloadViewsDataInDB(ctx context.Context, conn *connpool.Conn, views []*Tabl
 	if err != nil {
 		return err
 	}
-	bv := map[string]*querypb.BindVariable{"viewNames": viewsBV}
+	bv := map[string]*querypb.BindVariable{
+		"db_name":   sqltypes.StringBindVariable(dbName),
+		"viewNames": viewsBV,
+	}
 
 	// Get the create statements for all the views that are modified.
 	var createStatements []string
 	for _, view := range views {
-		cs, err := getCreateStatement(ctx, conn, sqlparser.String(view.Name))
+		cs, err := getCreateStatement(ctx, conn, dbName, sqlparser.String(view.Name))
 		if err != nil {
 			return err
 		}
@@ -230,7 +240,7 @@ func reloadViewsDataInDB(ctx context.Context, conn *connpool.Conn, views []*Tabl
 	// We only need to run this if we have any views to reload.
 	viewDefinitions := make(map[string]string)
 	if len(views) > 0 {
-		err = getViewDefinition(ctx, conn, bv,
+		err = getViewDefinition(ctx, dbName, conn, bv,
 			func(qr *sqltypes.Result) error {
 				for _, row := range qr.Rows {
 					viewDefinitions[row[0].ToString()] = row[1].ToString()
@@ -291,7 +301,7 @@ func reloadViewsDataInDB(ctx context.Context, conn *connpool.Conn, views []*Tabl
 }
 
 // getViewDefinition gets the viewDefinition for the given views.
-func getViewDefinition(ctx context.Context, conn *connpool.Conn, bv map[string]*querypb.BindVariable, callback func(qr *sqltypes.Result) error, alloc func() *sqltypes.Result, bufferSize int, parser *sqlparser.Parser) error {
+func getViewDefinition(ctx context.Context, dbName string, conn *connpool.Conn, bv map[string]*querypb.BindVariable, callback func(qr *sqltypes.Result) error, alloc func() *sqltypes.Result, bufferSize int, parser *sqlparser.Parser) error {
 	viewsDefParsedQuery, err := generateFullQuery(fetchViewDefinitions, parser)
 	if err != nil {
 		return err
@@ -304,9 +314,8 @@ func getViewDefinition(ctx context.Context, conn *connpool.Conn, bv map[string]*
 }
 
 // getCreateStatement gets the create-statement for the given view/table.
-// TODO: This function needs to be rewritten to accept dbName, tableName as parameters.
-func getCreateStatement(ctx context.Context, conn *connpool.Conn, tableName string) (string, error) {
-	res, err := conn.Exec(ctx, sqlparser.BuildParsedQuery(fetchCreateStatement, tableName).Query, 1, false)
+func getCreateStatement(ctx context.Context, conn *connpool.Conn, dbName, tableName string) (string, error) {
+	res, err := conn.Exec(ctx, sqlparser.BuildParsedQuery(fetchCreateStatement, dbName, tableName).Query, 1, false)
 	if err != nil {
 		return "", err
 	}
@@ -314,7 +323,7 @@ func getCreateStatement(ctx context.Context, conn *connpool.Conn, tableName stri
 }
 
 // getChangedViewNames gets the list of views that have their definitions changed.
-func getChangedViewNames(ctx context.Context, conn *connpool.Conn, isServingPrimary bool) (map[string]any, error) {
+func getChangedViewNames(ctx context.Context, dbName string, conn *connpool.Conn, isServingPrimary bool) (map[string]any, error) {
 	/* Retrieve changed views */
 	views := make(map[string]any)
 	if !isServingPrimary {
@@ -322,8 +331,8 @@ func getChangedViewNames(ctx context.Context, conn *connpool.Conn, isServingPrim
 	}
 	callback := func(qr *sqltypes.Result) error {
 		for _, row := range qr.Rows {
-			// Since detectViewChange now returns table_schema, table_name, we need the second column
-			view := row[1].ToString()
+			// Since detectViewChange now returns only table_name, we need the first column
+			view := row[0].ToString()
 			views[view] = true
 		}
 		return nil
@@ -331,8 +340,11 @@ func getChangedViewNames(ctx context.Context, conn *connpool.Conn, isServingPrim
 	alloc := func() *sqltypes.Result { return &sqltypes.Result{} }
 	bufferSize := 1000
 
+	// Build the query with the dbName parameter
 	viewChangeQuery := sqlparser.BuildParsedQuery(detectViewChange, sidecar.GetIdentifier()).Query
-	err := conn.Stream(ctx, viewChangeQuery, callback, alloc, bufferSize, 0)
+	// Use a simple string replacement for now since we can't use the new parser
+	finalQuery := strings.ReplaceAll(viewChangeQuery, ":db_name", "'"+dbName+"'")
+	err := conn.Stream(ctx, finalQuery, callback, alloc, bufferSize, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +352,7 @@ func getChangedViewNames(ctx context.Context, conn *connpool.Conn, isServingPrim
 	return views, nil
 }
 
-func getChangedUserDefinedFunctions(ctx context.Context, conn *connpool.Conn, isServingPrimary bool) (bool, error) {
+func getChangedUserDefinedFunctions(ctx context.Context, dbName string, conn *connpool.Conn, isServingPrimary bool) (bool, error) {
 	if !isServingPrimary {
 		return false, nil
 	}
@@ -366,7 +378,7 @@ func getChangedUserDefinedFunctions(ctx context.Context, conn *connpool.Conn, is
 }
 
 // getMismatchedTableNames gets the tables that do not align with the tables information we have in the cache.
-func (se *Engine) getMismatchedTableNames(ctx context.Context, conn *connpool.Conn, isServingPrimary bool) (map[string]any, error) {
+func (se *Engine) getMismatchedTableNames(ctx context.Context, dbName string, conn *connpool.Conn, isServingPrimary bool) (map[string]any, error) {
 	tablesMismatched := make(map[string]any)
 	if !isServingPrimary {
 		return tablesMismatched, nil
@@ -423,7 +435,7 @@ func (se *Engine) getMismatchedTableNames(ctx context.Context, conn *connpool.Co
 }
 
 // reloadDataInDB reloads the schema tracking data in the database
-func reloadDataInDB(ctx context.Context, conn *connpool.Conn, altered, created, dropped []*Table, udfsChanged bool, parser *sqlparser.Parser) error {
+func reloadDataInDB(ctx context.Context, dbName string, conn *connpool.Conn, altered, created, dropped []*Table, udfsChanged bool, parser *sqlparser.Parser) error {
 	// tablesToReload and viewsToReload stores the tables and views that need reloading and storing in our MySQL database.
 	var tablesToReload, viewsToReload []*Table
 	// droppedTables, droppedViews stores the list of tables and views we need to delete, respectively.
@@ -447,19 +459,19 @@ func reloadDataInDB(ctx context.Context, conn *connpool.Conn, altered, created, 
 		}
 	}
 
-	if err := reloadTablesDataInDB(ctx, conn, tablesToReload, droppedTables, parser); err != nil {
+	if err := reloadTablesDataInDB(ctx, dbName, conn, tablesToReload, droppedTables, parser); err != nil {
 		return err
 	}
-	if err := reloadViewsDataInDB(ctx, conn, viewsToReload, droppedViews, parser); err != nil {
+	if err := reloadViewsDataInDB(ctx, dbName, conn, viewsToReload, droppedViews, parser); err != nil {
 		return err
 	}
-	if err := reloadUdfsInDB(ctx, conn, udfsChanged, parser); err != nil {
+	if err := reloadUdfsInDB(ctx, dbName, conn, udfsChanged, parser); err != nil {
 		return err
 	}
 	return nil
 }
 
-func reloadUdfsInDB(ctx context.Context, conn *connpool.Conn, udfsChanged bool, parser *sqlparser.Parser) error {
+func reloadUdfsInDB(ctx context.Context, dbName string, conn *connpool.Conn, udfsChanged bool, parser *sqlparser.Parser) error {
 	if !udfsChanged {
 		return nil
 	}
