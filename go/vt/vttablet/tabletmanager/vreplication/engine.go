@@ -27,6 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"vitess.io/vitess/go/vt/vttablet/registry"
+
 	"vitess.io/vitess/go/constants/sidecar"
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/sqltypes"
@@ -97,6 +99,7 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ts                      *topo.Server
+	reg                     registry.Registry
 	cell                    string
 	mysqld                  mysqlctl.MysqlDaemon
 	dbClientFactoryFiltered func() binlogplayer.DBClient
@@ -142,11 +145,12 @@ type PostCopyAction struct {
 
 // NewEngine creates a new Engine.
 // A nil ts means that the Engine is disabled.
-func NewEngine(env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaemon, lagThrottler *throttle.Throttler) *Engine {
+func NewEngine(env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaemon, lagThrottler *throttle.Throttler, registry registry.Registry) *Engine {
 	vre := &Engine{
 		env:             env,
 		controllers:     make(map[int32]*controller),
 		ts:              ts,
+		reg:             registry,
 		cell:            cell,
 		mysqld:          mysqld,
 		journaler:       make(map[string]*journalEvent),
