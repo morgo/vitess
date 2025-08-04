@@ -22,6 +22,8 @@ import (
 	"os"
 	"time"
 
+	"vitess.io/vitess/go/vt/vttablet/registry"
+
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/acl"
@@ -142,7 +144,9 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	qsc, err := createTabletServer(ctx, env, config, ts, tabletAlias, srvTopoCounts)
+	reg := registry.NewTopoRegistry(ts)
+
+	qsc, err := createTabletServer(ctx, env, config, ts, tabletAlias, srvTopoCounts, reg)
 	if err != nil {
 		return err
 	}
@@ -168,7 +172,7 @@ func run(cmd *cobra.Command, args []string) error {
 		DBConfigs:           config.DB.Clone(),
 		QueryServiceControl: qsc,
 		UpdateStream:        binlog.NewUpdateStream(ts, tablet.Keyspace, tabletAlias.Cell, qsc.SchemaEngine(), env.Parser()),
-		VREngine:            vreplication.NewEngine(env, config, ts, tabletAlias.Cell, mysqld, qsc.LagThrottler()),
+		VREngine:            vreplication.NewEngine(env, config, ts, tabletAlias.Cell, mysqld, qsc.LagThrottler(), reg),
 		SemiSyncMonitor:     semisyncmonitor.NewMonitor(config, qsc.Exporter()),
 		VDiffEngine:         vdiff.NewEngine(ts, tablet, env.CollationEnv(), env.Parser()),
 	}
@@ -235,7 +239,7 @@ func initConfig(tabletAlias *topodatapb.TabletAlias, collationEnv *collations.En
 	return config, mycnf, nil
 }
 
-func createTabletServer(ctx context.Context, env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.Server, tabletAlias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) (*tabletserver.TabletServer, error) {
+func createTabletServer(ctx context.Context, env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.Server, tabletAlias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel, reg registry.Registry) (*tabletserver.TabletServer, error) {
 	if tableACLConfig != "" {
 		// To override default simpleacl, other ACL plugins must set themselves to be default ACL factory
 		tableacl.Register("simpleacl", &simpleacl.Factory{})
@@ -244,7 +248,7 @@ func createTabletServer(ctx context.Context, env *vtenv.Environment, config *tab
 	}
 
 	// creates and registers the query service
-	qsc := tabletserver.NewTabletServer(ctx, env, "", config, ts, tabletAlias, srvTopoCounts)
+	qsc := tabletserver.NewTabletServer(ctx, env, "", config, ts, tabletAlias, srvTopoCounts, reg)
 	servenv.OnRun(func() {
 		qsc.Register()
 		addStatusParts(qsc)

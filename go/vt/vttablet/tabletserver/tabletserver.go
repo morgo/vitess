@@ -1,4 +1,5 @@
 /*
+
 Copyright 2019 The Vitess Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +33,7 @@ import (
 	"syscall"
 	"time"
 
-	"vitess.io/vitess/go/vt/registry"
+	"vitess.io/vitess/go/vt/vttablet/registry"
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/mysql/sqlerror"
@@ -99,12 +100,12 @@ type TabletServer struct {
 	exporter               *servenv.Exporter
 	config                 *tabletenv.TabletConfig
 	stats                  *tabletenv.Stats
-	registry               *registry.TopoRegistry
 	QueryTimeout           atomic.Int64
 	TerseErrors            bool
 	TruncateErrorLen       int
 	enableHotRowProtection bool
 	topoServer             *topo.Server
+	registry               registry.Registry
 
 	// These are sub-components of TabletServer.
 	statelessql  *QueryList
@@ -145,18 +146,23 @@ var RegisterFunctions []func(Controller)
 
 // NewServer creates a new TabletServer based on the command line flags.
 func NewServer(ctx context.Context, env *vtenv.Environment, name string, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) *TabletServer {
-	return NewTabletServer(ctx, env, name, tabletenv.NewCurrentConfig(), topoServer, alias, srvTopoCounts)
+	return NewTabletServer(ctx, env, name, tabletenv.NewCurrentConfig(), topoServer, alias, srvTopoCounts, registry.NewTopoRegistry(topoServer))
 }
 
 // NewTabletServer creates an instance of TabletServer. Only the first
 // instance of TabletServer will expose its state variables.
-func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, config *tabletenv.TabletConfig, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) *TabletServer {
+func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, config *tabletenv.TabletConfig, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel, reg registry.Registry) *TabletServer {
+	// If this TabletServer is created from a place where the registry is not
+	// otherwise needed, we can create a new one here.
+	if reg == nil {
+		reg = registry.NewTopoRegistry(topoServer)
+	}
 	exporter := servenv.NewExporter(name, "Tablet")
 	tsv := &TabletServer{
 		exporter:               exporter,
 		stats:                  tabletenv.NewStats(exporter),
 		config:                 config,
-		registry:               registry.NewTopoRegistry(topoServer),
+		registry:               reg,
 		TerseErrors:            config.TerseErrors,
 		TruncateErrorLen:       config.TruncateErrorLen,
 		enableHotRowProtection: config.HotRowProtection.Mode != tabletenv.Disable,
@@ -545,7 +551,7 @@ func (tsv *TabletServer) SchemaEngine() *schema.Engine {
 }
 
 // Registry returns the Registry part of TabletServer.
-func (tsv *TabletServer) Registry() *registry.TopoRegistry {
+func (tsv *TabletServer) Registry() registry.Registry {
 	return tsv.registry
 }
 
@@ -1314,73 +1320,6 @@ func (tsv *TabletServer) VStream(ctx context.Context, request *binlogdatapb.VStr
 		return err
 	}
 	return tsv.vstreamer.Stream(ctx, request.Position, request.TableLastPKs, request.Filter, throttlerapp.VStreamerName, send, request.Options)
-}
-
-// keyspaceToDBName converts a keyspace name to a database schema name.
-// We don't want to use this! We don't want to live lookup the topo (not that
-// it's doing this correctly). There should be a registry component which can do this mapping!
-func (tsv *TabletServer) keyspaceToDBName(keyspace string, shard string) string {
-	// If this is the physical keyspace (matches the configured target keyspace), use the configured DB name
-	if keyspace == tsv.sm.target.Keyspace {
-		return tsv.config.DB.DBName
-	}
-
-	// Check if this is a virtual keyspace by looking it up in the topology server
-	ctx := context.Background()
-	ki, err := tsv.topoServer.GetKeyspace(ctx, keyspace)
-	if err != nil {
-		log.Warningf("Failed to get keyspace info for %s from topology server: %v. Using fallback naming convention.", keyspace, err)
-		// Fallback to the naming convention if topo lookup fails
-		safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
-		safeShard := strings.ReplaceAll(shard, "-", "_")
-		return topoproto.DefaultDatabaseName(safeKeyspace, safeShard)
-	}
-
-	// Check if this is a virtual keyspace
-	if ki.BaseKeyspace != "" {
-		// This is a virtual keyspace, check if we host it on this tablet
-		if ki.BaseKeyspace == tsv.sm.target.Keyspace {
-			// This virtual keyspace is hosted on our physical keyspace
-			// Use the naming convention: vt_{keyspacename}_{shardID}
-			safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
-			safeShard := strings.ReplaceAll(shard, "-", "_")
-			return topoproto.DefaultDatabaseName(safeKeyspace, safeShard)
-		} else {
-			// This virtual keyspace is hosted on a different physical keyspace
-			// This should not happen in normal operation, but log a warning
-			log.Warningf("Request for virtual keyspace %s (hosted on %s) received by tablet serving physical keyspace %s",
-				keyspace, ki.BaseKeyspace, tsv.sm.target.Keyspace)
-			// Still return the expected database name for consistency
-			safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
-			safeShard := strings.ReplaceAll(shard, "-", "_")
-			return topoproto.DefaultDatabaseName(safeKeyspace, safeShard)
-		}
-	}
-
-	// This is a regular (physical) keyspace, but not the one we're serving
-	// This should not happen in normal operation
-	log.Warningf("Request for physical keyspace %s received by tablet serving physical keyspace %s",
-		keyspace, tsv.sm.target.Keyspace)
-
-	// For consistency, return the keyspace name as the database name
-	// This is likely to fail, but it's the most reasonable fallback
-	return keyspace
-}
-
-func (tsv *TabletServer) getDBName(target *querypb.Target) (string, error) {
-	if target == nil || target.Keyspace == "" {
-		return "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target keyspace cannot be empty")
-	}
-
-	if target.Shard == "" {
-		return "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target shard cannot be empty")
-	}
-
-	// TODO: This is where I expect the registry to plugin. If should be able to
-	// convert target.Keyspace/target.Shard to a dbName,
-	// and then we can remove the function keyspaceToDBName, which is not currently
-	// looking up the schemaName in topo, it's just returning the default convention.
-	return tsv.keyspaceToDBName(target.Keyspace, target.Shard), nil
 }
 
 // VStreamRows streams rows from the specified starting point.

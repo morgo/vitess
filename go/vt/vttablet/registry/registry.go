@@ -17,6 +17,8 @@ import (
 type Registry interface {
 	// Init initializes the registry with the given target.
 	Init(ctx context.Context, target *querypb.Target) error
+	// Refresh refreshes the registry for the stored physical tablet
+	Refresh(ctx context.Context) error
 	// ResolveTarget resolves the given target to a physical target and an optional database name override.
 	ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error)
 	// ResolveDbName resolves a database name to a tablet.
@@ -33,7 +35,7 @@ type Registry interface {
 	AddTablet(tablet *topo.TabletInfo) error
 	// RemoveTablet removes a tablet from the registry.
 	RemoveTablet(keyspace, shard string) error
-
+	// GetPhysicalKeyspaceShard returns the physical keyspace and shard for this registry instance
 	GetPhysicalKeyspaceShard() (string, string)
 }
 type TopoRegistry struct {
@@ -66,15 +68,41 @@ func NewTopoRegistry(topoServer *topo.Server) *TopoRegistry {
 	}
 }
 
-func (reg *TopoRegistry) Init(ctx context.Context, target *querypb.Target) error {
-	if reg.ts == nil || reg.r == nil || reg.targetTablets == nil || reg.dbNameTablets == nil {
-		return vterrors.New(vtrpcpb.Code_INTERNAL, "registry not properly constructed: topo server or physical tablet alias is nil")
-	}
+var notConstructed = vterrors.New(vtrpcpb.Code_INTERNAL, "registry not properly constructed!")
 
+func (reg *TopoRegistry) isConstructed() bool {
+	if reg.ts == nil || reg.r == nil || reg.targetTablets == nil || reg.dbNameTablets == nil || reg.physicalTarget == nil {
+		return false
+	}
+	return true
+}
+
+func (reg *TopoRegistry) Init(ctx context.Context, target *querypb.Target) error {
 	if target == nil {
 		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target cannot be nil")
 	}
 	reg.physicalTarget = target
+
+	if !reg.isConstructed() {
+		return notConstructed
+	}
+
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	if err := reg.loadTabletsAndShards(ctx); err != nil {
+		return vterrors.Wrapf(err, "failed to load tablets and shards for cell %q", reg.physicalTarget.Cell)
+	}
+	if len(reg.targetTablets) == 0 {
+		log.Warningf("no tablets found for physical target %s/%s, this may lead to issues with resolving targets", reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
+	}
+	log.Infof("TopoRegistry initialized for cell %s with %d tablets", reg.physicalTarget.Cell, len(reg.targetTablets))
+	return nil
+}
+
+func (reg *TopoRegistry) Refresh(ctx context.Context) error {
+	if !reg.isConstructed() {
+		return notConstructed
+	}
 
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
@@ -95,6 +123,12 @@ func (reg *TopoRegistry) GetPhysicalKeyspaceShard() (string, string) {
 }
 
 func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error) {
+	/*
+	* Return the dbName if it's specified in req.DBNameOverride and it's a permissible DB - if not permissible = error.
+	* If there is no virtual shards present, return the DB name for the physical shard + no error.
+	* If there are virtual shards present and DBNameOverride is empty = error.
+	 */
+
 	log.Infof("Resolving target %s/%s", target.Keyspace, target.Shard)
 	if target.Keyspace == "" {
 		return nil, "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target keyspace cannot be empty")
@@ -106,6 +140,13 @@ func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Targ
 
 	// Check if the target matches the physical target directly
 	if target.Keyspace == reg.physicalTarget.Keyspace && target.Shard == reg.physicalTarget.Shard {
+		// if there are virtual targetTablets for the current physical tablet, it is an error to try to
+		// resolve the physical tablet directly ?
+		/*
+			if len(reg.targetTablets) != 0 {
+				return nil, "", vterrors.New(vtrpcpb.Code_INTERNAL, "illegal to resolve physical tablet if it serves virtual tablets")
+			}
+		*/
 		log.Infof("Target %s/%s matches physical target, returning as is: %#v", target.Keyspace, target.Shard, target)
 		return reg.physicalTarget, reg.physicalTarget.DbName, nil
 	}
@@ -173,8 +214,8 @@ func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Targ
 
 	// If we reach here, we couldn't find any mapping for the target to a specific database name override.
 	// TODO: Consider whether we should return an error or a default value.
-	log.Infof("No specific DB override found for target %s/%s, returning physical target with default database name", target.Keyspace, target.Shard)
-	return reg.physicalTarget, reg.physicalTarget.DbName, nil
+	log.Errorf("")
+	return nil, "", vterrors.New(vtrpcpb.Code_NOT_FOUND, fmt.Sprintf("no specific DB override found for target %s/%s", target.Keyspace, target.Shard))
 }
 
 func (reg *TopoRegistry) ResolveDbName(dbName string) (*topo.TabletInfo, error) {
