@@ -22,6 +22,9 @@ pkill -9 -f vtdataroot
 rm -rf vtdataroot
 killall -9 vtorc
 
+export HOSTNAME=localhost
+export hostname=localhost
+
 source ../common/env.sh # Required so that "mysql" works from alias
 
 set -e
