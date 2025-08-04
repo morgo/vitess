@@ -36,7 +36,6 @@ import (
 	"vitess.io/vitess/go/vt/binlog/binlogplayer"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/sqlparser"
-	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle/throttlerapp"
 
@@ -326,10 +325,31 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 			if err := prototext.Unmarshal(sourceBlob, &source); err != nil {
 				return vterrors.Wrapf(err, "failed to unmarshal BinlogSource")
 			}
-			dbName, err = vc.vr.vre.registry.GetDBNameByKeyspaceShard(source.Keyspace, source.Shard)
+			// Lookup the DBName for source.Keyspace, source.Shard.
+			// We can't use registry in this specific instance, because we are referring
+			// to a different tablet. Registry only has data on the current tablet.
+
+			// Use topo server to find the primary tablet for the source shard
+			// and get the database name from it
+			shard, err := vc.vr.vre.ts.GetShard(ctx, source.Keyspace, source.Shard)
 			if err != nil {
-				// TODO: I'm not sure if this is ever correct.
-				log.Warning("failed to get DB name for keyspace %s/%s", topoproto.KeyspaceShardString(source.Keyspace, source.Shard))
+				return vterrors.Wrapf(err, "failed to get shard info for keyspace %s, shard %s", source.Keyspace, source.Shard)
+			}
+
+			if shard.PrimaryAlias == nil {
+				return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no primary tablet found for keyspace %s, shard %s", source.Keyspace, source.Shard)
+			}
+
+			primaryTablet, err := vc.vr.vre.ts.GetTablet(ctx, shard.PrimaryAlias)
+			if err != nil {
+				return vterrors.Wrapf(err, "failed to get primary tablet info for keyspace %s, shard %s", source.Keyspace, source.Shard)
+			}
+
+			// For virtual shards, use the specific database name from the tablet
+			// For regular shards, construct the database name from keyspace
+			if primaryTablet.Tablet.DbNameOverride != "" {
+				dbName = primaryTablet.Tablet.DbNameOverride
+			} else {
 				dbName = destDbName
 			}
 		}
