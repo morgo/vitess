@@ -71,8 +71,7 @@ func TestMain(m *testing.M) {
 
 		// engine cannot be initialized in testenv because it introduces
 		// circular dependencies
-		engine = NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
-		engine.InitDBConfig(env.KeyspaceName, env.ShardName)
+		engine = NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0], nil)
 		engine.Open()
 		defer engine.Close()
 
@@ -96,8 +95,7 @@ func newEngine(t *testing.T, ctx context.Context, binlogRowImage string) {
 
 	// engine cannot be initialized in testenv because it introduces
 	// circular dependencies
-	engine = NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
-	engine.InitDBConfig(env.KeyspaceName, env.ShardName)
+	engine = NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0], nil)
 	engine.Open()
 }
 
@@ -108,8 +106,7 @@ func customEngine(t *testing.T, modifier func(mysql.ConnParams) mysql.ConnParams
 	cfg := env.TabletEnv.Config().Clone()
 	cfg.DB = dbconfigs.NewTestDBConfigs(modified, modified, modified.DbName)
 
-	engine := NewEngine(tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "VStreamerTest"), env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
-	engine.InitDBConfig(env.KeyspaceName, env.ShardName)
+	engine := NewEngine(tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "VStreamerTest"), env.SrvTopo, env.SchemaEngine, nil, env.Cells[0], nil)
 	engine.Open()
 	return engine
 }

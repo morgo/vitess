@@ -250,7 +250,6 @@ func (tm *TabletManager) ExecuteFetchAsAllPrivs(ctx context.Context, req *tablet
 }
 
 // ExecuteFetchAsApp will execute the given query.
-// TODO: This doesn't support a dbNameOverride for virtual shards.
 func (tm *TabletManager) ExecuteFetchAsApp(ctx context.Context, req *tabletmanagerdatapb.ExecuteFetchAsAppRequest) (*querypb.QueryResult, error) {
 	if err := tm.waitForGrantsToHaveApplied(ctx); err != nil {
 		return nil, err

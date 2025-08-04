@@ -547,8 +547,7 @@ func newTestVDiffEnv(t *testing.T) *testVDiffEnv {
 
 	tstenv.KeyspaceName = vdiffDBName
 
-	vdiffenv.vse = vstreamer.NewEngine(tstenv.TabletEnv, tstenv.SrvTopo, vdiffenv.se, nil, tstenv.Cells[0])
-	//vdiffenv.vse.InitDBConfig(tstenv.KeyspaceName, tstenv.ShardName)
+	vdiffenv.vse = vstreamer.NewEngine(tstenv.TabletEnv, tstenv.SrvTopo, vdiffenv.se, nil, tstenv.Cells[0], nil)
 	vdiffenv.vse.Open()
 
 	once.Do(func() {

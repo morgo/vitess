@@ -34,14 +34,14 @@ import (
 )
 
 // LoadTable creates a Table from the schema info in the database.
-func LoadTable(conn *connpool.PooledConn, databaseName, tableName, tableType string, comment string, collationEnv *collations.Environment) (*Table, error) {
+func LoadTable(conn *connpool.PooledConn, dbName, tableName, tableType string, comment string, collationEnv *collations.Environment) (*Table, error) {
 	ta := NewTable(tableName, NoType)
 	if strings.Contains(tableType, tmutils.TableView) {
 		ta.Type = View
 		return ta, nil
 	}
 	sqlTableName := sqlparser.String(ta.Name)
-	if err := fetchColumns(ta, conn, databaseName, sqlTableName); err != nil {
+	if err := fetchColumns(ta, conn, dbName, sqlTableName); err != nil {
 		return nil, err
 	}
 	switch {

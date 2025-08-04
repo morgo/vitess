@@ -163,7 +163,6 @@ func run(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse --tablet-path: %w", err)
 	}
-
 	tm = &tabletmanager.TabletManager{
 		BatchCtx:            ctx,
 		Env:                 env,

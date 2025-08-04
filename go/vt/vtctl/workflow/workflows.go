@@ -640,14 +640,10 @@ func (wf *workflowFetcher) forAllShards(
 	shards []string,
 	f func(ctx context.Context, shard *topo.ShardInfo) error,
 ) error {
-	// For now, use the original keyspace for all operations
-	// TODO: Add virtual shard support when the topo structure is updated
-	physicalKeyspace := keyspace
-
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, shard := range shards {
 		eg.Go(func() error {
-			si, err := wf.ts.GetShard(ctx, physicalKeyspace, shard)
+			si, err := wf.ts.GetShard(ctx, keyspace, shard)
 			if err != nil {
 				return err
 			}

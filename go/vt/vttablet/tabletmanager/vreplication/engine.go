@@ -209,6 +209,7 @@ func (vre *Engine) InitDBConfigWithKeyspace(physicalKeyspace string) error {
 
 // AddVirtualShard adds a virtual shard's keyspace to the engine's schema mapping.
 func (vre *Engine) AddVirtualShard(virtualKeyspace, virtualShard, dbName string) error {
+	log.Infof("DEBUG: VReplication Engine AddVirtualShard called with virtualKeyspace=%s, virtualShard=%s, dbName=%s", virtualKeyspace, virtualShard, dbName)
 	vre.mu.Lock()
 	defer vre.mu.Unlock()
 
@@ -218,11 +219,13 @@ func (vre *Engine) AddVirtualShard(virtualKeyspace, virtualShard, dbName string)
 
 	// Check if virtual keyspace already exists
 	if _, exists := vre.schemaMap[virtualKeyspace]; exists {
+		log.Infof("DEBUG: Virtual keyspace %s already exists in schemaMap", virtualKeyspace)
 		return nil // already done.
 	}
 
 	// Add the mapping
 	vre.schemaMap[virtualKeyspace] = dbName
+	log.Infof("DEBUG: Added mapping %s -> %s to schemaMap", virtualKeyspace, dbName)
 
 	// Create schema-specific client factories if needed
 	if vre.schemaClientFactories == nil {

@@ -96,12 +96,12 @@ func (s *Server) buildResharder(ctx context.Context, req *vtctldata.ReshardCreat
 		if !si.IsPrimaryServing {
 			return nil, fmt.Errorf("source shard %v is not in serving state", shard)
 		}
-		rs.sourceShards = append(rs.sourceShards, si)
 		primary, err := s.ts.GetTablet(ctx, si.PrimaryAlias)
 		if err != nil {
 			return nil, vterrors.Wrapf(err, "GetTablet(%s) failed", si.PrimaryAlias)
 		}
-		rs.sourcePrimaries[si.ShardName()] = primary
+		rs.sourceShards = append(rs.sourceShards, si) // still unresolved
+		rs.sourcePrimaries[si.ShardName()] = primary  // resolved
 	}
 	for _, shard := range targets {
 		si, err := s.ts.GetShard(ctx, keyspace, shard)
@@ -114,12 +114,12 @@ func (s *Server) buildResharder(ctx context.Context, req *vtctldata.ReshardCreat
 		if si.IsPrimaryServing {
 			return nil, fmt.Errorf("target shard %v is in serving state", shard)
 		}
-		rs.targetShards = append(rs.targetShards, si)
 		primary, err := s.ts.GetTablet(ctx, si.PrimaryAlias)
 		if err != nil {
 			return nil, vterrors.Wrapf(err, "GetTablet(%s) failed", si.PrimaryAlias)
 		}
-		rs.targetPrimaries[si.ShardName()] = primary
+		rs.targetShards = append(rs.targetShards, si) // still unresolved
+		rs.targetPrimaries[si.ShardName()] = primary  // resolved
 	}
 	if err := topotools.ValidateForReshard(rs.sourceShards, rs.targetShards); err != nil {
 		return nil, vterrors.Wrap(err, "ValidateForReshard")
@@ -270,6 +270,7 @@ func (rs *resharder) identifyRuleType(rule *binlogdatapb.Rule) (StreamType, erro
 func (rs *resharder) copySchema(ctx context.Context) error {
 	oneSource := rs.sourceShards[0].PrimaryAlias
 	err := forAllShards(rs.targetShards, func(target *topo.ShardInfo) error {
+		// oneSource and target.ShardName() are both unresolved VIRTUAL targets.
 		return rs.s.CopySchemaShard(ctx, oneSource, []string{"/.*"}, nil, false, rs.keyspace, target.ShardName(), 1*time.Second, false)
 	})
 	return err
@@ -291,7 +292,6 @@ func (rs *resharder) createStreams(ctx context.Context) error {
 	err := forAllShards(rs.targetShards, func(target *topo.ShardInfo) error {
 		targetPrimary := rs.targetPrimaries[target.ShardName()]
 
-		// TODO: this might not be correct.
 		ig := vreplication.NewInsertGenerator(binlogdatapb.VReplicationWorkflowState_Stopped, targetPrimary.DbName())
 
 		// Clone excludeRules to prevent data races.

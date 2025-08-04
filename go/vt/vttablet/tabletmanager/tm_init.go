@@ -395,19 +395,18 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 		return err
 	}
 
-	// TODO: this is only partially correct,
-	// since it is specifying the physical keyspace and shard here,
-	// not all the virtual keyspaces that may be present.
 	target := &querypb.Target{
 		Cell:       tablet.Alias.Cell,
 		Keyspace:   tablet.Keyspace,
 		Shard:      tablet.Shard,
 		TabletType: tablet.Type,
 	}
+	// Init DBConfig for the default physical shard.
 	err = tm.QueryServiceControl.InitDBConfig(target, tm.DBConfigs, tm.MysqlDaemon)
 	if err != nil {
 		return vterrors.Wrap(err, "failed to InitDBConfig")
 	}
+	// Init registry to disover the virtual shards present.
 	err = tm.QueryServiceControl.InitRegistry(ctx, target)
 	if err != nil {
 		return vterrors.Wrap(err, "failed to InitRegistry")

@@ -353,8 +353,7 @@ func TestVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer env.SchemaEngine.EnableHistorian(false)
 
-	engine = NewEngine(engine.env, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
-	engine.InitDBConfig(env.KeyspaceName, env.ShardName)
+	engine = NewEngine(engine.env, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0], nil)
 	engine.Open()
 	defer engine.Close()
 

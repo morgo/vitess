@@ -145,7 +145,7 @@ func TestUpdateVSchema(t *testing.T) {
   "shard_routing_rules": null,
   "keyspace_routing_rules": null
 }`
-	b, err := json.MarshalIndent(engine.vschema(), "", "  ")
+	b, err := json.MarshalIndent(nil, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}

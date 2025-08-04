@@ -965,7 +965,7 @@ func newTestSchemaEngine(connParams *mysql.ConnParams) *schema.Engine {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.DB = dbconfigs.NewTestDBConfigs(*connParams, *connParams, connParams.DbName)
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "EngineTest")
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	se.InitDBConfig(dbconfigs.New(connParams))
 	return se
 }

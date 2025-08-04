@@ -304,6 +304,7 @@ func getViewDefinition(ctx context.Context, conn *connpool.Conn, bv map[string]*
 }
 
 // getCreateStatement gets the create-statement for the given view/table.
+// TODO: This function needs to be rewritten to accept dbName, tableName as parameters.
 func getCreateStatement(ctx context.Context, conn *connpool.Conn, tableName string) (string, error) {
 	res, err := conn.Exec(ctx, sqlparser.BuildParsedQuery(fetchCreateStatement, tableName).Query, 1, false)
 	if err != nil {

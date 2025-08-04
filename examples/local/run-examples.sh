@@ -18,6 +18,9 @@
 # It should be kept in sync with the steps in https://vitess.io/docs/get-started/local/
 # So we can detect if a regression affecting a tutorial is introduced.
 
+pkill -9 -f vtdataroot
+rm -rf vtdataroot
+killall -9 vtorc
 
 source ../common/env.sh # Required so that "mysql" works from alias
 
@@ -42,3 +45,10 @@ mysql --table < ../common/select_commerce_data.sql
 
 ./303_reshard.sh
 
+./304_switch_reads.sh
+
+./305_switch_writes.sh
+
+./306_down_shard_0.sh
+
+./307_delete_shard_0.sh

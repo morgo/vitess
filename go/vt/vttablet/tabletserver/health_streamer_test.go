@@ -211,7 +211,7 @@ func TestReloadSchema(t *testing.T) {
 				Uid:  1,
 			}
 			blpFunc = testBlpFunc
-			se := schema.NewEngine(env)
+			se := schema.NewEngine(env, nil)
 			hs := newHealthStreamer(env, alias, se)
 
 			db.AddQueryPattern("SELECT UNIX_TIMESTAMP()"+".*", sqltypes.MakeTestResult(
@@ -261,8 +261,6 @@ func TestReloadSchema(t *testing.T) {
 			db.AddQuery(mysql.ShowRowsRead, sqltypes.MakeTestResult(
 				sqltypes.MakeTestFields("Variable_name|Value", "varchar|int32"),
 				"Innodb_rows_read|50"))
-			// TODO: this query now returns the schema_name and table_name
-			// and will need fixing.
 			db.AddQuery(mysql.BaseShowPrimary, sqltypes.MakeTestResult(
 				sqltypes.MakeTestFields("table_schema | table_name | column_name", "varchar|varchar|varchar"),
 				"fakesqldb|product|id",
@@ -347,7 +345,7 @@ func TestReloadView(t *testing.T) {
 
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TestReloadView")
 	alias := &topodatapb.TabletAlias{Cell: "cell", Uid: 1}
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	hs := newHealthStreamer(env, alias, se)
 
 	db.AddQueryPattern("SELECT UNIX_TIMESTAMP()"+".*", sqltypes.MakeTestResult(

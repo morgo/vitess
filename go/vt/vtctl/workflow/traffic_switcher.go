@@ -540,11 +540,7 @@ func (ts *trafficSwitcher) dropParticipatingTablesFromKeyspace(ctx context.Conte
 func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType TableRemovalType) error {
 	err := ts.ForAllSources(func(source *MigrationSource) error {
 		for _, tableName := range ts.Tables() {
-			// Get the correct database name for virtual keyspaces
-			dbName := source.GetPrimary().DbName()
-			// TODO: do the correct logic for dbNameOverride
-
-			primaryDbName, err := sqlescape.EnsureEscaped(dbName)
+			primaryDbName, err := sqlescape.EnsureEscaped(source.GetPrimary().DbName())
 			if err != nil {
 				return err
 			}
@@ -552,18 +548,17 @@ func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType T
 			if err != nil {
 				return err
 			}
-
 			query := fmt.Sprintf("drop table %s.%s", primaryDbName, tableNameEscaped)
 			if removalType == DropTable {
 				ts.Logger().Infof("%s: Dropping table %s.%s\n",
-					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), dbName, tableName)
+					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), source.GetPrimary().DbName(), tableName)
 			} else {
 				renameName, err := sqlescape.EnsureEscaped(getRenameFileName(tableName))
 				if err != nil {
 					return err
 				}
 				ts.Logger().Infof("%s: Renaming table %s.%s to %s.%s\n",
-					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), dbName, tableName, dbName, renameName)
+					topoproto.TabletAliasString(source.GetPrimary().GetAlias()), source.GetPrimary().DbName(), tableName, source.GetPrimary().DbName(), renameName)
 				query = fmt.Sprintf("rename table %s.%s TO %s.%s", primaryDbName, tableNameEscaped, primaryDbName, renameName)
 			}
 			_, err = ts.ws.tmc.ExecuteFetchAsDba(ctx, source.GetPrimary().Tablet, false, &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
@@ -580,7 +575,7 @@ func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType T
 					return err
 				}
 			}
-			ts.Logger().Infof("%s: Removed table %s.%s\n", topoproto.TabletAliasString(source.GetPrimary().GetAlias()), dbName, tableName)
+			ts.Logger().Infof("%s: Removed table %s.%s\n", topoproto.TabletAliasString(source.GetPrimary().GetAlias()), source.GetPrimary().DbName(), tableName)
 
 		}
 		return nil

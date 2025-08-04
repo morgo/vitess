@@ -23,7 +23,6 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/grpcclient"
-	"vitess.io/vitess/go/vt/log"
 	binlogdatapb "vitess.io/vitess/go/vt/proto/binlogdata"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -98,12 +97,10 @@ func (ec *externalConnector) Get(name string) (*mysqlConnector, error) {
 	}
 	c := &mysqlConnector{}
 	c.env = tabletenv.NewEnv(ec.env, config, name)
-	c.se = schema.NewEngine(c.env)
+	c.se = schema.NewEngine(c.env, nil)
 	// Initialize schema engine with proper database connector
 	c.se.InitDBConfig(config.DB.AllPrivsWithDB())
-	c.vstreamer = vstreamer.NewEngine(c.env, nil, c.se, nil, "")
-	// Initialize vstreamer with proper keyspace and shard - use the database name as keyspace
-	c.vstreamer.InitDBConfig(config.DB.DBName, "0")
+	c.vstreamer = vstreamer.NewEngine(c.env, nil, c.se, nil, "", nil)
 
 	// Open schema engine first
 	if err := c.se.Open(); err != nil {
@@ -158,7 +155,6 @@ func (c *mysqlConnector) VStreamRows(ctx context.Context, query string, lastpk *
 	if options != nil && options.DbName != "" {
 		dbName = options.DbName
 	}
-	log.Infof("DEBUGZ: VStreamRows external connector request. DB:%s", dbName)
 	return c.vstreamer.StreamRows(ctx, dbName, query, row, send, options)
 }
 

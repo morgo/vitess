@@ -89,6 +89,11 @@ type vstreamer struct {
 	vse     *Engine
 	options *binlogdatapb.VStreamOptions
 	config  *vttablet.VReplicationConfig
+
+	// keyspace and shard for this stream's database context
+	// resolved once during initialization from vs.cp.DBName()
+	keyspace string
+	shard    string
 }
 
 // streamerPlan extends the original plan to also include
@@ -129,6 +134,15 @@ func newVStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine
 	if err != nil {
 		return nil
 	}
+
+	// Resolve keyspace and shard for this stream's database context
+	keyspace, shard, err := vse.registry.GetKeyspaceShardByDbName(cp.DBName())
+	if err != nil {
+		log.Errorf("Failed to resolve keyspace/shard for dbName %s: %v", cp.DBName(), err)
+		// Fall back to physical keyspace/shard if resolution fails
+		keyspace, shard = vse.registry.GetPhysicalKeyspaceShard()
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	return &vstreamer{
 		ctx:          ctx,
@@ -147,6 +161,8 @@ func newVStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine
 		vse:          vse,
 		options:      options,
 		config:       config,
+		keyspace:     keyspace,
+		shard:        shard,
 	}
 }
 
@@ -235,8 +251,9 @@ func (vs *vstreamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 	// all existing rows are sent without the new row.
 	// If a single row exceeds the packet size, it will be in its own packet.
 	bufferAndTransmit := func(vevent *binlogdatapb.VEvent) error {
-		vevent.Keyspace = vs.vse.keyspace
-		vevent.Shard = vs.vse.shard
+		// Set keyspace/shard from this vstreamer's resolved context
+		vevent.Keyspace = vs.keyspace
+		vevent.Shard = vs.shard
 
 		switch vevent.Type {
 		case binlogdatapb.VEventType_GTID, binlogdatapb.VEventType_BEGIN, binlogdatapb.VEventType_FIELD,
@@ -791,8 +808,8 @@ func (vs *vstreamer) buildSidecarTablePlan(id uint64, tm *mysql.TableMap) ([]*bi
 			FieldEvent: &binlogdatapb.FieldEvent{
 				TableName:       tableName,
 				Fields:          plan.fields(),
-				Keyspace:        vs.vse.keyspace,
-				Shard:           vs.vse.shard,
+				Keyspace:        vs.keyspace,
+				Shard:           vs.shard,
 				IsInternalTable: plan.IsInternal,
 			}})
 	}
@@ -829,8 +846,8 @@ func (vs *vstreamer) buildTablePlan(id uint64, tm *mysql.TableMap) (*binlogdatap
 		FieldEvent: &binlogdatapb.FieldEvent{
 			TableName: plan.Table.Name,
 			Fields:    plan.fields(),
-			Keyspace:  vs.vse.keyspace,
-			Shard:     vs.vse.shard,
+			Keyspace:  vs.keyspace,
+			Shard:     vs.shard,
 			// This mapping will be done, if needed, in the vstreamer when we process
 			// and build ROW events.
 			EnumSetStringValues: len(plan.EnumSetValuesMap) > 0,
@@ -1123,8 +1140,8 @@ func (vs *vstreamer) processRowEvent(vevents []*binlogdatapb.VEvent, plan *strea
 				TableName:       plan.Table.Name,
 				DbName:          plan.Table.DBName,
 				RowChanges:      rowChanges,
-				Keyspace:        vs.vse.keyspace,
-				Shard:           vs.vse.shard,
+				Keyspace:        vs.keyspace,
+				Shard:           vs.shard,
 				Flags:           uint32(rows.Flags),
 				IsInternalTable: plan.IsInternal,
 			},

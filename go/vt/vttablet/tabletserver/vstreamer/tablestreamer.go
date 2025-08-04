@@ -163,7 +163,17 @@ func (ts *tableStreamer) newRowStreamer(ctx context.Context, dbName string, quer
 	vse.mu.Lock()
 	defer vse.mu.Unlock()
 
-	rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, query, lastpk, vse.lvschema,
+	// Get the vschema for dbName
+	vschema, err := vse.registry.GetVSchemaByKeyspace(dbName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get vschema for keyspace %s: %v", dbName, err)
+	}
+	localVSchema := &localVSchema{
+		keyspace: dbName,
+		vschema:  vschema,
+	}
+
+	rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, query, lastpk, localVSchema,
 		send, vse, RowStreamerModeAllTables, ts.snapshotConn, dbName, ts.options)
 
 	idx := vse.streamIdx
