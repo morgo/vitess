@@ -1333,38 +1333,38 @@ func (qre *QueryExecutor) recordUserQuery(queryType string, duration int64) {
 	qre.tsv.Stats().UserTableQueryTimesNs.Add([]string{tableName, username, queryType}, duration)
 }
 
-func (qre *QueryExecutor) GetSchemaDefinitions(tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+func (qre *QueryExecutor) GetSchemaDefinitions(dbName string, tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
 	switch tableType {
 	case querypb.SchemaTableType_VIEWS:
-		return qre.getViewDefinitions(tableNames, callback)
+		return qre.getViewDefinitions(dbName, tableNames, callback)
 	case querypb.SchemaTableType_TABLES:
-		return qre.getTableDefinitions(tableNames, callback)
+		return qre.getTableDefinitions(dbName, tableNames, callback)
 	case querypb.SchemaTableType_ALL:
-		return qre.getAllDefinitions(tableNames, callback)
+		return qre.getAllDefinitions(dbName, tableNames, callback)
 	case querypb.SchemaTableType_UDFS:
 		return qre.getUDFs(callback)
 	}
 	return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid table type %v", tableType)
 }
 
-func (qre *QueryExecutor) getViewDefinitions(viewNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
-	query, err := eschema.GetFetchViewQuery(viewNames, qre.tsv.env.Parser())
+func (qre *QueryExecutor) getViewDefinitions(dbName string, viewNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+	query, err := eschema.GetFetchViewQuery(dbName, viewNames, qre.tsv.env.Parser())
 	if err != nil {
 		return err
 	}
 	return qre.executeGetSchemaQuery(query, callback)
 }
 
-func (qre *QueryExecutor) getTableDefinitions(tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
-	query, err := eschema.GetFetchTableQuery(tableNames, qre.tsv.env.Parser())
+func (qre *QueryExecutor) getTableDefinitions(dbName string, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+	query, err := eschema.GetFetchTableQuery(dbName, tableNames, qre.tsv.env.Parser())
 	if err != nil {
 		return err
 	}
 	return qre.executeGetSchemaQuery(query, callback)
 }
 
-func (qre *QueryExecutor) getAllDefinitions(tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
-	query, err := eschema.GetFetchTableAndViewsQuery(tableNames, qre.tsv.env.Parser())
+func (qre *QueryExecutor) getAllDefinitions(dbName string, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+	query, err := eschema.GetFetchTableAndViewsQuery(dbName, tableNames, qre.tsv.env.Parser())
 	if err != nil {
 		return err
 	}

@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -1593,6 +1594,10 @@ func txToReserveState(state queryservice.TransactionState) queryservice.Reserved
 
 // GetSchema returns table definitions for the specified tables.
 func (tsv *TabletServer) GetSchema(ctx context.Context, target *querypb.Target, tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) (err error) {
+	dbName := target.DbName
+	if dbName == "" {
+		return errors.New("target.DbName is empty, cannot get schema")
+	}
 	err = tsv.execRequest(
 		ctx, tsv.loadQueryTimeout(),
 		"GetSchema", "", nil,
@@ -1605,7 +1610,7 @@ func (tsv *TabletServer) GetSchema(ctx context.Context, target *querypb.Target, 
 				logStats: logStats,
 				tsv:      tsv,
 			}
-			return qre.GetSchemaDefinitions(tableType, tableNames, callback)
+			return qre.GetSchemaDefinitions(dbName, tableType, tableNames, callback)
 		},
 	)
 	return

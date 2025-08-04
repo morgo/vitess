@@ -18,7 +18,6 @@ package schema
 
 import (
 	"context"
-	"strings"
 
 	"vitess.io/vitess/go/vt/log"
 
@@ -340,11 +339,22 @@ func getChangedViewNames(ctx context.Context, dbName string, conn *connpool.Conn
 	alloc := func() *sqltypes.Result { return &sqltypes.Result{} }
 	bufferSize := 1000
 
-	// Build the query with the dbName parameter
+	// Build the query with the dbName parameter using bind variables
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
 	viewChangeQuery := sqlparser.BuildParsedQuery(detectViewChange, sidecar.GetIdentifier()).Query
-	// Use a simple string replacement for now since we can't use the new parser
-	finalQuery := strings.ReplaceAll(viewChangeQuery, ":db_name", "'"+dbName+"'")
-	err := conn.Stream(ctx, finalQuery, callback, alloc, bufferSize, 0)
+	parsedQuery, err := sqlparser.NewTestParser().Parse(viewChangeQuery)
+	if err != nil {
+		return nil, err
+	}
+	buf := sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalQuery, err := buf.ParsedQuery().GenerateQuery(bv, nil)
+	if err != nil {
+		return nil, err
+	}
+	err = conn.Stream(ctx, finalQuery, callback, alloc, bufferSize, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -505,20 +515,24 @@ func reloadUdfsInDB(ctx context.Context, dbName string, conn *connpool.Conn, udf
 }
 
 // GetFetchViewQuery gets the fetch query to run for getting the listed views. If no views are provided, then all the views are fetched.
-func GetFetchViewQuery(viewNames []string, parser *sqlparser.Parser) (string, error) {
+func GetFetchViewQuery(dbName string, viewNames []string, parser *sqlparser.Parser) (string, error) {
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+
 	if len(viewNames) == 0 {
 		parsedQuery, err := generateFullQuery(fetchViews, parser)
 		if err != nil {
 			return "", err
 		}
-		return parsedQuery.Query, nil
+		return parsedQuery.GenerateQuery(bv, nil)
 	}
 
 	viewsBV, err := sqltypes.BuildBindVariable(viewNames)
 	if err != nil {
 		return "", err
 	}
-	bv := map[string]*querypb.BindVariable{"viewNames": viewsBV}
+	bv["viewNames"] = viewsBV
 
 	parsedQuery, err := generateFullQuery(fetchUpdatedViews, parser)
 	if err != nil {
@@ -528,20 +542,24 @@ func GetFetchViewQuery(viewNames []string, parser *sqlparser.Parser) (string, er
 }
 
 // GetFetchTableQuery gets the fetch query to run for getting the listed tables. If no tables are provided, then all the tables are fetched.
-func GetFetchTableQuery(tableNames []string, parser *sqlparser.Parser) (string, error) {
+func GetFetchTableQuery(dbName string, tableNames []string, parser *sqlparser.Parser) (string, error) {
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+
 	if len(tableNames) == 0 {
 		parsedQuery, err := generateFullQuery(fetchTables, parser)
 		if err != nil {
 			return "", err
 		}
-		return parsedQuery.Query, nil
+		return parsedQuery.GenerateQuery(bv, nil)
 	}
 
 	tablesBV, err := sqltypes.BuildBindVariable(tableNames)
 	if err != nil {
 		return "", err
 	}
-	bv := map[string]*querypb.BindVariable{"tableNames": tablesBV}
+	bv["tableNames"] = tablesBV
 
 	parsedQuery, err := generateFullQuery(fetchUpdatedTables, parser)
 	if err != nil {
@@ -551,20 +569,24 @@ func GetFetchTableQuery(tableNames []string, parser *sqlparser.Parser) (string, 
 }
 
 // GetFetchTableAndViewsQuery gets the fetch query to run for getting the listed tables and views. If no table names are provided, then all the tables and views are fetched.
-func GetFetchTableAndViewsQuery(tableNames []string, parser *sqlparser.Parser) (string, error) {
+func GetFetchTableAndViewsQuery(dbName string, tableNames []string, parser *sqlparser.Parser) (string, error) {
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+
 	if len(tableNames) == 0 {
 		parsedQuery, err := generateFullQuery(fetchTablesAndViews, parser)
 		if err != nil {
 			return "", err
 		}
-		return parsedQuery.Query, nil
+		return parsedQuery.GenerateQuery(bv, nil)
 	}
 
 	tablesBV, err := sqltypes.BuildBindVariable(tableNames)
 	if err != nil {
 		return "", err
 	}
-	bv := map[string]*querypb.BindVariable{"tableNames": tablesBV}
+	bv["tableNames"] = tablesBV
 
 	parsedQuery, err := generateFullQuery(fetchUpdatedTablesAndViews, parser)
 	if err != nil {

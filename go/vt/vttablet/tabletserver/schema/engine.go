@@ -53,6 +53,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 
 	binlogdatapb "vitess.io/vitess/go/vt/proto/binlogdata"
+	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
@@ -427,7 +428,25 @@ func populateInnoDBStats(ctx context.Context, dbName string, conn *connpool.Conn
 		return nil, nil
 	}
 
-	innodbResults, err := conn.Exec(ctx, innodbTableSizesQuery, maxTableCount*maxPartitionsPerTable, false)
+	// Parse the query and use proper bind variables
+	parsedQuery, err := sqlparser.NewTestParser().Parse(innodbTableSizesQuery)
+	if err != nil {
+		return nil, err
+	}
+	buf := sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery := buf.ParsedQuery()
+
+	// Use bind variables for secure parameter substitution
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+	finalQuery, err := finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	innodbResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return nil, vterrors.Wrapf(err, "in Engine.reload(), reading innodb tables")
 	}
@@ -723,8 +742,25 @@ func getTableData(ctx context.Context, dbName string, conn *connpool.Conn, inclu
 	} else {
 		showTablesQuery = conn.BaseShowTables()
 	}
-	// Use a simple string replacement for now since we can't use the new parser
-	finalQuery := strings.ReplaceAll(showTablesQuery, ":db_name", "'"+dbName+"'")
+
+	// Parse the query and use proper bind variables
+	parsedQuery, err := sqlparser.NewTestParser().Parse(showTablesQuery)
+	if err != nil {
+		return nil, err
+	}
+	buf := sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery := buf.ParsedQuery()
+
+	// Use bind variables for secure parameter substitution
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+	finalQuery, err := finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	return conn.Exec(ctx, finalQuery, maxTableCount, false)
 }
 
@@ -760,9 +796,25 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, dbName string, co
 		partition string
 	}
 
-	// Use a simple string replacement for now since we can't use the new parser
-	partitionsQuery := strings.ReplaceAll(conn.BaseShowPartitions(), ":db_name", "'"+dbName+"'")
-	partitionsResults, err := conn.Exec(ctx, partitionsQuery, 8192*maxTableCount, false)
+	// Use proper bind variables for partitions query
+	partitionsQuery := conn.BaseShowPartitions()
+	parsedQuery, err := sqlparser.NewTestParser().Parse(partitionsQuery)
+	if err != nil {
+		return err
+	}
+	buf := sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery := buf.ParsedQuery()
+
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+	finalQuery, err := finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	partitionsResults, err := conn.Exec(ctx, finalQuery, 8192*maxTableCount, false)
 	if err != nil {
 		return err
 	}
@@ -784,9 +836,22 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, dbName string, co
 	}
 	tables := make(map[string]table)
 
-	// Use a simple string replacement for now since we can't use the new parser
-	tableStatsQuery := strings.ReplaceAll(conn.BaseShowTableRowCountClusteredIndex(), ":db_name", "'"+dbName+"'")
-	tableStatsResults, err := conn.Exec(ctx, tableStatsQuery, maxTableCount*maxPartitionsPerTable, false)
+	// Use proper bind variables for table stats query
+	tableStatsQuery := conn.BaseShowTableRowCountClusteredIndex()
+	parsedQuery, err = sqlparser.NewTestParser().Parse(tableStatsQuery)
+	if err != nil {
+		return err
+	}
+	buf = sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery = buf.ParsedQuery()
+
+	finalQuery, err = finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	tableStatsResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -817,8 +882,22 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, dbName string, co
 	indexes := make(map[[2]string]index)
 
 	// Load the byte sizes of all indexes. Results contain one row for every index/partition combination.
-	indexSizesQuery := strings.ReplaceAll(conn.BaseShowIndexSizes(), ":db_name", "'"+dbName+"'")
-	bytesResults, err := conn.Exec(ctx, indexSizesQuery, maxTableCount*maxIndexesPerTable, false)
+	// Use proper bind variables for index sizes query
+	indexSizesQuery := conn.BaseShowIndexSizes()
+	parsedQuery, err = sqlparser.NewTestParser().Parse(indexSizesQuery)
+	if err != nil {
+		return err
+	}
+	buf = sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery = buf.ParsedQuery()
+
+	finalQuery, err = finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	bytesResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxIndexesPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -844,8 +923,22 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, dbName string, co
 	}
 
 	// Load index cardinalities. Results contain one row for every index (pre-aggregated across partitions).
-	cardinalitiesQuery := strings.ReplaceAll(conn.BaseShowIndexCardinalities(), ":db_name", "'"+dbName+"'")
-	cardinalityResults, err := conn.Exec(ctx, cardinalitiesQuery, maxTableCount*maxPartitionsPerTable, false)
+	// Use proper bind variables for cardinalities query
+	cardinalitiesQuery := conn.BaseShowIndexCardinalities()
+	parsedQuery, err = sqlparser.NewTestParser().Parse(cardinalitiesQuery)
+	if err != nil {
+		return err
+	}
+	buf = sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery = buf.ParsedQuery()
+
+	finalQuery, err = finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	cardinalityResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return err
 	}

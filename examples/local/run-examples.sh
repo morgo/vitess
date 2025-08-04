@@ -24,6 +24,8 @@ killall -9 vtorc
 
 source ../common/env.sh # Required so that "mysql" works from alias
 
+set -e
+
 ./101_initial_cluster.sh
 
 mysql < ../common/insert_commerce_data.sql
