@@ -117,21 +117,21 @@ func addSchemaEngineQueries(db *fakesqldb.DB) {
 	db.AddQueryPattern(baseShowTablesWithSizesPattern, &sqltypes.Result{
 		Fields: mysql.BaseShowTablesWithSizesFields,
 		Rows: [][]sqltypes.Value{
-			mysql.BaseShowTablesWithSizesRow("fakesqldb", "test_table_01", false, ""),
-			mysql.BaseShowTablesWithSizesRow("fakesqldb", "test_table_02", false, ""),
-			mysql.BaseShowTablesWithSizesRow("fakesqldb", "test_table_03", false, ""),
-			mysql.BaseShowTablesWithSizesRow("fakesqldb", "seq", false, "vitess_sequence"),
-			mysql.BaseShowTablesWithSizesRow("fakesqldb", "msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
+			mysql.BaseShowTablesWithSizesRow("test_table_01", false, ""),
+			mysql.BaseShowTablesWithSizesRow("test_table_02", false, ""),
+			mysql.BaseShowTablesWithSizesRow("test_table_03", false, ""),
+			mysql.BaseShowTablesWithSizesRow("seq", false, "vitess_sequence"),
+			mysql.BaseShowTablesWithSizesRow("msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
 		}})
 	db.AddQuery(mysql.BaseShowTables,
 		&sqltypes.Result{
 			Fields: mysql.BaseShowTablesFields,
 			Rows: [][]sqltypes.Value{
-				mysql.BaseShowTablesRow("fakesqldb", "test_table_01", false, ""),
-				mysql.BaseShowTablesRow("fakesqldb", "test_table_02", false, ""),
-				mysql.BaseShowTablesRow("fakesqldb", "test_table_03", false, ""),
-				mysql.BaseShowTablesRow("fakesqldb", "seq", false, "vitess_sequence"),
-				mysql.BaseShowTablesRow("fakesqldb", "msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
+				mysql.BaseShowTablesRow("test_table_01", false, ""),
+				mysql.BaseShowTablesRow("test_table_02", false, ""),
+				mysql.BaseShowTablesRow("test_table_03", false, ""),
+				mysql.BaseShowTablesRow("seq", false, "vitess_sequence"),
+				mysql.BaseShowTablesRow("msg", false, "vitess_message,vt_ack_wait=30,vt_purge_after=120,vt_batch_size=1,vt_cache_size=10,vt_poller_interval=30"),
 			},
 		})
 	db.AddQuery("show status like 'Innodb_rows_read'", sqltypes.MakeTestResult(sqltypes.MakeTestFields(

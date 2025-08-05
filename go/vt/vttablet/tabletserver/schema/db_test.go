@@ -944,7 +944,7 @@ func TestGetFetchViewQuery(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			query, err := GetFetchViewQuery(testcase.viewNames, sqlparser.NewTestParser())
+			query, err := GetFetchViewQuery("", testcase.viewNames, sqlparser.NewTestParser())
 			require.NoError(t, err)
 			require.Equal(t, testcase.expectedQuery, query)
 		})
@@ -971,7 +971,7 @@ func TestGetFetchTableQuery(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			query, err := GetFetchTableQuery(testcase.tableNames, sqlparser.NewTestParser())
+			query, err := GetFetchTableQuery("", testcase.tableNames, sqlparser.NewTestParser())
 			require.NoError(t, err)
 			require.Equal(t, testcase.expectedQuery, query)
 		})
@@ -998,7 +998,7 @@ func TestGetFetchTableAndViewsQuery(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			query, err := GetFetchTableAndViewsQuery(testcase.tableNames, sqlparser.NewTestParser())
+			query, err := GetFetchTableAndViewsQuery("", testcase.tableNames, sqlparser.NewTestParser())
 			require.NoError(t, err)
 			require.Equal(t, testcase.expectedQuery, query)
 		})
