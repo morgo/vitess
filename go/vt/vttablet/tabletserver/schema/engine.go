@@ -504,6 +504,12 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 
 	// We reload each of the DBs this tablet is responsible for
 	// one after the other.
+	// Refresh first - as we need up to date.
+	// TODO: figure out why this is needed.
+	if err := se.registry.Refresh(context.Background()); err != nil {
+		log.Warningf("failed to refresh registry: %v", err)
+	}
+
 	dbNames := se.registry.GetAllDBNames()
 	for _, dbName := range dbNames {
 		if err := se.reloadIndividualDB(ctx, dbName, includeStats); err != nil {
@@ -1090,12 +1096,14 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 	// This also allows us to perform a just-in-time initialization of the cache if
 	// a vstreamer is the first one to access it.
 	if se.conns != nil { // Test Engines (NewEngineForTests()) don't have a conns pool
+		log.Infof("DEBUG: table %v.%v not found in vttablet schema, performing fallback", dbName, tableNameStr)
 		if err := se.reload(ctx, false); err != nil {
 			return nil, err
 		}
 		if st, ok := se.tables[dbName][tableNameStr]; ok {
 			return newMinimalTable(st), nil
 		}
+		log.Infof("DEBUG: table %v.%v still not found in vttablet schema after reload", dbName, tableNameStr)
 	}
 
 	log.Infof("table %v.%v not found in vttablet schema, current tables: %v", dbName, tableNameStr, se.tables)

@@ -3,11 +3,11 @@ package registry
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"vitess.io/vitess/go/vt/log"
 	querypb "vitess.io/vitess/go/vt/proto/query"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vterrors"
@@ -35,10 +35,6 @@ type Registry interface {
 	GetAllKeyspaces() []string
 	// GetAllDBNames returns all database names known to the registry.
 	GetAllDBNames() []string
-	// AddTablet adds a tablet to the registry.
-	AddTablet(tablet *topo.TabletInfo) error
-	// RemoveTablet removes a tablet from the registry.
-	RemoveTablet(keyspace, shard string) error
 	// GetPhysicalKeyspaceShard returns the physical keyspace and shard for this registry instance
 	GetPhysicalKeyspaceShard() (string, string)
 }
@@ -85,6 +81,12 @@ func (reg *TopoRegistry) Init(ctx context.Context, target *querypb.Target) error
 	if target == nil {
 		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target cannot be nil")
 	}
+	if target.DbName == "" {
+		log.Infof("DBName not specified for target %s/%s, %#v", target.Keyspace, target.Shard, target)
+		// Need to come up with a DBName otherwise everything will break.
+		// This is temporary. No shard ID here, it's a physical shard.
+		target.DbName = "vt_" + target.Keyspace
+	}
 	reg.physicalTarget = target
 
 	if !reg.isConstructed() {
@@ -126,12 +128,12 @@ func (reg *TopoRegistry) GetPhysicalKeyspaceShard() (string, string) {
 	return reg.physicalTarget.Keyspace, reg.physicalTarget.Shard
 }
 
+// ResolveTarget returns the dbName if it's specified in req.DBNameOverride and it's a permissible DB - if not permissible = error.
+// If there is no virtual shards present, return the DB name for the physical shard + no error.
+// If there are virtual shards present and DBNameOverride is empty = error.
 func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Target) (*querypb.Target, string, error) {
-	/*
-	* Return the dbName if it's specified in req.DBNameOverride and it's a permissible DB - if not permissible = error.
-	* If there is no virtual shards present, return the DB name for the physical shard + no error.
-	* If there are virtual shards present and DBNameOverride is empty = error.
-	 */
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
 
 	log.Infof("Resolving target %s/%s", target.Keyspace, target.Shard)
 	if target.Keyspace == "" {
@@ -140,28 +142,6 @@ func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Targ
 
 	if target.Shard == "" {
 		return nil, "", vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "target shard cannot be empty")
-	}
-
-	// Check if the target matches the physical target directly
-	if target.Keyspace == reg.physicalTarget.Keyspace && target.Shard == reg.physicalTarget.Shard {
-		// if there are virtual targetTablets for the current physical tablet, it is an error to try to
-		// resolve the physical tablet directly ?
-		/*
-			if len(reg.targetTablets) != 0 {
-				return nil, "", vterrors.New(vtrpcpb.Code_INTERNAL, "illegal to resolve physical tablet if it serves virtual tablets")
-			}
-		*/
-		log.Infof("Target %s/%s matches physical target, returning as is: %#v", target.Keyspace, target.Shard, target)
-		return reg.physicalTarget, reg.physicalTarget.DbName, nil
-	}
-
-	reg.mu.Lock()
-	defer reg.mu.Unlock()
-
-	// TODO: This is a hack - the addTablet() method is not working correctly
-	// when we add tablets. I'll fix it soon.
-	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
-		return nil, "", err
 	}
 
 	tk := targetKey{
@@ -188,16 +168,10 @@ func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Targ
 		log.Warningf("virtual keyspace %s not found in registry, looking in topo server", target.Keyspace)
 		tablets, err := reg.r.ResolveShardTablets(ctx, target.Keyspace, target.Shard)
 		if err != nil {
-			if vterrors.Code(err) == vtrpcpb.Code_NOT_FOUND {
-				log.Warningf("virtual keyspace %s/%s not found in topo server, falling back to naming convention", target.Keyspace, target.Shard)
-				return target, formatSafeSchema(target.Keyspace, target.Shard), nil
-			} else {
-				return nil, "", vterrors.Wrapf(err, "failed to resolve tablets for keyspace %s and shard %s", target.Keyspace, target.Shard)
-			}
+			return nil, "", vterrors.Wrapf(err, "failed to resolve tablets for keyspace %s and shard %s", target.Keyspace, target.Shard)
 		}
 		if len(tablets) == 0 {
-			log.Warningf("no tablets found for virtual keyspace %s/%s, falling back to naming convention", target.Keyspace, target.Shard)
-			return target, formatSafeSchema(target.Keyspace, target.Shard), nil
+			return nil, "", fmt.Errorf("no tablets found for virtual keyspace %s/%s", target.Keyspace, target.Shard)
 		}
 		log.Infof("Found %d tablets for virtual keyspace %s/%s", len(tablets), target.Keyspace, target.Shard)
 		for _, tablet := range tablets {
@@ -223,17 +197,11 @@ func (reg *TopoRegistry) ResolveTarget(ctx context.Context, target *querypb.Targ
 }
 
 func (reg *TopoRegistry) ResolveDbName(dbName string) (*topo.TabletInfo, error) {
-	if dbName == "" {
-		return nil, vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "dbName cannot be empty")
-	}
-
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 
-	// TODO: This is a hack - the addTablet() method is not working correctly
-	// when we add tablets. I'll fix it soon.
-	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
-		return nil, err
+	if dbName == "" {
+		return nil, vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "dbName cannot be empty")
 	}
 
 	tablet, exists := reg.dbNameTablets[dbName]
@@ -246,18 +214,12 @@ func (reg *TopoRegistry) ResolveDbName(dbName string) (*topo.TabletInfo, error) 
 }
 
 func (reg *TopoRegistry) GetKeyspaceShardByDbName(dbName string) (string, string, error) {
-	if dbName == "" {
-		// Fallback to physical keyspace for empty dbName
-		return reg.physicalTarget.Keyspace, reg.physicalTarget.Shard, nil
-	}
-
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 
-	// TODO: This is a hack - the addTablet() method is not working correctly
-	// when we add tablets. I'll fix it soon.
-	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
-		return "", "", err
+	if dbName == "" {
+		// Fallback to physical keyspace for empty dbName
+		return reg.physicalTarget.Keyspace, reg.physicalTarget.Shard, nil
 	}
 
 	tablet, exists := reg.dbNameTablets[dbName]
@@ -274,12 +236,6 @@ func (reg *TopoRegistry) GetKeyspaceShardByDbName(dbName string) (string, string
 func (reg *TopoRegistry) GetDBNameByKeyspaceShard(keyspace, shard string) (string, error) {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
-
-	// TODO: This is a hack - the addTablet() method is not working correctly
-	// when we add tablets. I'll fix it soon.
-	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
-		return "", err
-	}
 
 	for _, tablet := range reg.targetTablets {
 		if tablet.Keyspace == keyspace && tablet.Shard == shard {
@@ -313,12 +269,6 @@ func (reg *TopoRegistry) GetAllKeyspaces() []string {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 
-	// TODO: This is a hack - the addTablet() method is not working correctly
-	// when we add tablets. I'll fix it soon.
-	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
-		return []string{}
-	}
-
 	// Create a set to avoid duplicates
 	keyspaceSet := make(map[string]bool)
 
@@ -349,14 +299,13 @@ func (reg *TopoRegistry) GetAllDBNames() []string {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 
-	// TODO: This is a hack - the addTablet() method is not working correctly
-	// when we add tablets. I'll fix it soon.
-	if err := reg.loadTabletsAndShards(context.Background()); err != nil {
-		return []string{}
-	}
-
 	// Create a set to avoid duplicates
 	dbNameSet := make(map[string]bool)
+
+	// Always add the physical target's DbName if it exists
+	if reg.physicalTarget.DbName != "" {
+		dbNameSet[reg.physicalTarget.DbName] = true
+	}
 
 	// Add all tablets' DB names
 	for _, tablet := range reg.targetTablets {
@@ -373,45 +322,30 @@ func (reg *TopoRegistry) GetAllDBNames() []string {
 	return dbNames
 }
 
-func (reg *TopoRegistry) AddTablet(tablet *topo.TabletInfo) error {
-	if tablet == nil || tablet.Tablet == nil {
-		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "tablet cannot be nil")
-	}
-
-	reg.mu.Lock()
-	defer reg.mu.Unlock()
-
-	if err := reg.storeTablet(tablet); err != nil {
-		return vterrors.Wrapf(err, "failed to add tablet %s/%s", tablet.Keyspace, tablet.Shard)
-	}
-	log.Infof("Added tablet %s/%s to registry", tablet.Keyspace, tablet.Shard)
-	return nil
-}
-
-func (reg *TopoRegistry) RemoveTablet(keyspace, shard string) error {
-	if keyspace == "" || shard == "" {
-		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "keyspace and shard cannot be empty")
-	}
-
-	reg.mu.Lock()
-	defer reg.mu.Unlock()
-
-	tk := targetKey{
-		Keyspace: keyspace,
-		Shard:    shard,
-	}
-	tablet, exists := reg.targetTablets[tk]
-	if !exists {
-		return vterrors.New(vtrpcpb.Code_NOT_FOUND, fmt.Sprintf("tablet for keyspace %s and shard %s not found", keyspace, shard))
-	}
-
-	// Remove from both maps
-	delete(reg.targetTablets, tk)
-	delete(reg.dbNameTablets, tablet.DbNameOverride)
-	log.Infof("Removed tablet for keyspace %s and shard %s from registry", keyspace, shard)
-	return nil
-}
+// loadTabletsAndShards loads the tablets and shards from the topology server.
+// It clears the existing maps to prevent stale data, and is always called
+// under a mutex.
 func (reg *TopoRegistry) loadTabletsAndShards(ctx context.Context) error {
+	// Clear existing maps to prevent stale data
+	reg.targetTablets = make(map[targetKey]*topo.TabletInfo)
+	reg.dbNameTablets = make(map[string]*topo.TabletInfo)
+
+	// First, add the physical tablet information
+	physicalTablet := &topo.TabletInfo{
+		Tablet: &topodatapb.Tablet{
+			Keyspace:       reg.physicalTarget.Keyspace,
+			Shard:          reg.physicalTarget.Shard,
+			DbNameOverride: reg.physicalTarget.DbName,
+		},
+	}
+	tk := targetKey{
+		Keyspace: reg.physicalTarget.Keyspace,
+		Shard:    reg.physicalTarget.Shard,
+	}
+	reg.targetTablets[tk] = physicalTablet
+	reg.dbNameTablets[reg.physicalTarget.DbName] = physicalTablet
+
+	// Then load virtual tablets
 	tablets, err := reg.ts.GetVirtualTablets(ctx, reg.physicalTarget.Cell, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
 	if err != nil {
 		return vterrors.Wrapf(err, "failed to get virtual tablets for cell %q, keyspace %q, shard %q", reg.physicalTarget.Cell, reg.physicalTarget.Keyspace, reg.physicalTarget.Shard)
@@ -430,9 +364,17 @@ func (reg *TopoRegistry) storeTablet(tablet *topo.TabletInfo) error {
 		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "tablet cannot be nil")
 	}
 
-	// Check if the tablet has a DbNameOverride
+	// Virtual tablets must have a DbNameOverride, but physical tablets might not
 	if tablet.Tablet.DbNameOverride == "" {
-		return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "virtual tablet must have a DbNameOverride")
+		// Check if this is the physical tablet (matching keyspace/shard)
+		if tablet.Keyspace == reg.physicalTarget.Keyspace && tablet.Shard == reg.physicalTarget.Shard {
+			// This is the physical tablet, it's okay to not have a DbNameOverride
+			// We'll use the physical target's DbName instead
+			tablet.Tablet.DbNameOverride = reg.physicalTarget.DbName
+		} else {
+			// This is a virtual tablet without DbNameOverride, which is an error
+			return vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "virtual tablet must have a DbNameOverride")
+		}
 	}
 
 	tk := targetKey{
@@ -440,12 +382,11 @@ func (reg *TopoRegistry) storeTablet(tablet *topo.TabletInfo) error {
 		Shard:    tablet.Shard,
 	}
 	reg.targetTablets[tk] = tablet
-	reg.dbNameTablets[tablet.DbNameOverride] = tablet
-	return nil
-}
 
-func formatSafeSchema(keyspace, shard string) string {
-	safeKeyspace := strings.ReplaceAll(keyspace, "-", "_")
-	safeShard := strings.ReplaceAll(shard, "-", "_")
-	return fmt.Sprintf("vt_%s_%s", safeKeyspace, safeShard)
+	// Only add to dbNameTablets if there's a valid DbNameOverride
+	if tablet.Tablet.DbNameOverride != "" {
+		reg.dbNameTablets[tablet.DbNameOverride] = tablet
+	}
+
+	return nil
 }
