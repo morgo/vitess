@@ -28,6 +28,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
+	"vitess.io/vitess/go/vt/vtgate/vindexes"
 	vttablet "vitess.io/vitess/go/vt/vttablet/common"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 
@@ -167,6 +168,12 @@ func (ts *tableStreamer) newRowStreamer(ctx context.Context, dbName string, quer
 	vschema, err := vse.registry.GetVSchemaByKeyspace(dbName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get vschema for keyspace %s: %v", dbName, err)
+	}
+	// Handle case where vschema is nil (keyspace not found in vschema)
+	if vschema == nil {
+		vschema = &vindexes.VSchema{
+			Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+		}
 	}
 	localVSchema := &localVSchema{
 		keyspace: dbName,

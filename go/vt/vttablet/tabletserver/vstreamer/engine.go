@@ -158,6 +158,20 @@ func (vse *Engine) Open() {
 	log.Info("VStreamer: opening")
 	// If it's not already open, then open it now.
 	atomic.CompareAndSwapInt32(&vse.isOpen, 0, 1)
+
+	// Initialize empty vschemas for all keyspaces in the registry
+	// This prevents nil pointer dereferences when streamers try to access vschema
+	// before the watcher has had a chance to populate them
+	keyspaces := vse.registry.GetAllKeyspaces()
+	for _, keyspace := range keyspaces {
+		// Only set if not already present to avoid overwriting existing vschemas
+		if existingVSchema, err := vse.registry.GetVSchemaByKeyspace(keyspace); err == nil && existingVSchema == nil {
+			vse.registry.SetVSchema(keyspace, &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			})
+			log.Infof("Initialized empty vschema for keyspace %s", keyspace)
+		}
+	}
 }
 
 // IsOpen checks if the engine is opened
@@ -246,6 +260,12 @@ func (vse *Engine) Stream(ctx context.Context, startPos string, tablePKs []*binl
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to get vschema for keyspace %s: %v", physicalKeyspace, err)
 		}
+		// Handle case where vschema is nil (keyspace not found in vschema)
+		if vschema == nil {
+			vschema = &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			}
+		}
 
 		localVSchema := &localVSchema{
 			keyspace: physicalKeyspace,
@@ -307,6 +327,12 @@ func (vse *Engine) StreamRows(ctx context.Context, dbName string, query string, 
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to get vschema for keyspace %s: %v", keyspace, err)
 		}
+		// Handle case where vschema is nil (keyspace not found in vschema)
+		if vschema == nil {
+			vschema = &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			}
+		}
 		localVSchema := &localVSchema{
 			keyspace: keyspace,
 			vschema:  vschema,
@@ -367,6 +393,12 @@ func (vse *Engine) StreamTables(ctx context.Context, dbName string,
 		vschema, err := vse.registry.GetVSchemaByKeyspace(keyspace)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to get vschema for keyspace %s: %v", keyspace, err)
+		}
+		// Handle case where vschema is nil (keyspace not found in vschema)
+		if vschema == nil {
+			vschema = &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			}
 		}
 		localVSchema := &localVSchema{
 			keyspace: keyspace,

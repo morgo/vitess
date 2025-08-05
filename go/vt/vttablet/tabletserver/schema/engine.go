@@ -510,32 +510,55 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		log.Warningf("failed to refresh registry: %v", err)
 	}
 
+	// Aggregate changes from all databases
+	var allCreated, allAltered, allDropped []*Table
+	var anyUdfsChanged bool
+
 	dbNames := se.registry.GetAllDBNames()
 	for _, dbName := range dbNames {
-		if err := se.reloadIndividualDB(ctx, dbName, includeStats); err != nil {
+		created, altered, dropped, udfsChanged, err := se.reloadIndividualDB(ctx, dbName, includeStats)
+		if err != nil {
 			return err
 		}
+
+		// Aggregate the changes
+		allCreated = append(allCreated, created...)
+		allAltered = append(allAltered, altered...)
+		allDropped = append(allDropped, dropped...)
+		anyUdfsChanged = anyUdfsChanged || udfsChanged
 	}
+
+	// Single broadcast with all aggregated changes
+	if len(allCreated) > 0 || len(allAltered) > 0 || len(allDropped) > 0 {
+		log.Infof("schema engine aggregated changes - created %v, altered %v, dropped %v",
+			extractNamesFromTablesList(allCreated),
+			extractNamesFromTablesList(allAltered),
+			extractNamesFromTablesList(allDropped))
+	}
+
+	// Broadcast once with all changes (pass empty dbName since this is aggregated)
+	se.broadcast("", allCreated, allAltered, allDropped, anyUdfsChanged)
+
 	return nil
 }
 
-func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, includeStats bool) error {
+func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, includeStats bool) (created, altered, dropped []*Table, udfsChanged bool, err error) {
 	conn, err := se.conns.Get(ctx, nil)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 	defer conn.Recycle()
 
 	// curTime will be saved into lastChange after schema is loaded.
 	curTime, err := se.mysqlTime(ctx, conn.Conn)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 
 	var innodbTablesStats map[string]*Table
 	if includeStats {
 		if innodbTablesStats, err = populateInnoDBStats(ctx, dbName, conn.Conn); err != nil {
-			return err
+			return nil, nil, nil, false, err
 		}
 		// Since the InnoDB table size query is available to us on this MySQL version, we should use it.
 		// We therefore don't want to query for table sizes in getTableData()
@@ -547,7 +570,7 @@ func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, include
 	}
 	tableData, err := getTableData(ctx, dbName, conn.Conn, includeStats)
 	if err != nil {
-		return vterrors.Wrapf(err, "in Engine.reload(), reading tables")
+		return nil, nil, nil, false, vterrors.Wrapf(err, "in Engine.reload(), reading tables")
 	}
 
 	// On the primary tablet, we also check the data we have stored in our schema tables to see what all needs reloading.
@@ -557,22 +580,22 @@ func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, include
 	// doesn't update the create_time field for views when they are altered. This is annoying, but something we have to work around.
 	changedViews, err := getChangedViewNames(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 	// mismatchTables stores the tables whose createTime in our cache doesn't match the createTime stored in the database.
 	// This can happen if a primary crashed right after a DML succeeded, before it could reload its state. If all the replicas
 	// are able to reload their cache before one of them is promoted, then the database information would be out of sync.
 	mismatchTables, err := se.getMismatchedTableNames(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 
 	err = se.updateInnoDBRowsRead(ctx, dbName, conn.Conn)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 
-	udfsChanged, err := getChangedUserDefinedFunctions(ctx, dbName, conn.Conn, shouldUseDatabase)
+	udfsChanged, err = getChangedUserDefinedFunctions(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
 		se.throttledLogger.Errorf("error in getting changed UDFs: %v", err)
 	}
@@ -583,7 +606,8 @@ func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, include
 	// changedTables keeps track of tables that have changed so we can reload their pk info.
 	changedTables := make(map[string]*Table)
 	// created and altered contain the names of created and altered tables for broadcast.
-	var created, altered []*Table
+	created = make([]*Table, 0)
+	altered = make([]*Table, 0)
 	for _, row := range tableData.Rows {
 		tableName := row[0].ToString()
 		var innodbTable *Table
@@ -667,23 +691,22 @@ func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, include
 		}
 	}
 	if rec.HasErrors() {
-		return rec.Error()
+		return nil, nil, nil, false, rec.Error()
 	}
 
-	dropped := se.getDroppedTables(curTables, changedViews, mismatchTables)
+	dropped = se.getDroppedTables(dbName, curTables, changedViews, mismatchTables)
 
 	// Populate PK Columns for changed tables.
 	if err := se.populatePrimaryKeys(ctx, dbName, conn.Conn, changedTables); err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 
 	// If this tablet is the primary and schema tracking is required, we should reload the information in our database.
 	if shouldUseDatabase {
 		// If reloadDataInDB succeeds, then we don't want to prevent sending the broadcast notification.
 		// So, we do this step in the end when we can receive no more errors that fail the reload operation.
-		err = reloadDataInDB(ctx, dbName, conn.Conn, altered, created, dropped, udfsChanged, se.env.Environment().Parser())
-		if err != nil {
-			log.Errorf("error in updating schema information in Engine.reload() - %v", err)
+		if reloadErr := reloadDataInDB(ctx, dbName, conn.Conn, altered, created, dropped, udfsChanged, se.env.Environment().Parser()); reloadErr != nil {
+			log.Errorf("error in updating schema information in Engine.reload() - %v", reloadErr)
 		}
 	}
 
@@ -698,18 +721,19 @@ func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, include
 	if len(created) > 0 || len(altered) > 0 || len(dropped) > 0 {
 		log.Infof("schema engine created %v, altered %v, dropped %v", extractNamesFromTablesList(created), extractNamesFromTablesList(altered), extractNamesFromTablesList(dropped))
 	}
-	se.broadcast(dbName, created, altered, dropped, udfsChanged)
-	return nil
+	// Don't broadcast here anymore - return the changes for aggregation
+	return created, altered, dropped, udfsChanged, nil
 }
 
-func (se *Engine) getDroppedTables(curTables map[string]bool, changedViews map[string]any, mismatchTables map[string]any) []*Table {
+func (se *Engine) getDroppedTables(dbName string, curTables map[string]bool, changedViews map[string]any, mismatchTables map[string]any) []*Table {
 	// Compute and handle dropped tables.
 	dropped := make(map[string]*Table)
-	for schemaName, schemaMap := range se.tables {
+	// Only check for dropped tables within the specific database being reloaded
+	if schemaMap, ok := se.tables[dbName]; ok {
 		for tableName, table := range schemaMap {
 			if !curTables[tableName] {
 				dropped[tableName] = table
-				delete(se.tables[schemaName], tableName)
+				delete(se.tables[dbName], tableName)
 				// We can't actually delete the label from the stats, but we can set it to 0.
 				// Many monitoring tools will drop zero-valued metrics.
 				se.tableFileSizeGauge.Reset(tableName)
@@ -1043,6 +1067,7 @@ func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName s
 		return nil, err
 	}
 	if mt != nil {
+		log.Infof("DEBUG: table %v.%v found in historian", dbName, tableName.String())
 		return mt, nil
 	}
 	// We got nothing from the historian, which typically means that it's not enabled.
@@ -1195,15 +1220,19 @@ func (se *Engine) GetSchema() map[string]map[string]*Table {
 }
 
 // MarshalMinimalSchema returns a protobuf encoded binlogdata.MinimalSchema
+// Updated to support multi-database schemas by storing database-qualified table names
 func (se *Engine) MarshalMinimalSchema() ([]byte, error) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	dbSchema := &binlogdatapb.MinimalSchema{
 		Tables: make([]*binlogdatapb.MinimalTable, 0),
 	}
-	for _, schemaMap := range se.tables {
+	for dbName, schemaMap := range se.tables {
 		for _, table := range schemaMap {
-			dbSchema.Tables = append(dbSchema.Tables, newMinimalTable(table))
+			minTable := newMinimalTable(table)
+			// Store table name as qualified name (dbName.tableName)
+			minTable.Name = dbName + "." + table.Name.String()
+			dbSchema.Tables = append(dbSchema.Tables, minTable)
 		}
 	}
 	return dbSchema.MarshalVT()

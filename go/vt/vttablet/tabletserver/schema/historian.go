@@ -138,23 +138,31 @@ func (h *historian) GetTableForPos(dbName string, tableName sqlparser.Identifier
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.isOpen {
+		log.Infof("DEBUG: historian is not open")
 		return nil, nil
 	}
 
 	log.V(2).Infof("GetTableForPos called for %s with pos %s", tableName, gtid)
 	if gtid == "" {
+		log.Infof("DEBUG: gtid is empty")
 		return nil, nil
 	}
 	pos, err := replication.DecodePosition(gtid)
 	if err != nil {
+		log.Infof("DEBUG: failed to decode position %s: %v", gtid, err)
 		return nil, err
 	}
 	var t *binlogdatapb.MinimalTable
 	if len(h.schemas) > 0 {
-		t = h.getTableFromHistoryForPos(tableName, pos)
+		log.Infof("DEBUG: historian has %d schemas, looking for %s.%s at pos %s", len(h.schemas), dbName, tableName.String(), gtid)
+		t = h.getTableFromHistoryForPos(dbName, tableName, pos)
+	} else {
+		log.Infof("DEBUG: historian has no schemas")
 	}
 	if t != nil {
 		log.V(2).Infof("Returning table %s from history for pos %s, schema %s", tableName, gtid, t)
+	} else {
+		log.Infof("DEBUG: historian returned nil for %s.%s at pos %s", dbName, tableName.String(), gtid)
 	}
 	return t, nil
 }
@@ -235,6 +243,9 @@ func (h *historian) readRow(row []sqltypes.Value) (*trackedSchema, int64, error)
 
 	tables := map[string]*binlogdatapb.MinimalTable{}
 	for _, t := range sch.Tables {
+		// Store tables with qualified names (dbName.tableName)
+		// The table name in the MinimalTable should already be qualified
+		// when coming from MarshalMinimalSchema in the engine
 		tables[t.Name] = t
 	}
 	tSchema := &trackedSchema{
@@ -280,17 +291,48 @@ func (h *historian) sortSchemas() {
 }
 
 // getTableFromHistoryForPos looks in the cache for a schema for a specific gtid
-func (h *historian) getTableFromHistoryForPos(tableName sqlparser.IdentifierCS, pos replication.Position) *binlogdatapb.MinimalTable {
+// Uses qualified table names (dbName.tableName) for lookup
+func (h *historian) getTableFromHistoryForPos(dbName string, tableName sqlparser.IdentifierCS, pos replication.Position) *binlogdatapb.MinimalTable {
 	idx := sort.Search(len(h.schemas), func(i int) bool {
 		return pos.Equal(h.schemas[i].pos) || !pos.AtLeast(h.schemas[i].pos)
 	})
 	if idx >= len(h.schemas) || idx == 0 && !pos.Equal(h.schemas[idx].pos) { // beyond the range of the cache
-		log.Infof("Schema not found in cache for %s with pos %s", tableName, pos)
+		log.Infof("DEBUG: Schema not found in cache for %s.%s with pos %s, idx=%d, schemas len=%d", dbName, tableName, pos, idx, len(h.schemas))
+		if len(h.schemas) > 0 {
+			log.Infof("DEBUG: Available schema positions: first=%s, last=%s",
+				replication.EncodePosition(h.schemas[0].pos),
+				replication.EncodePosition(h.schemas[len(h.schemas)-1].pos))
+		}
 		return nil
 	}
+
+	// Create qualified table name for lookup
+	qualifiedTableName := dbName + "." + tableName.String()
+	log.Infof("DEBUG: Looking for qualified table name: %s", qualifiedTableName)
+
+	var schema map[string]*binlogdatapb.MinimalTable
 	if pos.Equal(h.schemas[idx].pos) { //exact match to a cache entry
-		return h.schemas[idx].schema[tableName.String()]
+		schema = h.schemas[idx].schema
+		log.Infof("DEBUG: Using exact match schema at idx %d", idx)
+	} else {
+		//not an exact match, so based on our sort algo idx is one less than found: from 40,44,48 : 43 < 44 but we want 40
+		schema = h.schemas[idx-1].schema
+		log.Infof("DEBUG: Using previous schema at idx %d", idx-1)
 	}
-	//not an exact match, so based on our sort algo idx is one less than found: from 40,44,48 : 43 < 44 but we want 40
-	return h.schemas[idx-1].schema[tableName.String()]
+
+	// Log all available table names in the schema
+	var tableNames []string
+	for name := range schema {
+		tableNames = append(tableNames, name)
+	}
+	log.Infof("DEBUG: Available tables in schema: %v", tableNames)
+
+	table := schema[qualifiedTableName]
+	if table == nil {
+		log.Infof("DEBUG: Table %s not found in schema", qualifiedTableName)
+	} else {
+		log.Infof("DEBUG: Found table %s in schema", qualifiedTableName)
+	}
+
+	return table
 }
