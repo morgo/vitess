@@ -608,6 +608,7 @@ func (tsv *TabletServer) begin(
 				qre := &QueryExecutor{
 					ctx:              ctx,
 					query:            query,
+					dbName:           target.DbName,
 					connID:           transactionID,
 					options:          options,
 					plan:             plan,
@@ -977,6 +978,7 @@ func (tsv *TabletServer) execute(ctx context.Context, target *querypb.Target, sq
 			}
 			qre := &QueryExecutor{
 				query:            query,
+				dbName:           target.DbName,
 				marginComments:   comments,
 				bindVars:         bindVariables,
 				connID:           connID,
@@ -1428,6 +1430,7 @@ func (tsv *TabletServer) ReserveBeginExecute(ctx context.Context, target *queryp
 				qre := &QueryExecutor{
 					ctx:              ctx,
 					query:            query,
+					dbName:           target.DbName,
 					connID:           connID,
 					options:          options,
 					plan:             plan,
@@ -1608,6 +1611,7 @@ func (tsv *TabletServer) GetSchema(ctx context.Context, target *querypb.Target, 
 				ctx:      ctx,
 				logStats: logStats,
 				tsv:      tsv,
+				dbName:   target.DbName,
 			}
 			return qre.GetSchemaDefinitions(dbName, tableType, tableNames, callback)
 		},

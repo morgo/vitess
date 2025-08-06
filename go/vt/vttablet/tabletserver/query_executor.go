@@ -54,6 +54,7 @@ import (
 // QueryExecutor is used for executing a query request.
 type QueryExecutor struct {
 	query          string
+	dbName         string
 	marginComments sqlparser.MarginComments
 	bindVars       map[string]*querypb.BindVariable
 	connID         int64
@@ -820,6 +821,22 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
+	if qre.dbName != "" {
+		pool, ok := qre.tsv.qe.dbConns[qre.dbName]
+		if !ok {
+			log.Warningf("no connection pool for db %s, refreshing pools", qre.dbName)
+			err := qre.tsv.qe.RefreshVirtualShardPools()
+			if err != nil {
+				return nil, vterrors.Wrapf(err, "failed to open connection pool for db %s", qre.dbName)
+			}
+			pool, ok = qre.tsv.qe.dbConns[qre.dbName]
+			if !ok {
+				log.Errorf("no connection pool for db %s after refreshing pools", qre.dbName)
+				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "no connection pool for db %s", qre.dbName)
+			}
+		}
+		return pool.Get(ctx, qre.setting)
+	}
 	return qre.tsv.qe.conns.Get(ctx, qre.setting)
 }
 
