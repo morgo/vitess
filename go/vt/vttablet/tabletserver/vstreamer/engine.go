@@ -368,7 +368,6 @@ func (vse *Engine) StreamRows(ctx context.Context, dbName string, query string, 
 func (vse *Engine) StreamTables(ctx context.Context, dbName string,
 	send func(*binlogdatapb.VStreamTablesResponse) error, options *binlogdatapb.VStreamOptions) error {
 
-	log.Infof("DEBUG: starting StreamTables for db %s with options: %v", dbName, options)
 	// Ensure vschema is initialized and the watcher is started.
 	// Starting of the watcher is delayed till the first call to StreamTables
 	// so that this overhead is incurred only if someone uses this feature.
@@ -501,6 +500,7 @@ func (vse *Engine) ServeHTTP(response http.ResponseWriter, request *http.Request
 func (vse *Engine) setWatch() {
 	// If there's no toposerver, update registry with empty vschema for all keyspaces.
 	if vse.ts == nil {
+		log.Warning("No topo server available, setting empty vschemas")
 		// For each keyspace in the registry, set an empty vschema
 		keyspaces := vse.registry.GetAllKeyspaces()
 		for _, keyspace := range keyspaces {
@@ -510,9 +510,7 @@ func (vse *Engine) setWatch() {
 	}
 
 	// WatchSrvVSchema does not return until the inner func has been called at least once.
-	log.Infof("DEBUG: Starting WatchSrvVSchema for cell %s", vse.cell)
 	vse.ts.WatchSrvVSchema(context.TODO(), vse.cell, func(v *vschemapb.SrvVSchema, err error) bool {
-		log.Infof("DEBUG: WatchSrvVSchema callback called with err=%v", err)
 		switch {
 		case err == nil:
 			// Build vschema down below.
@@ -550,9 +548,11 @@ func (vse *Engine) setWatch() {
 		}
 
 		// If vschema is not nil, extract keyspaces from it and update registry
-		// for keyspaces that we care about
+		// In virtual shard mode, we need to handle keyspaces that might not be in the registry yet
+		// but are served by this tablet
 		if vschema != nil && vschema.Keyspaces != nil {
 			for keyspaceName := range vschema.Keyspaces {
+				// Always update vschema for keyspaces in the registry
 				if registryKeyspaceSet[keyspaceName] {
 					// Create a keyspace-specific vschema containing only this keyspace
 					keyspaceVSchema := &vindexes.VSchema{
@@ -562,6 +562,18 @@ func (vse *Engine) setWatch() {
 					}
 					vse.registry.SetVSchema(keyspaceName, keyspaceVSchema)
 					log.Infof("Updated vschema for keyspace %s", keyspaceName)
+				} else {
+					// For virtual shard mode, we also need to check if this keyspace
+					// should be served by this tablet by looking at the vschema's shard mapping
+					// For now, let's be more permissive and update vschemas for all keyspaces
+					// that appear in the SrvVSchema, as they might be virtual keyspaces
+					// that this tablet should serve
+					keyspaceVSchema := &vindexes.VSchema{
+						Keyspaces: map[string]*vindexes.KeyspaceSchema{
+							keyspaceName: vschema.Keyspaces[keyspaceName],
+						},
+					}
+					vse.registry.SetVSchema(keyspaceName, keyspaceVSchema)
 				}
 			}
 		} else {
