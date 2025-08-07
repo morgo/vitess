@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Copyright 2020 The Vitess Authors.
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,18 @@
 # This test runs through the scripts in examples/local to make sure they work.
 # It should be kept in sync with the steps in https://vitess.io/docs/get-started/local/
 # So we can detect if a regression affecting a tutorial is introduced.
+#
+SLEEP_TIME=${SLEEP_TIME:-0}
+
+sleep() {
+  local time=$1
+  ((time == 0)) && return
+  for ((i = 0; i <= time; i++)); do
+    printf .
+    command sleep 1
+  done
+  printf \\n
+}
 
 pkill -9 -f vtdataroot
 rm -rf vtdataroot
@@ -30,30 +42,43 @@ source ../common/env.sh # Required so that "mysql" works from alias
 set -e
 
 ./101_initial_cluster.sh
+sleep "$SLEEP_TIME"
 
-mysql < ../common/insert_commerce_data.sql
-mysql --table < ../common/select_commerce_data.sql
+mysql <../common/insert_commerce_data.sql
+mysql --table <../common/select_commerce_data.sql
 
 ./201_customer_tablets.sh
+sleep "$SLEEP_TIME"
 
 ./202_move_tables.sh
+sleep "$SLEEP_TIME"
 
 ./203_switch_reads.sh
+sleep "$SLEEP_TIME"
 
 ./204_switch_writes.sh
+sleep "$SLEEP_TIME"
 
 ./205_clean_commerce.sh
+sleep "$SLEEP_TIME"
 
-./301_customer_sharded.sh 
+./301_customer_sharded.sh
+sleep "$SLEEP_TIME"
 
-./302_new_shards.sh 
+./302_new_shards.sh
+sleep "$SLEEP_TIME"
 
 ./303_reshard.sh
+sleep "$SLEEP_TIME"
 
 ./304_switch_reads.sh
+sleep "$SLEEP_TIME"
 
 ./305_switch_writes.sh
+sleep "$SLEEP_TIME"
 
 ./306_down_shard_0.sh
+sleep "$SLEEP_TIME"
 
 ./307_delete_shard_0.sh
+sleep "$SLEEP_TIME"
