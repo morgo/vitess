@@ -20,7 +20,7 @@
 
 source ../common/env.sh
 
-PHYSICAL_KEYSPACE=main
+physical_keyspace=main
 # vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync main2 || fail "Failed to create and configure the main2 keyspace"
 #
 # for i in 200 201 202; do
@@ -30,13 +30,13 @@ PHYSICAL_KEYSPACE=main
 
 # Wait for all the tablets to be up and registered in the topology server
 # and for a primary tablet to be elected in the shard and become healthy/serving.
-wait_for_healthy_shard $PHYSICAL_KEYSPACE 0 || exit 1
-
+wait_for_healthy_shard "$physical_keyspace" 0 || exit 1
 
 vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync customer || fail "Failed to create keyspace 'customer'"
 
-vtctldclient CreateVirtualShard customer/0 $PHYSICAL_KEYSPACE/0 || fail "Failed to create virtual shard 'customer/0'"
+vtctldclient CreateVirtualShard customer/0 "$physical_keyspace"/0 || fail "Failed to create virtual shard 'customer/0'"
 
 # TODO: I will figure out how to automatically rebuild the keyspace graph later.
 vtctldclient RebuildKeyspaceGraph --cells=zone1 customer
 vtctldclient ApplyVSchema --vschema "{}" customer
+

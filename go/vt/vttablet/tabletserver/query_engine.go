@@ -156,9 +156,10 @@ type QueryEngine struct {
 	queryRuleSources *rules.Map
 
 	// Pools
-	conns       *connpool.Pool
-	streamConns *connpool.Pool
-	dbConns     map[string]*connpool.Pool // per-DB connections for virtual tablets
+	conns         *connpool.Pool
+	streamConns   *connpool.Pool
+	dbConns       map[string]*connpool.Pool // per-DB connections for virtual tablets
+	dbStreamConns map[string]*connpool.Pool // per-DB connections for virtual tablets
 
 	// Services
 	consolidator       sync2.Consolidator
@@ -230,6 +231,7 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	})
 
 	qe.dbConns = make(map[string]*connpool.Pool)
+	qe.dbStreamConns = make(map[string]*connpool.Pool)
 
 	qe.conns = connpool.NewPool(env, "ConnPool", config.OltpReadPool)
 	qe.streamConns = connpool.NewPool(env, "StreamConnPool", config.OlapReadPool)
@@ -335,14 +337,28 @@ func (qe *QueryEngine) RefreshVirtualShardPools() error {
 			qe.dbConns[db] = connpool.NewPool(qe.env, "DBConnPool:"+db, config.OltpReadPool)
 			log.Infof("Created connection pool for DB %s", db)
 		}
+		if _, ok := qe.dbStreamConns[db]; !ok {
+			qe.dbStreamConns[db] = connpool.NewPool(qe.env, "DBStreamConnPool:"+db, config.OlapReadPool)
+			log.Infof("Created stream connection pool for DB %s", db)
+		}
+	}
+	if len(qe.dbConns) != len(qe.dbStreamConns) {
+		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "Mismatch in number of DBs in dbConns and dbStreamConns connection pools: %d vs %d", len(qe.dbConns), len(qe.dbStreamConns))
 	}
 	for dbName, pool := range qe.dbConns {
+		if _, ok := qe.dbStreamConns[dbName]; !ok {
+			return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "Missing stream connection pool for DB %s", dbName)
+		}
 		// Make a copy of the dbConfig so we can override the DBName
 		dbConfig := *config.DB
 		// Set the DBName to the current pool's DB name
 		dbConfig.DBName = dbName
 		pool.Open(dbConfig.AppWithDB(), dbConfig.DbaWithDB(), dbConfig.AppDebugWithDB())
-		log.Infof("Opened connection pool for DB: %s", pool.Name)
+		// Open the stream connection pool with the same DB config! We already checked the length of the two
+		// pools and ensured that a stream pool exists for this regular/otlp pool, so it should be safe.
+		qe.dbStreamConns[dbName].Open(dbConfig.AppWithDB(), dbConfig.DbaWithDB(), dbConfig.AppDebugWithDB())
+
+		log.Infof("Opened connection pools for DB: %s", dbName)
 		conn, err := pool.Get(tabletenv.LocalContext(), nil)
 		if err != nil {
 			pool.Close()

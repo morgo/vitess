@@ -821,6 +821,7 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
+	// Return from per-db connection pool if dbName is set.
 	if qre.dbName != "" {
 		pool, ok := qre.tsv.qe.dbConns[qre.dbName]
 		if !ok {
@@ -835,8 +836,10 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "no connection pool for db %s", qre.dbName)
 			}
 		}
+		log.Infof("returning connection from per-db pool for db %s", qre.dbName)
 		return pool.Get(ctx, qre.setting)
 	}
+	log.Infof("returning connection from physical tablet pool for keyspace %s", qre.tsv.sm.target.Keyspace)
 	return qre.tsv.qe.conns.Get(ctx, qre.setting)
 }
 
@@ -847,6 +850,25 @@ func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
+	// Return from per-db connection pool if dbName is set.
+	if qre.dbName != "" {
+		pool, ok := qre.tsv.qe.dbStreamConns[qre.dbName]
+		if !ok {
+			log.Warningf("no streaming connection pool for db %s, refreshing pools", qre.dbName)
+			err := qre.tsv.qe.RefreshVirtualShardPools()
+			if err != nil {
+				return nil, vterrors.Wrapf(err, "failed to open streaming connection pool for db %s", qre.dbName)
+			}
+			pool, ok = qre.tsv.qe.dbConns[qre.dbName]
+			if !ok {
+				log.Errorf("no streaming connection pool for db %s after refreshing pools", qre.dbName)
+				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "no streaming connection pool for db %s", qre.dbName)
+			}
+		}
+		log.Infof("returning connection from per-db streaming pool for db %s", qre.dbName)
+		return pool.Get(ctx, qre.setting)
+	}
+	log.Infof("returning connection from physical tablet streaming pool for keyspace %s", qre.tsv.sm.target.Keyspace)
 	return qre.tsv.qe.streamConns.Get(ctx, qre.setting)
 }
 
