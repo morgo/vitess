@@ -45,6 +45,7 @@ const (
 	dlTablesAlreadyPresent = "one or more tables were already present in the denylist"
 	dlTablesNotPresent     = "one or more tables did not exist in the denylist"
 	dlNoCellsForPrimary    = "you cannot specify cells for a primary's tablet control"
+	dlNoCellsForVirtual    = "you cannot specify cells for a virtual tablet's tablet control"
 )
 
 // Functions for dealing with shard representations in topology.
@@ -406,9 +407,16 @@ func (si *ShardInfo) UpdateDeniedTables(ctx context.Context, tabletType topodata
 	if err := CheckKeyspaceLocked(ctx, si.keyspace); err != nil {
 		return err
 	}
-	if tabletType == topodatapb.TabletType_PRIMARY && len(cells) > 0 {
-		return errors.New(dlNoCellsForPrimary)
+
+	if len(cells) > 0 {
+		switch tabletType {
+		case topodatapb.TabletType_PRIMARY:
+			return errors.New(dlNoCellsForPrimary)
+		case topodatapb.TabletType_VIRTUAL:
+			return errors.New(dlNoCellsForVirtual)
+		}
 	}
+
 	tc := si.GetTabletControl(tabletType)
 	if tc == nil {
 		// Handle the case where the TabletControl object is new.
@@ -428,8 +436,8 @@ func (si *ShardInfo) UpdateDeniedTables(ctx context.Context, tabletType topodata
 		return nil
 	}
 
-	if tabletType == topodatapb.TabletType_PRIMARY {
-		if err := si.updatePrimaryTabletControl(tc, remove, tables); err != nil {
+	if tabletType == topodatapb.TabletType_PRIMARY || tabletType == topodatapb.TabletType_VIRTUAL {
+		if err := si.updateTabletControl(tc, remove, tables); err != nil {
 			return err
 		}
 		return nil
@@ -448,7 +456,7 @@ func (si *ShardInfo) UpdateDeniedTables(ctx context.Context, tabletType topodata
 	return nil
 }
 
-func (si *ShardInfo) updatePrimaryTabletControl(tc *topodatapb.Shard_TabletControl, remove bool, tables []string) error {
+func (si *ShardInfo) updateTabletControl(tc *topodatapb.Shard_TabletControl, remove bool, tables []string) error {
 	var newTables []string
 	for _, table := range tables {
 		exists := false
@@ -484,7 +492,7 @@ func (si *ShardInfo) updatePrimaryTabletControl(tc *topodatapb.Shard_TabletContr
 		}
 		tc.DeniedTables = newDenyList
 		if len(tc.DeniedTables) == 0 {
-			si.removeTabletTypeFromTabletControl(topodatapb.TabletType_PRIMARY)
+			si.removeTabletTypeFromTabletControl(tc.TabletType)
 		}
 		return nil
 	}
