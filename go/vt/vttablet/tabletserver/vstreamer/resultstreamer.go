@@ -40,6 +40,7 @@ type resultStreamer struct {
 	cancel func()
 
 	cp        dbconfigs.Connector
+	dbName    string
 	query     string
 	tableName sqlparser.IdentifierCS
 	send      func(*binlogdatapb.VStreamResultsResponse) error
@@ -47,12 +48,13 @@ type resultStreamer struct {
 	pktsize   PacketSizer
 }
 
-func newResultStreamer(ctx context.Context, cp dbconfigs.Connector, query string, send func(*binlogdatapb.VStreamResultsResponse) error, vse *Engine) *resultStreamer {
+func newResultStreamer(ctx context.Context, cp dbconfigs.Connector, dbName string, query string, send func(*binlogdatapb.VStreamResultsResponse) error, vse *Engine) *resultStreamer {
 	ctx, cancel := context.WithCancel(ctx)
 	return &resultStreamer{
 		ctx:     ctx,
 		cancel:  cancel,
 		cp:      cp,
+		dbName:  dbName,
 		query:   query,
 		send:    send,
 		vse:     vse,
@@ -76,7 +78,8 @@ func (rs *resultStreamer) Stream() error {
 		return err
 	}
 	defer conn.Close()
-	gtid, rotatedLog, err := conn.streamWithSnapshot(rs.ctx, rs.tableName.String(), rs.query)
+
+	gtid, rotatedLog, err := conn.streamWithSnapshot(rs.ctx, rs.dbName, rs.tableName.String(), rs.query)
 	if rotatedLog {
 		rs.vse.vstreamerFlushedBinlogs.Add(1)
 	}

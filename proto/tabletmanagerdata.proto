@@ -148,6 +148,8 @@ message GetSchemaRequest {
   // TableSchemaOnly specifies whether to limit the results to just table/view
   // schema definition (CREATE TABLE/VIEW statements) and skip column/field information
   bool table_schema_only = 4;
+  // DBNameOverride allows overriding the database name to use for the schema request
+  string db_name_override = 5;
 }
 
 message GetSchemaResponse {
@@ -232,6 +234,10 @@ message ApplySchemaRequest {
   int64 batch_size = 7;
   // DisableForeignKeyChecks will result in setting foreign_key_checks to off before applying the schema.
   bool disable_foreign_key_checks = 8;
+  // DbNameOverride allows overriding the database name to use for the schema change.
+  // This is primarily used for virtual shards where the schema should be applied
+  // to a specific database name rather than the default tablet database.
+  string db_name_override = 9;
 }
 
 message ApplySchemaResponse {
@@ -621,6 +627,10 @@ message CreateVReplicationWorkflowRequest {
   // Should the workflow stop after the copy phase.
   bool stop_after_copy = 10;
   string options = 11;
+  // DbNameOverride allows overriding the database name to use for the vreplication workflow.
+  // This is primarily used for virtual shards where the workflow should operate
+  // on a specific database name rather than the default tablet database.
+  string db_name_override = 12;
 }
 
 message CreateVReplicationWorkflowResponse {
@@ -634,6 +644,10 @@ message DeleteTableDataRequest {
   map <string, string> table_filters = 1;
   // BatchSize is the number of rows to delete in a single batch.
   int64 batch_size = 2;
+  // DbNameOverride allows overriding the database name to use for the delete operation.
+  // This is primarily used for virtual shards where the operation should be performed
+  // on a specific database name rather than the default tablet database.
+  string db_name_override = 3;
 }
 
 message DeleteTableDataResponse {
@@ -641,6 +655,10 @@ message DeleteTableDataResponse {
 
 message DeleteVReplicationWorkflowRequest {
   string workflow = 1;
+  // DbNameOverride allows overriding the database name to use for the delete operation.
+  // This is primarily used for virtual shards where the operation should be performed
+  // on a specific database name rather than the default tablet database.
+  string db_name_override = 2;
 }
 
 message DeleteVReplicationWorkflowResponse {
@@ -648,6 +666,10 @@ message DeleteVReplicationWorkflowResponse {
 }
 
 message HasVReplicationWorkflowsRequest {
+  // DbNameOverride allows overriding the database name to use for the check.
+  // This is primarily used for virtual shards where the check should be performed
+  // on a specific database name rather than the default tablet database.
+  string db_name_override = 1;
 }
 
 message HasVReplicationWorkflowsResponse {
@@ -661,6 +683,10 @@ message ReadVReplicationWorkflowsRequest {
   repeated string exclude_workflows = 4;
   repeated binlogdata.VReplicationWorkflowState exclude_states = 5;
   bool exclude_frozen = 6;
+  // DbNameOverride allows overriding the database name to use for the read operation.
+  // This is primarily used for virtual shards where the operation should be performed
+  // on a specific database name rather than the default tablet database.
+  string db_name_override = 7;
 }
 
 message ReadVReplicationWorkflowsResponse {
@@ -669,6 +695,10 @@ message ReadVReplicationWorkflowsResponse {
 
 message ReadVReplicationWorkflowRequest {
   string workflow = 1;
+  // DbNameOverride allows overriding the database name to use for the read operation.
+  // This is primarily used for virtual shards where the operation should be performed
+  // on a specific database name rather than the default tablet database.
+  string db_name_override = 2;
 }
 
 message ReadVReplicationWorkflowResponse {
@@ -722,6 +752,10 @@ message VDiffRequest {
   string action_arg = 4;
   string vdiff_uuid = 5;
   VDiffOptions options = 6;
+  // DBNameOverride allows overriding the database name to use for VDiff operations
+  // This is particularly useful for virtual shards where the logical keyspace name
+  // differs from the physical database name
+  string db_name_override = 7;
 }
 
 message VDiffResponse {
@@ -810,6 +844,10 @@ message UpdateVReplicationWorkflowsRequest {
   optional binlogdata.VReplicationWorkflowState state = 4;
   optional string message = 5;
   optional string stop_position = 6;
+  // DbNameOverride allows overriding the database name to use for the update operation.
+  // This is primarily used for virtual shards where the operation should be performed
+  // on a specific database name rather than the default tablet database.
+  string db_name_override = 7;
 }
 
 message UpdateVReplicationWorkflowsResponse {
@@ -995,4 +1033,15 @@ message GetMaxValueForSequencesRequest {
 message GetMaxValueForSequencesResponse {
   // Max used sequence value mapped with the backing sequence table.
   map<string, int64> max_values_by_sequence_table = 1;
+}
+
+message AddVirtualShardRequest {
+  string virtual_keyspace = 1;
+  string virtual_shard = 2;
+  string physical_keyspace = 3;
+  string physical_shard = 4;
+  string schema_name = 5;
+}
+
+message AddVirtualShardResponse {
 }

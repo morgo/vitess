@@ -48,10 +48,12 @@ import (
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/connpool"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 
 	binlogdatapb "vitess.io/vitess/go/vt/proto/binlogdata"
+	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
@@ -60,7 +62,7 @@ const maxTableCount = 10000
 const maxPartitionsPerTable = 8192
 const maxIndexesPerTable = 64
 
-type notifier func(full map[string]*Table, created, altered, dropped []*Table, udfsChanged bool)
+type notifier func(full map[string]map[string]*Table, created, altered, dropped []*Table, udfsChanged bool)
 
 // Engine stores the schema info and performs operations that
 // keep itself up-to-date.
@@ -71,7 +73,7 @@ type Engine struct {
 	// mu protects the following fields.
 	mu         sync.Mutex
 	isOpen     bool
-	tables     map[string]*Table
+	tables     map[string]map[string]*Table
 	lastChange int64
 	// the position at which the schema was last loaded. it is only used in conjunction with ReloadAt
 	reloadAtPos replication.Position
@@ -106,10 +108,11 @@ type Engine struct {
 
 	innoDbReadRowsCounter *stats.Counter
 	SchemaReloadTimings   *servenv.TimingsWrapper
+	Registry              registry.Registry
 }
 
 // NewEngine creates a new Engine.
-func NewEngine(env tabletenv.Env) *Engine {
+func NewEngine(env tabletenv.Env, registry registry.Registry) *Engine {
 	reloadTime := env.Config().SchemaReloadInterval
 	se := &Engine{
 		env: env,
@@ -121,6 +124,7 @@ func NewEngine(env tabletenv.Env) *Engine {
 		}),
 		ticks:           timer.NewTimer(reloadTime),
 		throttledLogger: logutil.NewThrottledLogger("schema-tracker", 1*time.Minute),
+		Registry:        registry,
 	}
 	se.schemaCopy = env.Config().SignalWhenSchemaChange
 	_ = env.Exporter().NewGaugeDurationFunc("SchemaReloadTime", "vttablet keeps table schemas in its own memory and periodically refreshes it from MySQL. This config controls the reload time.", se.ticks.Interval)
@@ -142,7 +146,6 @@ func NewEngine(env tabletenv.Env) *Engine {
 			w.Write([]byte(err.Error()))
 			return
 		}
-
 		schemazHandler(se.GetSchema(), w, r)
 	})
 	se.historian = newHistorian(env.Config().TrackSchemaVersions, env.Config().SchemaVersionMaxAgeSeconds, se.conns)
@@ -267,8 +270,12 @@ func (se *Engine) Open() error {
 		}
 	}()
 
-	se.tables = map[string]*Table{
-		"dual": NewTable("dual", NoType),
+	dbName := se.cp.DBName()
+
+	se.tables = map[string]map[string]*Table{
+		dbName: {
+			"dual": NewTable("dual", NoType),
+		},
 	}
 	se.notifiers = make(map[string]notifier)
 
@@ -329,7 +336,7 @@ func (se *Engine) closeLocked() {
 	se.historian.Close()
 	se.conns.Close()
 
-	se.tables = make(map[string]*Table)
+	se.tables = make(map[string]map[string]*Table)
 	se.lastChange = 0
 	se.notifiers = make(map[string]notifier)
 	se.isOpen = false
@@ -347,9 +354,11 @@ func (se *Engine) MakeNonPrimary() {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	se.isServingPrimary = false
-	for _, t := range se.tables {
-		if t.SequenceInfo != nil {
-			t.SequenceInfo.Reset()
+	for _, m := range se.tables {
+		for _, t := range m {
+			if t.SequenceInfo != nil {
+				t.SequenceInfo.Reset()
+			}
 		}
 	}
 }
@@ -413,13 +422,31 @@ func (se *Engine) ReloadAtEx(ctx context.Context, pos replication.Position, incl
 	return nil
 }
 
-func populateInnoDBStats(ctx context.Context, conn *connpool.Conn) (map[string]*Table, error) {
+func populateInnoDBStats(ctx context.Context, dbName string, conn *connpool.Conn) (map[string]*Table, error) {
 	innodbTableSizesQuery := conn.BaseShowInnodbTableSizes()
 	if innodbTableSizesQuery == "" {
 		return nil, nil
 	}
 
-	innodbResults, err := conn.Exec(ctx, innodbTableSizesQuery, maxTableCount*maxPartitionsPerTable, false)
+	// Parse the query and use proper bind variables
+	parsedQuery, err := sqlparser.NewTestParser().Parse(innodbTableSizesQuery)
+	if err != nil {
+		return nil, err
+	}
+	buf := sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery := buf.ParsedQuery()
+
+	// Use bind variables for secure parameter substitution
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+	finalQuery, err := finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	innodbResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return nil, vterrors.Wrapf(err, "in Engine.reload(), reading innodb tables")
 	}
@@ -458,6 +485,7 @@ func populateInnoDBStats(ctx context.Context, conn *connpool.Conn) (map[string]*
 }
 
 // reload reloads the schema. It can also be used to initialize it.
+// It loads all tables across all schemas that are in registry.
 func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	start := time.Now()
 	defer func() {
@@ -474,34 +502,75 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	ctx, cancel := context.WithTimeout(ctx, se.reloadTimeout)
 	defer cancel()
 
+	// We reload each of the DBs this tablet is responsible for
+	// one after the other.
+	// Refresh first - as we need up to date.
+	// TODO: figure out why this is needed.
+	if err := se.Registry.Refresh(context.Background()); err != nil {
+		log.Warningf("failed to refresh registry: %v", err)
+	}
+
+	// Aggregate changes from all databases
+	var allCreated, allAltered, allDropped []*Table
+	var anyUdfsChanged bool
+
+	dbNames := se.Registry.GetAllDBNames()
+	for _, dbName := range dbNames {
+		created, altered, dropped, udfsChanged, err := se.reloadIndividualDB(ctx, dbName, includeStats)
+		if err != nil {
+			return err
+		}
+
+		// Aggregate the changes
+		allCreated = append(allCreated, created...)
+		allAltered = append(allAltered, altered...)
+		allDropped = append(allDropped, dropped...)
+		anyUdfsChanged = anyUdfsChanged || udfsChanged
+	}
+
+	// Single broadcast with all aggregated changes
+	if len(allCreated) > 0 || len(allAltered) > 0 || len(allDropped) > 0 {
+		log.Infof("schema engine aggregated changes - created %v, altered %v, dropped %v",
+			extractNamesFromTablesList(allCreated),
+			extractNamesFromTablesList(allAltered),
+			extractNamesFromTablesList(allDropped))
+	}
+
+	// Broadcast once with all changes (pass empty dbName since this is aggregated)
+	se.broadcast("", allCreated, allAltered, allDropped, anyUdfsChanged)
+
+	return nil
+}
+
+func (se *Engine) reloadIndividualDB(ctx context.Context, dbName string, includeStats bool) (created, altered, dropped []*Table, udfsChanged bool, err error) {
 	conn, err := se.conns.Get(ctx, nil)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 	defer conn.Recycle()
 
 	// curTime will be saved into lastChange after schema is loaded.
 	curTime, err := se.mysqlTime(ctx, conn.Conn)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 
 	var innodbTablesStats map[string]*Table
 	if includeStats {
-		if innodbTablesStats, err = populateInnoDBStats(ctx, conn.Conn); err != nil {
-			return err
+		if innodbTablesStats, err = populateInnoDBStats(ctx, dbName, conn.Conn); err != nil {
+			return nil, nil, nil, false, err
 		}
 		// Since the InnoDB table size query is available to us on this MySQL version, we should use it.
 		// We therefore don't want to query for table sizes in getTableData()
 		includeStats = false
 
-		if err := se.updateTableIndexMetrics(ctx, conn.Conn); err != nil {
+		if err := se.updateTableIndexMetrics(ctx, dbName, conn.Conn); err != nil {
 			log.Errorf("Updating index/table statistics failed, error: %v", err)
 		}
 	}
-	tableData, err := getTableData(ctx, conn.Conn, includeStats)
+	tableData, err := getTableData(ctx, dbName, conn.Conn, includeStats)
 	if err != nil {
-		return vterrors.Wrapf(err, "in Engine.reload(), reading tables")
+		return nil, nil, nil, false, vterrors.Wrapf(err, "in Engine.reload(), reading tables")
 	}
 
 	// On the primary tablet, we also check the data we have stored in our schema tables to see what all needs reloading.
@@ -509,24 +578,24 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 
 	// changedViews are the views that have changed. We can't use the same createTime logic for views because, MySQL
 	// doesn't update the create_time field for views when they are altered. This is annoying, but something we have to work around.
-	changedViews, err := getChangedViewNames(ctx, conn.Conn, shouldUseDatabase)
+	changedViews, err := getChangedViewNames(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 	// mismatchTables stores the tables whose createTime in our cache doesn't match the createTime stored in the database.
 	// This can happen if a primary crashed right after a DML succeeded, before it could reload its state. If all the replicas
 	// are able to reload their cache before one of them is promoted, then the database information would be out of sync.
-	mismatchTables, err := se.getMismatchedTableNames(ctx, conn.Conn, shouldUseDatabase)
+	mismatchTables, err := se.getMismatchedTableNames(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 
-	err = se.updateInnoDBRowsRead(ctx, conn.Conn)
+	err = se.updateInnoDBRowsRead(ctx, dbName, conn.Conn)
 	if err != nil {
-		return err
+		return nil, nil, nil, false, err
 	}
 
-	udfsChanged, err := getChangedUserDefinedFunctions(ctx, conn.Conn, shouldUseDatabase)
+	udfsChanged, err = getChangedUserDefinedFunctions(ctx, dbName, conn.Conn, shouldUseDatabase)
 	if err != nil {
 		se.throttledLogger.Errorf("error in getting changed UDFs: %v", err)
 	}
@@ -537,13 +606,13 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	// changedTables keeps track of tables that have changed so we can reload their pk info.
 	changedTables := make(map[string]*Table)
 	// created and altered contain the names of created and altered tables for broadcast.
-	var created, altered []*Table
-	databaseName := se.cp.DBName()
+	created = make([]*Table, 0)
+	altered = make([]*Table, 0)
 	for _, row := range tableData.Rows {
 		tableName := row[0].ToString()
 		var innodbTable *Table
 		if innodbTablesStats != nil {
-			innodbTableName := fmt.Sprintf("%s/%s", charset.TablenameToFilename(databaseName), charset.TablenameToFilename(tableName))
+			innodbTableName := fmt.Sprintf("%s/%s", charset.TablenameToFilename(dbName), charset.TablenameToFilename(tableName))
 			innodbTable = innodbTablesStats[innodbTableName]
 		}
 		curTables[tableName] = true
@@ -580,7 +649,11 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		//   4. A view's definition has changed. We can't use the same createTime logic for views because, MySQL
 		//	    doesn't update the create_time field for views when they are altered. This is annoying, but something we have to work around.
 		//      We check this by consulting the changedViews map.
-		tbl, isInTablesMap := se.tables[tableName]
+		var tbl *Table
+		var isInTablesMap bool
+		if dbSchemaMap, ok := se.tables[dbName]; ok {
+			tbl, isInTablesMap = dbSchemaMap[tableName]
+		}
 		_, isInChangedViewMap := changedViews[tableName]
 		_, isInMismatchTableMap := mismatchTables[tableName]
 		if isInTablesMap && createTime == tbl.CreateTime && createTime < se.lastChange && !isInChangedViewMap && !isInMismatchTableMap {
@@ -596,7 +669,7 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 
 		log.V(2).Infof("Reading schema for table: %s", tableName)
 		tableType := row[1].String()
-		table, err := LoadTable(conn, se.cp.DBName(), tableName, tableType, row[3].ToString(), se.env.Environment().CollationEnv())
+		table, err := LoadTable(conn, dbName, tableName, tableType, row[3].ToString(), se.env.Environment().CollationEnv())
 		if err != nil {
 			// Non recoverable error:
 			rec.RecordError(vterrors.Wrapf(err, "in Engine.reload(), reading table %s", tableName))
@@ -618,49 +691,54 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 		}
 	}
 	if rec.HasErrors() {
-		return rec.Error()
+		return nil, nil, nil, false, rec.Error()
 	}
 
-	dropped := se.getDroppedTables(curTables, changedViews, mismatchTables)
+	dropped = se.getDroppedTables(dbName, curTables, changedViews, mismatchTables)
 
 	// Populate PK Columns for changed tables.
-	if err := se.populatePrimaryKeys(ctx, conn.Conn, changedTables); err != nil {
-		return err
+	if err := se.populatePrimaryKeys(ctx, dbName, conn.Conn, changedTables); err != nil {
+		return nil, nil, nil, false, err
 	}
 
 	// If this tablet is the primary and schema tracking is required, we should reload the information in our database.
 	if shouldUseDatabase {
 		// If reloadDataInDB succeeds, then we don't want to prevent sending the broadcast notification.
 		// So, we do this step in the end when we can receive no more errors that fail the reload operation.
-		err = reloadDataInDB(ctx, conn.Conn, altered, created, dropped, udfsChanged, se.env.Environment().Parser())
-		if err != nil {
-			log.Errorf("error in updating schema information in Engine.reload() - %v", err)
+		if reloadErr := reloadDataInDB(ctx, dbName, conn.Conn, altered, created, dropped, udfsChanged, se.env.Environment().Parser()); reloadErr != nil {
+			log.Errorf("error in updating schema information in Engine.reload() - %v", reloadErr)
 		}
 	}
 
 	// Update se.tables
+	if _, ok := se.tables[dbName]; !ok {
+		se.tables[dbName] = make(map[string]*Table)
+	}
 	for k, t := range changedTables {
-		se.tables[k] = t
+		se.tables[dbName][k] = t
 	}
 	se.lastChange = curTime
 	if len(created) > 0 || len(altered) > 0 || len(dropped) > 0 {
 		log.Infof("schema engine created %v, altered %v, dropped %v", extractNamesFromTablesList(created), extractNamesFromTablesList(altered), extractNamesFromTablesList(dropped))
 	}
-	se.broadcast(created, altered, dropped, udfsChanged)
-	return nil
+	// Don't broadcast here anymore - return the changes for aggregation
+	return created, altered, dropped, udfsChanged, nil
 }
 
-func (se *Engine) getDroppedTables(curTables map[string]bool, changedViews map[string]any, mismatchTables map[string]any) []*Table {
+func (se *Engine) getDroppedTables(dbName string, curTables map[string]bool, changedViews map[string]any, mismatchTables map[string]any) []*Table {
 	// Compute and handle dropped tables.
 	dropped := make(map[string]*Table)
-	for tableName, table := range se.tables {
-		if !curTables[tableName] {
-			dropped[tableName] = table
-			delete(se.tables, tableName)
-			// We can't actually delete the label from the stats, but we can set it to 0.
-			// Many monitoring tools will drop zero-valued metrics.
-			se.tableFileSizeGauge.Reset(tableName)
-			se.tableAllocatedSizeGauge.Reset(tableName)
+	// Only check for dropped tables within the specific database being reloaded
+	if schemaMap, ok := se.tables[dbName]; ok {
+		for tableName, table := range schemaMap {
+			if !curTables[tableName] {
+				dropped[tableName] = table
+				delete(se.tables[dbName], tableName)
+				// We can't actually delete the label from the stats, but we can set it to 0.
+				// Many monitoring tools will drop zero-valued metrics.
+				se.tableFileSizeGauge.Reset(tableName)
+				se.tableAllocatedSizeGauge.Reset(tableName)
+			}
 		}
 	}
 
@@ -687,17 +765,36 @@ func (se *Engine) getDroppedTables(curTables map[string]bool, changedViews map[s
 	return maps.Values(dropped)
 }
 
-func getTableData(ctx context.Context, conn *connpool.Conn, includeStats bool) (*sqltypes.Result, error) {
+func getTableData(ctx context.Context, dbName string, conn *connpool.Conn, includeStats bool) (*sqltypes.Result, error) {
 	var showTablesQuery string
 	if includeStats {
 		showTablesQuery = conn.BaseShowTablesWithSizes()
 	} else {
 		showTablesQuery = conn.BaseShowTables()
 	}
-	return conn.Exec(ctx, showTablesQuery, maxTableCount, false)
+
+	// Parse the query and use proper bind variables
+	parsedQuery, err := sqlparser.NewTestParser().Parse(showTablesQuery)
+	if err != nil {
+		return nil, err
+	}
+	buf := sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery := buf.ParsedQuery()
+
+	// Use bind variables for secure parameter substitution
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+	finalQuery, err := finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return conn.Exec(ctx, finalQuery, maxTableCount, false)
 }
 
-func (se *Engine) updateInnoDBRowsRead(ctx context.Context, conn *connpool.Conn) error {
+func (se *Engine) updateInnoDBRowsRead(ctx context.Context, dbName string, conn *connpool.Conn) error {
 	readRowsData, err := conn.Exec(ctx, mysql.ShowRowsRead, 10, false)
 	if err != nil {
 		return err
@@ -716,7 +813,7 @@ func (se *Engine) updateInnoDBRowsRead(ctx context.Context, conn *connpool.Conn)
 	return nil
 }
 
-func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Conn) error {
+func (se *Engine) updateTableIndexMetrics(ctx context.Context, dbName string, conn *connpool.Conn) error {
 	if conn.BaseShowIndexSizes() == "" ||
 		conn.BaseShowTableRowCountClusteredIndex() == "" ||
 		conn.BaseShowIndexSizes() == "" ||
@@ -729,7 +826,25 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 		partition string
 	}
 
-	partitionsResults, err := conn.Exec(ctx, conn.BaseShowPartitions(), 8192*maxTableCount, false)
+	// Use proper bind variables for partitions query
+	partitionsQuery := conn.BaseShowPartitions()
+	parsedQuery, err := sqlparser.NewTestParser().Parse(partitionsQuery)
+	if err != nil {
+		return err
+	}
+	buf := sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery := buf.ParsedQuery()
+
+	bv := map[string]*querypb.BindVariable{
+		"db_name": sqltypes.StringBindVariable(dbName),
+	}
+	finalQuery, err := finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	partitionsResults, err := conn.Exec(ctx, finalQuery, 8192*maxTableCount, false)
 	if err != nil {
 		return err
 	}
@@ -750,7 +865,23 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 		rowBytes int64
 	}
 	tables := make(map[string]table)
-	tableStatsResults, err := conn.Exec(ctx, conn.BaseShowTableRowCountClusteredIndex(), maxTableCount*maxPartitionsPerTable, false)
+
+	// Use proper bind variables for table stats query
+	tableStatsQuery := conn.BaseShowTableRowCountClusteredIndex()
+	parsedQuery, err = sqlparser.NewTestParser().Parse(tableStatsQuery)
+	if err != nil {
+		return err
+	}
+	buf = sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery = buf.ParsedQuery()
+
+	finalQuery, err = finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	tableStatsResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -781,7 +912,22 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 	indexes := make(map[[2]string]index)
 
 	// Load the byte sizes of all indexes. Results contain one row for every index/partition combination.
-	bytesResults, err := conn.Exec(ctx, conn.BaseShowIndexSizes(), maxTableCount*maxIndexesPerTable, false)
+	// Use proper bind variables for index sizes query
+	indexSizesQuery := conn.BaseShowIndexSizes()
+	parsedQuery, err = sqlparser.NewTestParser().Parse(indexSizesQuery)
+	if err != nil {
+		return err
+	}
+	buf = sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery = buf.ParsedQuery()
+
+	finalQuery, err = finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	bytesResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxIndexesPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -807,7 +953,22 @@ func (se *Engine) updateTableIndexMetrics(ctx context.Context, conn *connpool.Co
 	}
 
 	// Load index cardinalities. Results contain one row for every index (pre-aggregated across partitions).
-	cardinalityResults, err := conn.Exec(ctx, conn.BaseShowIndexCardinalities(), maxTableCount*maxPartitionsPerTable, false)
+	// Use proper bind variables for cardinalities query
+	cardinalitiesQuery := conn.BaseShowIndexCardinalities()
+	parsedQuery, err = sqlparser.NewTestParser().Parse(cardinalitiesQuery)
+	if err != nil {
+		return err
+	}
+	buf = sqlparser.NewTrackedBuffer(nil)
+	parsedQuery.Format(buf)
+	finalParsedQuery = buf.ParsedQuery()
+
+	finalQuery, err = finalParsedQuery.GenerateQuery(bv, nil)
+	if err != nil {
+		return err
+	}
+
+	cardinalityResults, err := conn.Exec(ctx, finalQuery, maxTableCount*maxPartitionsPerTable, false)
 	if err != nil {
 		return err
 	}
@@ -863,8 +1024,9 @@ func (se *Engine) mysqlTime(ctx context.Context, conn *connpool.Conn) (int64, er
 }
 
 // populatePrimaryKeys populates the PKColumns for the specified tables.
-func (se *Engine) populatePrimaryKeys(ctx context.Context, conn *connpool.Conn, tables map[string]*Table) error {
-	pkData, err := conn.Exec(ctx, mysql.BaseShowPrimary, maxTableCount, false)
+func (se *Engine) populatePrimaryKeys(ctx context.Context, dbName string, conn *connpool.Conn, tables map[string]*Table) error {
+	pkDataQuery := sqlparser.BuildParsedQuery(mysql.BaseShowPrimary, dbName).Query
+	pkData, err := conn.Exec(ctx, pkDataQuery, maxTableCount, false)
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_UNKNOWN, "could not get table primary key info: %v", err)
 	}
@@ -898,8 +1060,8 @@ func (se *Engine) RegisterVersionEvent() error {
 // in the cache, it will reload the cache from the database in case the table was created
 // after the last schema reload or the cache has not yet been initialized. This function
 // makes the schema cache a read-through cache for VReplication purposes.
-func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.IdentifierCS, gtid string) (*binlogdatapb.MinimalTable, error) {
-	mt, err := se.historian.GetTableForPos(tableName, gtid)
+func (se *Engine) GetTableForPos(ctx context.Context, dbName string, tableName sqlparser.IdentifierCS, gtid string) (*binlogdatapb.MinimalTable, error) {
+	mt, err := se.historian.GetTableForPos(dbName, tableName, gtid)
 	if err != nil {
 		log.Infof("GetTableForPos returned error: %s", err.Error())
 		return nil, err
@@ -911,7 +1073,8 @@ func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.Identi
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	tableNameStr := tableName.String()
-	if st, ok := se.tables[tableNameStr]; ok && tableNameStr != "dual" { // No need to refresh dual
+	if st, ok := se.tables[dbName][tableNameStr]; ok && tableNameStr != "dual" { // No need to refresh dual
+
 		// Test Engines (NewEngineForTests()) don't have a conns pool and are not
 		// supposed to talk to the database, so don't update the cache entry in that
 		// case.
@@ -927,15 +1090,15 @@ func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.Identi
 		defer conn.Recycle()
 		cst := *st       // Make a copy
 		cst.Fields = nil // We're going to refresh the columns/fields
-		if err := fetchColumns(&cst, conn, se.cp.DBName(), tableNameStr); err != nil {
+		if err := fetchColumns(&cst, conn, dbName, tableNameStr); err != nil {
 			return nil, err
 		}
 		// Update the PK columns for the table as well as they may have changed.
 		cst.PKColumns = nil // We're going to repopulate the PK columns
-		if err := se.populatePrimaryKeys(ctx, conn.Conn, map[string]*Table{tableNameStr: &cst}); err != nil {
+		if err := se.populatePrimaryKeys(ctx, dbName, conn.Conn, map[string]*Table{tableNameStr: &cst}); err != nil {
 			return nil, err
 		}
-		se.tables[tableNameStr] = &cst
+		se.tables[dbName][tableNameStr] = &cst
 		return newMinimalTable(&cst), nil
 	}
 	// It's expected that internal tables are not found within VReplication workflows.
@@ -960,13 +1123,13 @@ func (se *Engine) GetTableForPos(ctx context.Context, tableName sqlparser.Identi
 		if err := se.reload(ctx, false); err != nil {
 			return nil, err
 		}
-		if st, ok := se.tables[tableNameStr]; ok {
+		if st, ok := se.tables[dbName][tableNameStr]; ok {
 			return newMinimalTable(st), nil
 		}
 	}
 
-	log.Infof("table %v not found in vttablet schema, current tables: %v", tableNameStr, se.tables)
-	return nil, fmt.Errorf("table %v not found in vttablet schema", tableNameStr)
+	log.Infof("table %v.%v not found in vttablet schema, current tables: %v", dbName, tableNameStr, se.tables)
+	return nil, fmt.Errorf("table %v.%v not found in vttablet schema", dbName, tableNameStr)
 }
 
 // RegisterNotifier registers the function for schema change notification.
@@ -983,8 +1146,10 @@ func (se *Engine) RegisterNotifier(name string, f notifier, runNotifier bool) {
 
 	se.notifiers[name] = f
 	var created []*Table
-	for _, table := range se.tables {
-		created = append(created, table)
+	for _, schemaMap := range se.tables {
+		for _, table := range schemaMap {
+			created = append(created, table)
+		}
 	}
 	if runNotifier {
 		s := maps.Clone(se.tables)
@@ -1009,7 +1174,7 @@ func (se *Engine) UnregisterNotifier(name string) {
 }
 
 // broadcast must be called while holding a lock on se.mu.
-func (se *Engine) broadcast(created, altered, dropped []*Table, udfsChanged bool) {
+func (se *Engine) broadcast(dbName string, created, altered, dropped []*Table, udfsChanged bool) {
 	if !se.isOpen {
 		return
 	}
@@ -1023,22 +1188,28 @@ func (se *Engine) broadcast(created, altered, dropped []*Table, udfsChanged bool
 }
 
 // BroadcastForTesting is meant to be a testing function that triggers a broadcast call.
-func (se *Engine) BroadcastForTesting(created, altered, dropped []*Table, udfsChanged bool) {
+func (se *Engine) BroadcastForTesting(dbName string, created, altered, dropped []*Table, udfsChanged bool) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	se.broadcast(created, altered, dropped, udfsChanged)
+	se.broadcast(dbName, created, altered, dropped, udfsChanged)
 }
 
 // GetTable returns the info for a table.
-func (se *Engine) GetTable(tableName sqlparser.IdentifierCS) *Table {
+func (se *Engine) GetTable(dbName string, tableName sqlparser.IdentifierCS) *Table {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	return se.tables[tableName.String()]
+	tableNameStr := tableName.String()
+	if schemaMap, ok := se.tables[dbName]; ok {
+		if table, ok := schemaMap[tableNameStr]; ok {
+			return table
+		}
+	}
+	return nil
 }
 
 // GetSchema returns the current schema. The Tables are a
 // shared data structure and must be treated as read-only.
-func (se *Engine) GetSchema() map[string]*Table {
+func (se *Engine) GetSchema() map[string]map[string]*Table {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	tables := maps.Clone(se.tables)
@@ -1046,14 +1217,20 @@ func (se *Engine) GetSchema() map[string]*Table {
 }
 
 // MarshalMinimalSchema returns a protobuf encoded binlogdata.MinimalSchema
+// Updated to support multi-database schemas by storing database-qualified table names
 func (se *Engine) MarshalMinimalSchema() ([]byte, error) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	dbSchema := &binlogdatapb.MinimalSchema{
-		Tables: make([]*binlogdatapb.MinimalTable, 0, len(se.tables)),
+		Tables: make([]*binlogdatapb.MinimalTable, 0),
 	}
-	for _, table := range se.tables {
-		dbSchema.Tables = append(dbSchema.Tables, newMinimalTable(table))
+	for dbName, schemaMap := range se.tables {
+		for _, table := range schemaMap {
+			minTable := newMinimalTable(table)
+			// Store table name as qualified name (dbName.tableName)
+			minTable.Name = dbName + "." + table.Name.String()
+			dbSchema.Tables = append(dbSchema.Tables, minTable)
+		}
 	}
 	return dbSchema.MarshalVT()
 }
@@ -1112,7 +1289,7 @@ func (se *Engine) handleHTTPSchema(response http.ResponseWriter) {
 func NewEngineForTests() *Engine {
 	se := &Engine{
 		isOpen:    true,
-		tables:    make(map[string]*Table),
+		tables:    make(map[string]map[string]*Table),
 		historian: newHistorian(false, 0, nil),
 		env:       tabletenv.NewEnv(vtenv.NewTestEnv(), tabletenv.NewDefaultConfig(), "SchemaEngineForTests"),
 		notifiers: make(map[string]notifier),
@@ -1121,10 +1298,13 @@ func NewEngineForTests() *Engine {
 }
 
 // SetTableForTests puts a Table in the map directly.
-func (se *Engine) SetTableForTests(table *Table) {
+func (se *Engine) SetTableForTests(dbName string, table *Table) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
-	se.tables[table.Name.String()] = table
+	if _, ok := se.tables[dbName]; !ok {
+		se.tables[dbName] = make(map[string]*Table)
+	}
+	se.tables[dbName][table.Name.String()] = table
 }
 
 func (se *Engine) GetDBConnector() dbconfigs.Connector {
@@ -1143,11 +1323,15 @@ func extractNamesFromTablesList(tables []*Table) []string {
 	return tableNames
 }
 
-func (se *Engine) ResetSequences(tables []string) error {
+func (se *Engine) ResetSequences(dbName string, tables []string) error {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	for _, tableName := range tables {
-		if table, ok := se.tables[tableName]; ok {
+		// check if the dbName exists in se.tables first.
+		if _, ok := se.tables[dbName]; !ok {
+			return vterrors.Errorf(vtrpcpb.Code_NOT_FOUND, "database %v not found in schema cache", dbName)
+		}
+		if table, ok := se.tables[dbName][tableName]; ok {
 			if table.SequenceInfo != nil {
 				log.Infof("Resetting sequence info for table %s: %+v", tableName, table.SequenceInfo)
 				table.SequenceInfo.Reset()

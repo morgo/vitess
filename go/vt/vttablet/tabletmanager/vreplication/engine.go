@@ -27,6 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"vitess.io/vitess/go/vt/vttablet/registry"
+
 	"vitess.io/vitess/go/constants/sidecar"
 	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/sqltypes"
@@ -97,11 +99,21 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ts                      *topo.Server
+	registry                registry.Registry
 	cell                    string
 	mysqld                  mysqlctl.MysqlDaemon
 	dbClientFactoryFiltered func() binlogplayer.DBClient
 	dbClientFactoryDba      func() binlogplayer.DBClient
-	dbName                  string
+
+	// Multi-schema support for virtual keyspaces
+	// dbName is kept for backward compatibility
+	dbName string
+
+	// Schema-aware database client factories
+	schemaClientFactories map[string]struct {
+		filtered func() binlogplayer.DBClient
+		dba      func() binlogplayer.DBClient
+	}
 
 	journaler map[string]*journalEvent
 	ec        *externalConnector
@@ -131,34 +143,41 @@ type PostCopyAction struct {
 
 // NewEngine creates a new Engine.
 // A nil ts means that the Engine is disabled.
-func NewEngine(env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaemon, lagThrottler *throttle.Throttler) *Engine {
+func NewEngine(env *vtenv.Environment, config *tabletenv.TabletConfig, ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaemon, lagThrottler *throttle.Throttler, registry registry.Registry) *Engine {
 	vre := &Engine{
 		env:             env,
 		controllers:     make(map[int32]*controller),
 		ts:              ts,
+		registry:        registry,
 		cell:            cell,
 		mysqld:          mysqld,
 		journaler:       make(map[string]*journalEvent),
 		ec:              newExternalConnector(env, config.ExternalConnections),
 		throttlerClient: throttle.NewBackgroundClient(lagThrottler, throttlerapp.VReplicationName, base.UndefinedScope),
+		schemaClientFactories: make(map[string]struct {
+			filtered func() binlogplayer.DBClient
+			dba      func() binlogplayer.DBClient
+		}),
 	}
 
 	return vre
 }
 
 // InitDBConfig should be invoked after the db name is computed.
+// This method now supports both single-schema (backward compatibility) and multi-schema modes.
 func (vre *Engine) InitDBConfig(dbcfgs *dbconfigs.DBConfigs) {
 	// If we're already initialized, it's a test engine. Ignore the call.
 	if vre.dbClientFactoryFiltered != nil && vre.dbClientFactoryDba != nil {
 		return
 	}
 	vre.dbClientFactoryFiltered = func() binlogplayer.DBClient {
-		return binlogplayer.NewDBClient(dbcfgs.FilteredWithDB(), vre.env.Parser())
+		return binlogplayer.NewDBClient(dbcfgs.FilteredWithoutDB(), vre.env.Parser())
 	}
 	vre.dbClientFactoryDba = func() binlogplayer.DBClient {
-		return binlogplayer.NewDBClient(dbcfgs.DbaWithDB(), vre.env.Parser())
+		return binlogplayer.NewDBClient(dbcfgs.DbaWithoutDB(), vre.env.Parser())
 	}
 	vre.dbName = dbcfgs.DBName
+
 }
 
 // NewTestEngine creates a new Engine for testing.
@@ -175,6 +194,10 @@ func NewTestEngine(ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaemon, db
 		dbName:                  dbname,
 		journaler:               make(map[string]*journalEvent),
 		ec:                      newExternalConnector(env, externalConfig),
+		schemaClientFactories: make(map[string]struct {
+			filtered func() binlogplayer.DBClient
+			dba      func() binlogplayer.DBClient
+		}),
 	}
 	return vre
 }
@@ -195,6 +218,10 @@ func NewSimpleTestEngine(ts *topo.Server, cell string, mysqld mysqlctl.MysqlDaem
 		journaler:               make(map[string]*journalEvent),
 		ec:                      newExternalConnector(env, externalConfig),
 		shortcircuit:            true,
+		schemaClientFactories: make(map[string]struct {
+			filtered func() binlogplayer.DBClient
+			dba      func() binlogplayer.DBClient
+		}),
 	}
 	return vre
 }
@@ -379,7 +406,6 @@ func (vre *Engine) exec(query string, runAsAdmin bool) (*sqltypes.Result, error)
 	if err != nil {
 		return nil, err
 	}
-
 	dbClient := vre.getDBClient(runAsAdmin)
 	if err := dbClient.Connect(); err != nil {
 		return nil, err
@@ -855,19 +881,43 @@ func (vre *Engine) readAllRows(ctx context.Context) ([]map[string]string, error)
 		return nil, err
 	}
 	defer dbClient.Close()
-	qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(vre.dbName)), maxRows)
-	if err != nil {
-		return nil, err
-	}
-	maps := make([]map[string]string, len(qr.Rows))
-	for i := range qr.Rows {
-		mrow, err := rowToMap(qr, i)
+
+	dbNames := vre.registry.GetAllDBNames()
+
+	// For multi-schema support, we need to read rows for all managed schemas
+	if len(dbNames) > 1 {
+		// Multi-schema mode: read rows for all managed schemas
+		var allMaps []map[string]string
+		for _, dbName := range dbNames {
+			qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(dbName)), maxRows)
+			if err != nil {
+				return nil, err
+			}
+			for i := range qr.Rows {
+				mrow, err := rowToMap(qr, i)
+				if err != nil {
+					return nil, err
+				}
+				allMaps = append(allMaps, mrow)
+			}
+		}
+		return allMaps, nil
+	} else {
+		// Legacy single-schema mode: use the original logic
+		qr, err := dbClient.ExecuteFetch(fmt.Sprintf("select * from _vt.vreplication where db_name=%s", encodeString(vre.dbName)), maxRows)
 		if err != nil {
 			return nil, err
 		}
-		maps[i] = mrow
+		maps := make([]map[string]string, len(qr.Rows))
+		for i := range qr.Rows {
+			mrow, err := rowToMap(qr, i)
+			if err != nil {
+				return nil, err
+			}
+			maps[i] = mrow
+		}
+		return maps, nil
 	}
-	return maps, nil
 }
 
 func (vre *Engine) getAutoIncrementStep(dbClient binlogplayer.DBClient) (uint16, error) {

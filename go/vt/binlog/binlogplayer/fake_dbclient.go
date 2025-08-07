@@ -93,3 +93,8 @@ func (dc *fakeDBClient) ExecuteFetchMulti(query string, maxrows int) ([]*sqltype
 func (dc *fakeDBClient) SupportsCapability(capability capabilities.FlavorCapability) (bool, error) {
 	return false, nil
 }
+
+// SetDBName sets the database name for virtual shard support
+func (dc *fakeDBClient) SetDBName(dbName string) {
+	// No-op for fake client
+}

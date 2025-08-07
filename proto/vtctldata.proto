@@ -255,6 +255,8 @@ message Workflow {
   // These are additional (optional) settings for vreplication workflows. Previously we used to add it to the
   // binlogdata.BinlogSource proto object. More details in go/vt/sidecardb/schema/vreplication.sql.
   WorkflowOptions options = 10;
+  // Virtual shard information for workflows that operate on virtual shards
+  VirtualShard virtual_shard = 11;
 
   message ReplicationLocation {
     string keyspace = 1;
@@ -318,6 +320,12 @@ message Workflow {
       string component_throttled = 1;
       vttime.Time time_throttled = 2;
     }
+  }
+
+  message VirtualShard {
+    string logical_keyspace = 1;
+    string physical_keyspace = 2;
+    map<string, string> schema_mapping = 3;
   }
 }
 
@@ -629,6 +637,25 @@ message CreateKeyspaceRequest {
 message CreateKeyspaceResponse {
   // Keyspace is the newly-created keyspace.
   Keyspace keyspace = 1;
+}
+
+message CreateVirtualShardRequest {
+  // VirtualKeyspace is the name of the virtual keyspace.
+  string virtual_keyspace = 1;
+  // VirtualShard is the name of the virtual shard to create.
+  string virtual_shard = 2;
+  // PhysicalKeyspace is the name of the physical keyspace that hosts the data.
+  string physical_keyspace = 3;
+  // PhysicalShard is the name of the physical shard that hosts the data.
+  string physical_shard = 4;
+  // SchemaName is the MySQL schema name to use for this virtual shard.
+  // If empty, defaults to "vt_" + virtual_keyspace + "_" + virtual_shard.
+  string schema_name = 5;
+}
+
+message CreateVirtualShardResponse {
+  // Shard is the newly-created virtual shard.
+  Shard shard = 1;
 }
 
 message CreateShardRequest {

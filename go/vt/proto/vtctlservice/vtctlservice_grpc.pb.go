@@ -187,6 +187,8 @@ type VtctldClient interface {
 	CreateKeyspace(ctx context.Context, in *vtctldata.CreateKeyspaceRequest, opts ...grpc.CallOption) (*vtctldata.CreateKeyspaceResponse, error)
 	// CreateShard creates the specified shard in the topology.
 	CreateShard(ctx context.Context, in *vtctldata.CreateShardRequest, opts ...grpc.CallOption) (*vtctldata.CreateShardResponse, error)
+	// CreateVirtualShard creates a virtual shard that maps to a physical shard.
+	CreateVirtualShard(ctx context.Context, in *vtctldata.CreateVirtualShardRequest, opts ...grpc.CallOption) (*vtctldata.CreateVirtualShardResponse, error)
 	// DeleteCellInfo deletes the CellInfo for the provided cell. The cell cannot
 	// be referenced by any Shard record in the topology.
 	DeleteCellInfo(ctx context.Context, in *vtctldata.DeleteCellInfoRequest, opts ...grpc.CallOption) (*vtctldata.DeleteCellInfoResponse, error)
@@ -704,6 +706,15 @@ func (c *vtctldClient) CreateKeyspace(ctx context.Context, in *vtctldata.CreateK
 func (c *vtctldClient) CreateShard(ctx context.Context, in *vtctldata.CreateShardRequest, opts ...grpc.CallOption) (*vtctldata.CreateShardResponse, error) {
 	out := new(vtctldata.CreateShardResponse)
 	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/CreateShard", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vtctldClient) CreateVirtualShard(ctx context.Context, in *vtctldata.CreateVirtualShardRequest, opts ...grpc.CallOption) (*vtctldata.CreateVirtualShardResponse, error) {
+	out := new(vtctldata.CreateVirtualShardResponse)
+	err := c.cc.Invoke(ctx, "/vtctlservice.Vtctld/CreateVirtualShard", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1769,6 +1780,8 @@ type VtctldServer interface {
 	CreateKeyspace(context.Context, *vtctldata.CreateKeyspaceRequest) (*vtctldata.CreateKeyspaceResponse, error)
 	// CreateShard creates the specified shard in the topology.
 	CreateShard(context.Context, *vtctldata.CreateShardRequest) (*vtctldata.CreateShardResponse, error)
+	// CreateVirtualShard creates a virtual shard that maps to a physical shard.
+	CreateVirtualShard(context.Context, *vtctldata.CreateVirtualShardRequest) (*vtctldata.CreateVirtualShardResponse, error)
 	// DeleteCellInfo deletes the CellInfo for the provided cell. The cell cannot
 	// be referenced by any Shard record in the topology.
 	DeleteCellInfo(context.Context, *vtctldata.DeleteCellInfoRequest) (*vtctldata.DeleteCellInfoResponse, error)
@@ -2128,6 +2141,9 @@ func (UnimplementedVtctldServer) CreateKeyspace(context.Context, *vtctldata.Crea
 }
 func (UnimplementedVtctldServer) CreateShard(context.Context, *vtctldata.CreateShardRequest) (*vtctldata.CreateShardResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateShard not implemented")
+}
+func (UnimplementedVtctldServer) CreateVirtualShard(context.Context, *vtctldata.CreateVirtualShardRequest) (*vtctldata.CreateVirtualShardResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateVirtualShard not implemented")
 }
 func (UnimplementedVtctldServer) DeleteCellInfo(context.Context, *vtctldata.DeleteCellInfoRequest) (*vtctldata.DeleteCellInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteCellInfo not implemented")
@@ -2813,6 +2829,24 @@ func _Vtctld_CreateShard_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VtctldServer).CreateShard(ctx, req.(*vtctldata.CreateShardRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Vtctld_CreateVirtualShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(vtctldata.CreateVirtualShardRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VtctldServer).CreateVirtualShard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/vtctlservice.Vtctld/CreateVirtualShard",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VtctldServer).CreateVirtualShard(ctx, req.(*vtctldata.CreateVirtualShardRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -4856,6 +4890,10 @@ var Vtctld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateShard",
 			Handler:    _Vtctld_CreateShard_Handler,
+		},
+		{
+			MethodName: "CreateVirtualShard",
+			Handler:    _Vtctld_CreateVirtualShard_Handler,
 		},
 		{
 			MethodName: "DeleteCellInfo",

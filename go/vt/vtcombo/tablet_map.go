@@ -881,7 +881,7 @@ func (itmc *internalTabletManagerClient) PreflightSchema(ctx context.Context, ta
 	if !ok {
 		return nil, fmt.Errorf("tmclient: cannot find tablet %v", tablet.Alias.Uid)
 	}
-	return t.tm.PreflightSchema(ctx, changes)
+	return t.tm.PreflightSchema(ctx, tablet.DbNameOverride, changes)
 }
 
 func (itmc *internalTabletManagerClient) ApplySchema(ctx context.Context, tablet *topodatapb.Tablet, change *tmutils.SchemaChange) (*tabletmanagerdatapb.SchemaChangeResult, error) {
@@ -1101,4 +1101,8 @@ func (itmc *internalTabletManagerClient) ReplicaWasRestarted(context.Context, *t
 }
 func (itmc *internalTabletManagerClient) ResetSequences(ctx context.Context, tablet *topodatapb.Tablet, tables []string) error {
 	return fmt.Errorf("not implemented in vtcombo")
+}
+
+func (itmc *internalTabletManagerClient) AddVirtualShard(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error) {
+	return nil, fmt.Errorf("not implemented in vtcombo")
 }

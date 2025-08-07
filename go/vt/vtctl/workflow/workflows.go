@@ -127,8 +127,18 @@ func (wf *workflowFetcher) fetchWorkflowsByShard(
 			return fmt.Errorf("%w %s/%s: tablet %v not found", vexec.ErrNoShardPrimary, req.Keyspace, si.ShardName(), topoproto.TabletAliasString(si.PrimaryAlias))
 		}
 		// Clone the request so that we can set the correct DB name for tablet.
-		req := readReq.CloneVT()
-		wres, err := wf.tmc.ReadVReplicationWorkflows(ctx, primary.Tablet, req)
+		reqClone := readReq.CloneVT()
+
+		// Set the DbNameOverride for virtual shards
+		// If the requested keyspace differs from the tablet's physical keyspace,
+		// this indicates we're dealing with a virtual shard and need to override
+		// the database name to query the correct VReplication data.
+		if req.Keyspace != primary.Keyspace {
+			// For virtual shards, construct the database name using the virtual keyspace
+			reqClone.DbNameOverride = topoproto.DefaultDatabaseName(req.Keyspace, si.ShardName())
+		}
+
+		wres, err := wf.tmc.ReadVReplicationWorkflows(ctx, primary.Tablet, reqClone)
 		if err != nil {
 			return err
 		}
@@ -424,11 +434,29 @@ func (wf *workflowFetcher) scanWorkflow(
 
 		meta.sourceKeyspace = stream.BinlogSource.Keyspace
 
-		if meta.targetKeyspace != "" && meta.targetKeyspace != tablet.Keyspace {
-			return vterrors.Wrapf(ErrMultipleTargetKeyspaces, "workflow = %v, ks1 = %v, ks2 = %v", workflow.Name, meta.targetKeyspace, tablet.Keyspace)
+		if meta.targetKeyspace != "" && meta.targetKeyspace != keyspace {
+			return vterrors.Wrapf(ErrMultipleTargetKeyspaces, "workflow = %v, ks1 = %v, ks2 = %v", workflow.Name, meta.targetKeyspace, keyspace)
 		}
 
-		meta.targetKeyspace = tablet.Keyspace
+		// For virtual keyspaces, use the requested keyspace name instead of the physical keyspace name
+		if keyspace != tablet.Keyspace {
+			// This indicates we're dealing with a virtual keyspace
+			meta.targetKeyspace = keyspace
+			// Add virtual shard metadata to the workflow
+			if workflow.VirtualShard == nil {
+				workflow.VirtualShard = &vtctldatapb.Workflow_VirtualShard{
+					LogicalKeyspace:  keyspace,
+					PhysicalKeyspace: tablet.Keyspace,
+					SchemaMapping:    make(map[string]string),
+				}
+			}
+			// Track schema mapping for virtual shard
+			if stream.BinlogSource.Keyspace != tablet.Keyspace {
+				workflow.VirtualShard.SchemaMapping[stream.BinlogSource.Keyspace] = tablet.Keyspace
+			}
+		} else {
+			meta.targetKeyspace = tablet.Keyspace
+		}
 
 		if stream.TimeUpdated == nil {
 			stream.TimeUpdated = &vttimepb.Time{}

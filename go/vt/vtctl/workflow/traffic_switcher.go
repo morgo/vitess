@@ -548,7 +548,6 @@ func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType T
 			if err != nil {
 				return err
 			}
-
 			query := fmt.Sprintf("drop table %s.%s", primaryDbName, tableNameEscaped)
 			if removalType == DropTable {
 				ts.Logger().Infof("%s: Dropping table %s.%s\n",
@@ -684,8 +683,12 @@ func (ts *trafficSwitcher) switchTableReads(ctx context.Context, cells []string,
 
 func (ts *trafficSwitcher) startReverseVReplication(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		// TODO: do the correct logic for dbNameOverride
+
 		query := fmt.Sprintf("update _vt.vreplication set state='Running', message='' where db_name=%s and workflow=%s",
-			encodeString(source.GetPrimary().DbName()), encodeString(ts.ReverseWorkflowName()))
+			encodeString(dbName), encodeString(ts.ReverseWorkflowName()))
 		_, err := ts.VReplicationExec(ctx, source.GetPrimary().GetAlias(), query)
 		return err
 	})
@@ -699,6 +702,11 @@ func (ts *trafficSwitcher) createJournals(ctx context.Context, sourceWorkflows [
 		}
 		participants := make([]*binlogdatapb.KeyspaceShard, 0)
 		participantMap := make(map[string]bool)
+
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		// TODO: do the correct logic for dbNameOverride
+
 		journal := &binlogdatapb.Journal{
 			Id:              ts.id,
 			MigrationType:   ts.MigrationType(),
@@ -733,7 +741,7 @@ func (ts *trafficSwitcher) createJournals(ctx context.Context, sourceWorkflows [
 		statement := fmt.Sprintf("insert into _vt.resharding_journal "+
 			"(id, db_name, val) "+
 			"values (%v, %v, %v)",
-			ts.id, encodeString(source.GetPrimary().DbName()), encodeString(journal.String()))
+			ts.id, encodeString(dbName), encodeString(journal.String()))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, source.GetPrimary().Tablet, statement); err != nil {
 			return err
 		}
@@ -742,6 +750,7 @@ func (ts *trafficSwitcher) createJournals(ctx context.Context, sourceWorkflows [
 }
 
 func (ts *trafficSwitcher) changeShardsAccess(ctx context.Context, keyspace string, shards []*topo.ShardInfo, access accessType) error {
+	// TODO: resolve virtual shards
 	if err := ts.TopoServer().UpdateDisableQueryService(ctx, keyspace, shards, topodatapb.TabletType_PRIMARY, nil, access == disallowWrites /* disable */); err != nil {
 		return err
 	}
@@ -863,7 +872,11 @@ func (ts *trafficSwitcher) getReverseVReplicationUpdateQuery(targetCell string, 
 
 func (ts *trafficSwitcher) deleteReverseVReplication(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
-		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(source.GetPrimary().DbName()), encodeString(ts.reverseWorkflow))
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		// TODO: do the correct logic for dbNameOverride
+
+		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(dbName), encodeString(ts.reverseWorkflow))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, source.GetPrimary().Tablet, query); err != nil {
 			// vreplication.exec returns no error on delete if the rows do not exist.
 			return err
@@ -1215,9 +1228,13 @@ func (ts *trafficSwitcher) freezeTargetVReplication(ctx context.Context) error {
 	// Mark target streams as frozen before deleting. If SwitchWrites gets
 	// re-invoked after a freeze, it will skip all the previous steps
 	err := ts.ForAllTargets(func(target *MigrationTarget) error {
-		ts.Logger().Infof("Marking target streams frozen for workflow %s db_name %s", ts.WorkflowName(), target.GetPrimary().DbName())
+		// Get the correct database name for virtual keyspaces
+		dbName := target.GetPrimary().DbName()
+		// TODO: do the correct logic for dbNameOverride
+
+		ts.Logger().Infof("Marking target streams frozen for workflow %s db_name %s", ts.WorkflowName(), dbName)
 		query := fmt.Sprintf("update _vt.vreplication set message = %s where db_name=%s and workflow=%s", encodeString(Frozen),
-			encodeString(target.GetPrimary().DbName()), encodeString(ts.WorkflowName()))
+			encodeString(dbName), encodeString(ts.WorkflowName()))
 		_, err := ts.TabletManagerClient().VReplicationExec(ctx, target.GetPrimary().Tablet, query)
 		return err
 	})
@@ -1229,8 +1246,12 @@ func (ts *trafficSwitcher) freezeTargetVReplication(ctx context.Context) error {
 
 func (ts *trafficSwitcher) dropTargetVReplicationStreams(ctx context.Context) error {
 	return ts.ForAllTargets(func(target *MigrationTarget) error {
-		ts.Logger().Infof("Deleting target streams and related data for workflow %s db_name %s", ts.WorkflowName(), target.GetPrimary().DbName())
-		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(target.GetPrimary().DbName()), encodeString(ts.WorkflowName()))
+		// Get the correct database name for virtual keyspaces
+		dbName := target.GetPrimary().DbName()
+		// TODO: do the correct logic for dbNameOverride
+
+		ts.Logger().Infof("Deleting target streams and related data for workflow %s db_name %s", ts.WorkflowName(), dbName)
+		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(dbName), encodeString(ts.WorkflowName()))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, target.GetPrimary().Tablet, query); err != nil {
 			// vreplication.exec returns no error on delete if the rows do not exist.
 			return err
@@ -1243,8 +1264,12 @@ func (ts *trafficSwitcher) dropTargetVReplicationStreams(ctx context.Context) er
 
 func (ts *trafficSwitcher) dropSourceReverseVReplicationStreams(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
-		ts.Logger().Infof("Deleting reverse streams and related data for workflow %s db_name %s", ts.WorkflowName(), source.GetPrimary().DbName())
-		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(source.GetPrimary().DbName()), encodeString(ReverseWorkflowName(ts.WorkflowName())))
+		// Get the correct database name for virtual keyspaces
+		dbName := source.GetPrimary().DbName()
+		// TODO: do the correct logic for dbNameOverride
+
+		ts.Logger().Infof("Deleting reverse streams and related data for workflow %s db_name %s", ts.WorkflowName(), dbName)
+		query := fmt.Sprintf(sqlDeleteWorkflow, encodeString(dbName), encodeString(ReverseWorkflowName(ts.WorkflowName())))
 		if _, err := ts.TabletManagerClient().VReplicationExec(ctx, source.GetPrimary().Tablet, query); err != nil {
 			// vreplication.exec returns no error on delete if the rows do not exist.
 			return err
@@ -1261,7 +1286,11 @@ func (ts *trafficSwitcher) removeTargetTables(ctx context.Context) error {
 		err := ts.ForAllTargets(func(target *MigrationTarget) error {
 			ts.Logger().Infof("ForAllTargets: %+v", target)
 			for _, tableName := range ts.Tables() {
-				primaryDbName, err := sqlescape.EnsureEscaped(target.GetPrimary().DbName())
+				// Get the correct database name for virtual keyspaces
+				dbName := target.GetPrimary().DbName()
+				// TODO: do the correct logic for dbNameOverride
+
+				primaryDbName, err := sqlescape.EnsureEscaped(dbName)
 				if err != nil {
 					return err
 				}
@@ -1271,7 +1300,7 @@ func (ts *trafficSwitcher) removeTargetTables(ctx context.Context) error {
 				}
 				query := fmt.Sprintf("drop table %s.%s", primaryDbName, tableName)
 				ts.Logger().Infof("%s: Dropping table %s.%s\n",
-					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), target.GetPrimary().DbName(), tableName)
+					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), dbName, tableName)
 				res, err := ts.ws.tmc.ExecuteFetchAsDba(ctx, target.GetPrimary().Tablet, false, &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
 					Query:                   []byte(query),
 					MaxRows:                 1,
@@ -1289,7 +1318,7 @@ func (ts *trafficSwitcher) removeTargetTables(ctx context.Context) error {
 					}
 				}
 				ts.Logger().Infof("%s: Removed table %s.%s\n",
-					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), target.GetPrimary().DbName(), tableName)
+					topoproto.TabletAliasString(target.GetPrimary().GetAlias()), dbName, tableName)
 
 			}
 			return nil
@@ -1474,25 +1503,37 @@ func (ts *trafficSwitcher) executeLockTablesOnSource(ctx context.Context) error 
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no tables found in the source keyspace %v associated with the %s workflow", ts.SourceKeyspaceName(), ts.WorkflowName())
 	}
 
-	sb := strings.Builder{}
-	sb.WriteString("LOCK TABLES ")
-	for _, tableName := range ts.Tables() {
-		sb.WriteString(fmt.Sprintf("%s READ,", sqlescape.EscapeID(tableName)))
-	}
-	// trim extra trailing comma
-	lockStmt := sb.String()[:sb.Len()-1]
-
 	return ts.ForAllSources(func(source *MigrationSource) error {
 		primary := source.GetPrimary()
 		if primary == nil {
 			return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no primary found for source shard %s", source.GetShard())
 		}
+
+		// Get the correct database name for virtual keyspaces
+		dbName := primary.DbName()
+		// TODO: do the correct logic for dbNameOverride
+
+		// Build the LOCK TABLES statement without database prefixes
+		// LOCK TABLES statements should use simple table names, not fully qualified names
+		sb := strings.Builder{}
+		sb.WriteString("LOCK TABLES ")
+		for _, tableName := range ts.Tables() {
+			tableNameEscaped, err := sqlescape.EnsureEscaped(tableName)
+			if err != nil {
+				return err
+			}
+			sb.WriteString(fmt.Sprintf("%s.%s READ,", dbName, tableNameEscaped))
+		}
+		// trim extra trailing comma
+		lockStmt := sb.String()[:sb.Len()-1]
+
 		tablet := primary.Tablet
 		_, err := ts.ws.tmc.ExecuteFetchAsDba(ctx, tablet, true, &tabletmanagerdatapb.ExecuteFetchAsDbaRequest{
 			Query:          []byte(lockStmt),
 			MaxRows:        uint64(1),
 			DisableBinlogs: false,
 			ReloadSchema:   true,
+			DbName:         dbName,
 		})
 		if err != nil {
 			ts.Logger().Errorf("Error executing %s on source tablet %v: %v", lockStmt, tablet, err)

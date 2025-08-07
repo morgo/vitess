@@ -47,6 +47,7 @@ import (
 type vcopier struct {
 	vr               *vreplicator
 	throttlerAppName string
+	targetDBName     string
 }
 
 // vcopierCopyTask stores the args and lifecycle hooks of a copy task.
@@ -145,7 +146,19 @@ func newVCopier(vr *vreplicator) *vcopier {
 	return &vcopier{
 		vr:               vr,
 		throttlerAppName: throttlerapp.VCopierName.ConcatenateString(vr.throttlerAppName()),
+		targetDBName:     vr.targetDBName,
 	}
+}
+
+// getTargetDBName returns the target DB name for VCopier operations.
+// For virtual keyspaces, it returns the specific DB name.
+// For regular keyspaces, it returns the database name from the vreplicator.
+func (vc *vcopier) getTargetDBName() string {
+	if vc.targetDBName != "" {
+		return vc.targetDBName
+	}
+	// Fall back to the vreplicator's target schema
+	return vc.vr.getTargetDBName()
 }
 
 func newVCopierCopyTask(args *vcopierCopyTaskArgs) *vcopierCopyTask {
@@ -290,17 +303,55 @@ func (vc *vcopier) initTablesForCopy(ctx context.Context) error {
 // primary key that was copied. A nil Result means that nothing has been copied.
 // A table that was fully copied is removed from copyState.
 func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSettings) error {
-	qr, err := vc.vr.dbClient.Execute(fmt.Sprintf("select table_name, lastpk from _vt.copy_state where vrepl_id = %d and id in (select max(id) from _vt.copy_state group by vrepl_id, table_name) order by table_name", vc.vr.id))
+	qr, err := vc.vr.dbClient.Execute(fmt.Sprintf("select cs.table_name, cs.lastpk, vr.db_name, vr.source from _vt.copy_state cs join _vt.vreplication vr on cs.vrepl_id = vr.id where cs.vrepl_id = %d and cs.id in (select max(id) from _vt.copy_state group by vrepl_id, table_name) order by cs.table_name", vc.vr.id))
 	if err != nil {
 		return err
 	}
+
 	var tableToCopy string
+	var dbName string
 	copyState := make(map[string]*sqltypes.Result)
 	for _, row := range qr.Rows {
 		tableName := row[0].ToString()
 		lastpk := row[1].ToString()
 		if tableToCopy == "" {
 			tableToCopy = tableName
+			destDbName := row[2].ToString()
+			sourceBlob, err := row[3].ToBytes()
+			if err != nil {
+				return vterrors.Wrapf(err, "failed to get BinlogSource from row")
+			}
+			var source binlogdatapb.BinlogSource
+			if err := prototext.Unmarshal(sourceBlob, &source); err != nil {
+				return vterrors.Wrapf(err, "failed to unmarshal BinlogSource")
+			}
+			// Lookup the DBName for source.Keyspace, source.Shard.
+			// We can't use registry in this specific instance, because we are referring
+			// to a different tablet. Registry only has data on the current tablet.
+
+			// Use topo server to find the primary tablet for the source shard
+			// and get the database name from it
+			shard, err := vc.vr.vre.ts.GetShard(ctx, source.Keyspace, source.Shard)
+			if err != nil {
+				return vterrors.Wrapf(err, "failed to get shard info for keyspace %s, shard %s", source.Keyspace, source.Shard)
+			}
+
+			if shard.PrimaryAlias == nil {
+				return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "no primary tablet found for keyspace %s, shard %s", source.Keyspace, source.Shard)
+			}
+
+			primaryTablet, err := vc.vr.vre.ts.GetTablet(ctx, shard.PrimaryAlias)
+			if err != nil {
+				return vterrors.Wrapf(err, "failed to get primary tablet info for keyspace %s, shard %s", source.Keyspace, source.Shard)
+			}
+
+			// For virtual shards, use the specific database name from the tablet
+			// For regular shards, construct the database name from keyspace
+			if primaryTablet.Tablet.DbNameOverride != "" {
+				dbName = primaryTablet.Tablet.DbNameOverride
+			} else {
+				dbName = destDbName
+			}
 		}
 		copyState[tableName] = nil
 		if lastpk != "" {
@@ -314,10 +365,11 @@ func (vc *vcopier) copyNext(ctx context.Context, settings binlogplayer.VRSetting
 	if len(copyState) == 0 {
 		return fmt.Errorf("unexpected: there are no tables to copy")
 	}
+
 	if err := vc.catchup(ctx, copyState); err != nil {
 		return err
 	}
-	return vc.copyTable(ctx, tableToCopy, copyState)
+	return vc.copyTable(ctx, tableToCopy, dbName, copyState)
 }
 
 // catchup replays events to the subset of the tables that have been copied
@@ -374,7 +426,7 @@ func (vc *vcopier) catchup(ctx context.Context, copyState map[string]*sqltypes.R
 // copyTable performs the synchronized copy of the next set of rows from
 // the current table being copied. Each packet received is transactionally
 // committed with the lastpk. This allows for consistent resumability.
-func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState map[string]*sqltypes.Result) error {
+func (vc *vcopier) copyTable(ctx context.Context, tableName string, dbName string, copyState map[string]*sqltypes.Result) error {
 	defer vc.vr.dbClient.Rollback()
 	defer vc.vr.stats.PhaseTimings.Record("copy", time.Now())
 	defer vc.vr.stats.CopyLoopCount.Add(1)
@@ -421,6 +473,7 @@ func (vc *vcopier) copyTable(ctx context.Context, tableName string, copyState ma
 
 	vstreamOptions := &binlogdatapb.VStreamOptions{
 		ConfigOverrides: vc.vr.workflowConfig.Overrides,
+		DbName:          dbName,
 	}
 	serr := vc.vr.sourceVStreamer.VStreamRows(ctx, initialPlan.SendRule.Filter, lastpkpb, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		for {

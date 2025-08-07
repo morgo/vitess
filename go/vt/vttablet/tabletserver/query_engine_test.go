@@ -64,7 +64,7 @@ func TestStrictMode(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.DB = newDBConfigs(db)
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TabletServerTest")
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	qe := NewQueryEngine(env, se)
 	qe.se.InitDBConfig(newDBConfigs(db).DbaWithDB())
 	qe.se.Open()
@@ -157,9 +157,19 @@ func TestGetMessageStreamPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Find the msg table across all databases
+	var msgTable *schema.Table
+	for _, schemaMap := range qe.schema.Load().tables {
+		if table, ok := schemaMap["msg"]; ok {
+			msgTable = table
+			break
+		}
+	}
+
 	wantPlan := &planbuilder.Plan{
 		PlanID: planbuilder.PlanMessageStream,
-		Table:  qe.schema.Load().tables["msg"],
+		Table:  msgTable,
 		Permissions: []planbuilder.Permission{{
 			TableName: "msg",
 			Role:      tableacl.WRITER,
@@ -376,7 +386,7 @@ func newTestQueryEngine(idleTimeout time.Duration, strict bool, dbcfgs *dbconfig
 	cfg.OlapReadPool.IdleTimeout = idleTimeout
 	cfg.TxPool.IdleTimeout = idleTimeout
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TabletServerTest")
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	qe := NewQueryEngine(env, se)
 	// the integration tests that check cache behavior do not expect a doorkeeper; disable it
 	qe.plans = theine.NewStore[PlanCacheKey, *TabletPlan](4*1024*1024, false)
@@ -470,7 +480,7 @@ func benchmarkPlanCache(b *testing.B, db *fakesqldb.DB, par int) {
 	cfg.DB = dbcfgs
 
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TabletServerTest")
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	qe := NewQueryEngine(env, se)
 
 	se.InitDBConfig(dbcfgs.DbaWithDB())
@@ -528,7 +538,7 @@ func TestPlanCachePollution(t *testing.T) {
 	// config.LFUQueryCacheSizeBytes = 3 * 1024 * 1024
 
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TabletServerTest")
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	qe := NewQueryEngine(env, se)
 
 	se.InitDBConfig(dbcfgs.DbaWithDB())
@@ -866,7 +876,7 @@ func TestAddQueryStats(t *testing.T) {
 			cfg.DB = newDBConfigs(fakesqldb.New(t))
 			cfg.EnablePerWorkloadTableMetrics = testcase.enablePerWorkloadTableMetrics
 			env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TestAddQueryStats_"+testcase.name)
-			se := schema.NewEngine(env)
+			se := schema.NewEngine(env, nil)
 			qe := NewQueryEngine(env, se)
 			qe.AddStats(testcase.plan, testcase.tableName, testcase.workload, testcase.tabletType, testcase.queryCount, testcase.duration, testcase.mysqlTime, testcase.rowsAffected, testcase.rowsReturned, testcase.errorCount, testcase.errorCode)
 			assert.Equal(t, testcase.expectedQueryCounts, qe.queryCounts.String())

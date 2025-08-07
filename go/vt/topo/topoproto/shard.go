@@ -39,3 +39,10 @@ func ParseKeyspaceShard(param string) (string, string, error) {
 	}
 	return keySpaceShard[0], keySpaceShard[1], nil
 }
+
+// DefaultDatabaseName returns the default for virtual shard databases.
+// It is roughly vt_<keyspace>_<shard>, but in the shard a
+// - needs to be replaced with the letter 'n'
+func DefaultDatabaseName(keyspace, shard string) string {
+	return fmt.Sprintf("vt_%s_%s", keyspace, strings.ReplaceAll(shard, "-", "n"))
+}

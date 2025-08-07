@@ -31,7 +31,11 @@ import (
 
 // GetSchema returns the schema.
 func (tm *TabletManager) GetSchema(ctx context.Context, request *tabletmanagerdatapb.GetSchemaRequest) (*tabletmanagerdatapb.SchemaDefinition, error) {
-	return tm.MysqlDaemon.GetSchema(ctx, topoproto.TabletDbName(tm.Tablet()), request)
+	dbName := topoproto.TabletDbName(tm.Tablet())
+	if request.DbNameOverride != "" {
+		dbName = request.DbNameOverride
+	}
+	return tm.MysqlDaemon.GetSchema(ctx, dbName, request)
 }
 
 // ReloadSchema will reload the schema
@@ -60,21 +64,23 @@ func (tm *TabletManager) ReloadSchema(ctx context.Context, waitPosition string) 
 
 // ResetSequences will reset the auto-inc counters on the specified tables.
 func (tm *TabletManager) ResetSequences(ctx context.Context, tables []string) error {
-	return tm.QueryServiceControl.SchemaEngine().ResetSequences(tables)
+	return tm.QueryServiceControl.SchemaEngine().ResetSequences(tm.DBConfigs.DBName, tables)
 }
 
 // PreflightSchema will try out the schema changes in "changes".
-func (tm *TabletManager) PreflightSchema(ctx context.Context, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error) {
+func (tm *TabletManager) PreflightSchema(ctx context.Context, dbName string, changes []string) ([]*tabletmanagerdatapb.SchemaChangeResult, error) {
 	if err := tm.lock(ctx); err != nil {
 		return nil, err
 	}
 	defer tm.unlock()
 
 	// get the db name from the tablet
-	dbName := topoproto.TabletDbName(tm.Tablet())
-
+	finalDBName := topoproto.TabletDbName(tm.Tablet())
+	if dbName != "" {
+		finalDBName = dbName
+	}
 	// and preflight the change
-	return tm.MysqlDaemon.PreflightSchemaChange(ctx, dbName, changes)
+	return tm.MysqlDaemon.PreflightSchemaChange(ctx, finalDBName, changes)
 }
 
 // ApplySchema will apply a schema change
@@ -86,7 +92,9 @@ func (tm *TabletManager) ApplySchema(ctx context.Context, change *tmutils.Schema
 
 	// get the db name from the tablet
 	dbName := topoproto.TabletDbName(tm.Tablet())
-
+	if change.DbNameOverride != "" {
+		dbName = change.DbNameOverride
+	}
 	// apply the change
 	scr, err := tm.MysqlDaemon.ApplySchemaChange(ctx, dbName, change)
 	if err != nil {

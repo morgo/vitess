@@ -984,7 +984,8 @@ func (s *Server) validateAndGetStreamsAndSourceKeyspace(ctx context.Context, tar
 			return err
 		}
 		res, err := s.tmc.ReadVReplicationWorkflow(ctx, tablet.Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
-			Workflow: workflowName,
+			Workflow:       workflowName,
+			DbNameOverride: tablet.DbNameOverride,
 		})
 		if err != nil {
 			return vterrors.Wrapf(err, "failed to read workflow %s on shard %s/%s", workflowName, tablet.Keyspace, tablet.Shard)
@@ -1331,6 +1332,7 @@ func setupInitialDeniedTables(ctx context.Context, ts *trafficSwitcher) error {
 	}
 	return ts.ForAllTargets(func(target *MigrationTarget) error {
 		if _, err := ts.TopoServer().UpdateShardFields(ctx, ts.TargetKeyspaceName(), target.GetShard().ShardName(), func(si *topo.ShardInfo) error {
+			// TODO: This does not technically handle virtual shards correctly.
 			return si.UpdateDeniedTables(ctx, topodatapb.TabletType_PRIMARY, nil, false, ts.Tables())
 		}); err != nil {
 			return err
@@ -1979,7 +1981,8 @@ func (s *Server) collectTargetStreams(ctx context.Context, mz *materializer) ([]
 			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
 		}
 		res, err := s.tmc.ReadVReplicationWorkflow(ctx, targetPrimary.Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
-			Workflow: mz.ms.Workflow,
+			Workflow:       mz.ms.Workflow,
+			DbNameOverride: targetPrimary.DbNameOverride,
 		})
 		if err != nil {
 			return vterrors.Wrapf(err, "failed to read vreplication workflow on %+v", targetPrimary.Tablet)
@@ -3377,7 +3380,6 @@ func (s *Server) CopySchemaShard(ctx context.Context, sourceTabletAlias *topodat
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "GetShard(%v, %v) failed: %v", destKeyspace, destShard, err)
 	}
-
 	if destShardInfo.PrimaryAlias == nil {
 		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "no primary in shard record %v/%v. Consider running 'vtctl InitShardPrimary' in case of a new shard or reparenting the shard to fix the topology data", destKeyspace, destShard)
 	}
@@ -3398,7 +3400,6 @@ func (s *Server) CopySchemaShard(ctx context.Context, sourceTabletAlias *topodat
 	}
 
 	createSQLstmts := tmutils.SchemaDefinitionToSQLStrings(sourceSd)
-
 	destTabletInfo, err := s.ts.GetTablet(ctx, destShardInfo.PrimaryAlias)
 	if err != nil {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "GetTablet(%v) failed: %v", destShardInfo.PrimaryAlias, err)
@@ -3441,7 +3442,6 @@ func (s *Server) CopySchemaShard(ctx context.Context, sourceTabletAlias *topodat
 	if !ok {
 		s.Logger().Error(vterrors.Errorf(vtrpcpb.Code_INTERNAL, "CopySchemaShard: failed to reload schema on all replicas"))
 	}
-
 	return err
 }
 
@@ -3466,6 +3466,7 @@ func (s *Server) applySQLShard(ctx context.Context, tabletInfo *topo.TabletInfo,
 		Force:            false,
 		AllowReplication: true,
 		SQLMode:          vreplication.SQLMode,
+		DbNameOverride:   tabletInfo.DbNameOverride, // it was already resolved by the caller.
 	})
 	return err
 }

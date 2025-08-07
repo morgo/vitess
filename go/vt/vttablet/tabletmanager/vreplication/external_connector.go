@@ -97,15 +97,16 @@ func (ec *externalConnector) Get(name string) (*mysqlConnector, error) {
 	}
 	c := &mysqlConnector{}
 	c.env = tabletenv.NewEnv(ec.env, config, name)
-	c.se = schema.NewEngine(c.env)
-	c.vstreamer = vstreamer.NewEngine(c.env, nil, c.se, nil, "")
-	c.vstreamer.InitDBConfig("", "")
-	c.se.InitDBConfig(c.env.Config().DB.AllPrivsWithDB())
+	c.se = schema.NewEngine(c.env, nil)
+	// Initialize schema engine with proper database connector
+	c.se.InitDBConfig(config.DB.AllPrivsWithDB())
+	c.vstreamer = vstreamer.NewEngine(c.env, nil, c.se, nil, "", nil)
 
-	// Open
+	// Open schema engine first
 	if err := c.se.Open(); err != nil {
 		return nil, vterrors.Wrapf(err, "external mysqlConnector: %v", name)
 	}
+	// Then open vstreamer
 	c.vstreamer.Open()
 
 	// Register
@@ -149,12 +150,17 @@ func (c *mysqlConnector) VStreamRows(ctx context.Context, query string, lastpk *
 		}
 		row = r.Rows[0]
 	}
-	return c.vstreamer.StreamRows(ctx, query, row, send, options)
+	// Use the database name from options if provided, otherwise fall back to the environment's config
+	dbName := c.env.Config().DB.DBName
+	if options != nil && options.DbName != "" {
+		dbName = options.DbName
+	}
+	return c.vstreamer.StreamRows(ctx, dbName, query, row, send, options)
 }
 
 func (c *mysqlConnector) VStreamTables(ctx context.Context,
 	send func(response *binlogdatapb.VStreamTablesResponse) error, options *binlogdatapb.VStreamOptions) error {
-	return c.vstreamer.StreamTables(ctx, send, options)
+	return c.vstreamer.StreamTables(ctx, "", send, options)
 }
 
 // -----------------------------------------------------------
@@ -195,6 +201,10 @@ func (tc *tabletConnector) VStream(ctx context.Context, startPos string, tablePK
 func (tc *tabletConnector) VStreamRows(ctx context.Context, query string, lastpk *querypb.QueryResult,
 	send func(*binlogdatapb.VStreamRowsResponse) error, options *binlogdatapb.VStreamOptions) error {
 	req := &binlogdatapb.VStreamRowsRequest{Target: tc.target, Query: query, Lastpk: lastpk, Options: options}
+	// Set the top-level DbName field for virtual keyspaces
+	if options != nil && options.DbName != "" {
+		req.DbName = options.DbName
+	}
 	return tc.qs.VStreamRows(ctx, req, send)
 }
 

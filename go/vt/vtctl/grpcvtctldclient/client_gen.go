@@ -200,6 +200,15 @@ func (client *gRPCVtctldClient) CreateShard(ctx context.Context, in *vtctldatapb
 	return client.c.CreateShard(ctx, in, opts...)
 }
 
+// CreateVirtualShard is part of the vtctlservicepb.VtctldClient interface.
+func (client *gRPCVtctldClient) CreateVirtualShard(ctx context.Context, in *vtctldatapb.CreateVirtualShardRequest, opts ...grpc.CallOption) (*vtctldatapb.CreateVirtualShardResponse, error) {
+	if client.c == nil {
+		return nil, status.Error(codes.Unavailable, connClosedMsg)
+	}
+
+	return client.c.CreateVirtualShard(ctx, in, opts...)
+}
+
 // DeleteCellInfo is part of the vtctlservicepb.VtctldClient interface.
 func (client *gRPCVtctldClient) DeleteCellInfo(ctx context.Context, in *vtctldatapb.DeleteCellInfoRequest, opts ...grpc.CallOption) (*vtctldatapb.DeleteCellInfoResponse, error) {
 	if client.c == nil {

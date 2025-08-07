@@ -28,6 +28,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
+	"vitess.io/vitess/go/vt/vtgate/vindexes"
 	vttablet "vitess.io/vitess/go/vt/vttablet/common"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 
@@ -56,6 +57,7 @@ type tableStreamer struct {
 	send    func(*binlogdatapb.VStreamTablesResponse) error
 	vschema *localVSchema
 	vse     *Engine
+	dbName  string
 
 	snapshotConn *snapshotConn
 	tables       []string
@@ -65,8 +67,9 @@ type tableStreamer struct {
 }
 
 func newTableStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine, vschema *localVSchema,
-	send func(response *binlogdatapb.VStreamTablesResponse) error, vse *Engine, options *binlogdatapb.VStreamOptions) *tableStreamer {
+	send func(response *binlogdatapb.VStreamTablesResponse) error, vse *Engine, dbName string, options *binlogdatapb.VStreamOptions) *tableStreamer {
 
+	log.Infof("DEBUG: Creating new TableStreamer for db %s with options: %v", dbName, options)
 	config, err := GetVReplicationConfig(options)
 	if err != nil {
 		return nil
@@ -76,6 +79,7 @@ func newTableStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.En
 		ctx:     ctx,
 		cancel:  cancel,
 		cp:      cp,
+		dbName:  dbName,
 		se:      se,
 		send:    send,
 		vschema: vschema,
@@ -140,7 +144,7 @@ func (ts *tableStreamer) Stream() error {
 	log.Infof("Found %d tables to stream: %s", len(ts.tables), strings.Join(ts.tables, ", "))
 	for _, tableName := range ts.tables {
 		log.Infof("Streaming table %s", tableName)
-		if err := ts.streamTable(ts.ctx, tableName); err != nil {
+		if err := ts.streamTable(ts.ctx, ts.dbName, tableName); err != nil {
 			log.Errorf("Streaming table %s failed: %v", tableName, err)
 			return err
 		}
@@ -150,7 +154,7 @@ func (ts *tableStreamer) Stream() error {
 	return nil
 }
 
-func (ts *tableStreamer) newRowStreamer(ctx context.Context, query string, lastpk []sqltypes.Value,
+func (ts *tableStreamer) newRowStreamer(ctx context.Context, dbName string, query string, lastpk []sqltypes.Value,
 	send func(*binlogdatapb.VStreamRowsResponse) error) (*rowStreamer, func(), error) {
 
 	vse := ts.vse
@@ -160,8 +164,24 @@ func (ts *tableStreamer) newRowStreamer(ctx context.Context, query string, lastp
 	vse.mu.Lock()
 	defer vse.mu.Unlock()
 
-	rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithDB(), vse.se, query, lastpk, vse.lvschema,
-		send, vse, RowStreamerModeAllTables, ts.snapshotConn, ts.options)
+	// Get the vschema for dbName
+	vschema, err := vse.registry.GetVSchemaByKeyspace(dbName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get vschema for keyspace %s: %v", dbName, err)
+	}
+	// Handle case where vschema is nil (keyspace not found in vschema)
+	if vschema == nil {
+		vschema = &vindexes.VSchema{
+			Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+		}
+	}
+	localVSchema := &localVSchema{
+		keyspace: dbName,
+		vschema:  vschema,
+	}
+
+	rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, query, lastpk, localVSchema,
+		send, vse, RowStreamerModeAllTables, ts.snapshotConn, dbName, ts.options)
 
 	idx := vse.streamIdx
 	vse.rowStreamers[idx] = rowStreamer
@@ -180,7 +200,7 @@ func (ts *tableStreamer) newRowStreamer(ctx context.Context, query string, lastp
 	return rowStreamer, cancel, nil
 }
 
-func (ts *tableStreamer) streamTable(ctx context.Context, tableName string) error {
+func (ts *tableStreamer) streamTable(ctx context.Context, dbName string, tableName string) error {
 	query := fmt.Sprintf("select * from %s", sqlescape.EscapeID(tableName))
 
 	send := func(response *binlogdatapb.VStreamRowsResponse) error {
@@ -193,7 +213,7 @@ func (ts *tableStreamer) streamTable(ctx context.Context, tableName string) erro
 			Lastpk:    response.Lastpk,
 		})
 	}
-	rs, cancel, err := ts.newRowStreamer(ctx, query, nil, send)
+	rs, cancel, err := ts.newRowStreamer(ctx, dbName, query, nil, send)
 	if err != nil {
 		return err
 	}

@@ -40,6 +40,11 @@ import (
 // IsTrivialTypeChange returns if this db type be trivially reassigned
 // without changes to the replication graph
 func IsTrivialTypeChange(oldTabletType, newTabletType topodatapb.TabletType) bool {
+	// VIRTUAL tablets cannot be changed to any other type
+	if oldTabletType == topodatapb.TabletType_VIRTUAL || newTabletType == topodatapb.TabletType_VIRTUAL {
+		return false
+	}
+
 	switch oldTabletType {
 	case topodatapb.TabletType_REPLICA, topodatapb.TabletType_RDONLY, topodatapb.TabletType_SPARE, topodatapb.TabletType_BACKUP, topodatapb.TabletType_EXPERIMENTAL, topodatapb.TabletType_DRAINED:
 		switch newTabletType {
@@ -93,6 +98,12 @@ func IsReplicaType(tt topodatapb.TabletType) bool {
 		return false
 	}
 	return true
+}
+
+// IsVirtualType returns if this type is a virtual tablet that references
+// a physical tablet. VIRTUAL tablets don't run actual vttablet processes.
+func IsVirtualType(tt topodatapb.TabletType) bool {
+	return tt == topodatapb.TabletType_VIRTUAL
 }
 
 // NewTablet create a new Tablet record with the given id, cell, and hostname.
@@ -169,7 +180,7 @@ func NewTabletInfo(tablet *topodatapb.Tablet, version Version) *TabletInfo {
 
 // GetTablet is a high level function to read tablet data.
 // It generates trace spans.
-func (ts *Server) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
+func (ts *Server) getTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
 	conn, err := ts.ConnForCell(ctx, alias.Cell)
 	if err != nil {
 		log.Errorf("unable to get connection for cell %q: %v", alias.Cell, err)
@@ -195,6 +206,37 @@ func (ts *Server) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) 
 		version: version,
 		Tablet:  tablet,
 	}, nil
+}
+
+// GetTabletWithoutResolving is like GetTablet but never resolves VIRTUAL tablets.
+// This is useful when you need the VIRTUAL tablet information itself rather than
+// the physical tablet it references.
+func (ts *Server) GetTabletWithoutResolving(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
+	// This is the same as GetTablet since we don't auto-resolve by default
+	return ts.getTablet(ctx, alias)
+}
+
+// GetTablet gets a tablet and resolves VIRTUAL tablets to their physical counterparts.
+// If you don't want this call GetTabletWithoutResolving instead.
+func (ts *Server) GetTablet(ctx context.Context, alias *topodatapb.TabletAlias) (*TabletInfo, error) {
+	tabletInfo, err := ts.getTablet(ctx, alias)
+	if err != nil {
+		return nil, err
+	}
+	if IsVirtualType(tabletInfo.Type) {
+		resolver := NewDefaultTabletResolver(ts)
+		physicalTablet, err := resolver.ResolveTablet(ctx, tabletInfo.Tablet)
+		if err != nil {
+			return nil, vterrors.Wrapf(err, "failed to resolve VIRTUAL tablet %s",
+				topoproto.TabletAliasString(alias))
+		}
+		// Return the physical tablet info but keep the original version
+		return &TabletInfo{
+			version: tabletInfo.version,
+			Tablet:  physicalTablet,
+		}, nil
+	}
+	return tabletInfo, nil
 }
 
 // GetTabletAliasesByCell returns all the tablet aliases in a cell.
@@ -397,6 +439,11 @@ func Validate(ctx context.Context, ts *Server, tabletAlias *topodatapb.TabletAli
 		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "bad tablet alias data for tablet %v: %#v", topoproto.TabletAliasString(tabletAlias), tablet.Alias)
 	}
 
+	// Special validation for VIRTUAL tablets
+	if IsVirtualType(tablet.Type) {
+		return validateVirtualTablet(ctx, ts, tablet.Tablet)
+	}
+
 	// Validate the entry in the shard replication nodes
 	si, err := ts.GetShardReplication(ctx, tablet.Alias.Cell, tablet.Keyspace, tablet.Shard)
 	if err != nil {
@@ -405,6 +452,54 @@ func Validate(ctx context.Context, ts *Server, tabletAlias *topodatapb.TabletAli
 
 	if _, err = si.GetShardReplicationNode(tabletAlias); err != nil {
 		return vterrors.Wrapf(err, "tablet %v not found in cell %v shard replication", tabletAlias, tablet.Alias.Cell)
+	}
+
+	return nil
+}
+
+// validateVirtualTablet performs specific validation for VIRTUAL tablets.
+func validateVirtualTablet(ctx context.Context, ts *Server, tablet *topodatapb.Tablet) error {
+	// Get the physical keyspace and shard from the VIRTUAL tablet's tags
+	physicalKeyspace, physicalShard, err := GetPhysicalShardInfo(ctx, ts, tablet.Keyspace, tablet.Shard)
+	if err != nil {
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid physical keyspace/shard reference",
+			topoproto.TabletAliasString(tablet.Alias))
+	}
+
+	// Verify the physical shard exists and has tablets
+	physicalTablets, err := ts.GetTabletMapForShard(ctx, physicalKeyspace, physicalShard)
+	if err != nil {
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s references non-existent or inaccessible physical shard %s/%s",
+			topoproto.TabletAliasString(tablet.Alias), physicalKeyspace, physicalShard)
+	}
+
+	if len(physicalTablets) == 0 {
+		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+			"VIRTUAL tablet %s references physical shard %s/%s which has no tablets",
+			topoproto.TabletAliasString(tablet.Alias), physicalKeyspace, physicalShard)
+	}
+
+	// Ensure no physical tablet is also VIRTUAL (avoid circular references)
+	for _, physicalTablet := range physicalTablets {
+		if IsVirtualType(physicalTablet.Type) {
+			return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+				"VIRTUAL tablet %s references physical shard %s/%s which contains VIRTUAL tablet %s",
+				topoproto.TabletAliasString(tablet.Alias), physicalKeyspace, physicalShard,
+				topoproto.TabletAliasString(physicalTablet.Alias))
+		}
+	}
+
+	// Validate virtual keyspace name
+	virtualKeyspace, err := GetVirtualKeyspaceName(tablet)
+	if err != nil {
+		return vterrors.Wrapf(err, "VIRTUAL tablet %s has invalid virtual keyspace name",
+			topoproto.TabletAliasString(tablet.Alias))
+	}
+
+	if virtualKeyspace != tablet.Keyspace {
+		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT,
+			"VIRTUAL tablet %s virtual keyspace (%s) doesn't match tablet keyspace (%s)",
+			topoproto.TabletAliasString(tablet.Alias), virtualKeyspace, tablet.Keyspace)
 	}
 
 	return nil
@@ -532,6 +627,58 @@ func (ts *Server) GetTabletMap(ctx context.Context, tabletAliases []*topodatapb.
 	return tabletMap, returnErr
 }
 
+// GetTabletMapWithoutResolving tries to read all the tablets in the provided list
+// without resolving VIRTUAL tablets to their physical counterparts,
+// and returns them in a map.
+// If error is ErrPartialResult, the results in the map are
+// incomplete, meaning some tablets couldn't be read.
+// The map is indexed by topoproto.TabletAliasString(tablet alias).
+func (ts *Server) GetTabletMapWithoutResolving(ctx context.Context, tabletAliases []*topodatapb.TabletAlias, opt *GetTabletsByCellOptions) (map[string]*TabletInfo, error) {
+	span, ctx := trace.NewSpan(ctx, "topo.GetTabletMapWithoutResolving")
+	span.Annotate("num_tablets", len(tabletAliases))
+	defer span.Finish()
+
+	var (
+		mu        sync.Mutex
+		wg        sync.WaitGroup
+		tabletMap = make(map[string]*TabletInfo)
+		returnErr error
+	)
+
+	for _, tabletAlias := range tabletAliases {
+		if tabletAlias == nil {
+			return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "nil tablet alias in list")
+		}
+		wg.Add(1)
+		go func(tabletAlias *topodatapb.TabletAlias) {
+			defer wg.Done()
+			tabletInfo, err := ts.GetTabletWithoutResolving(ctx, tabletAlias)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				log.Warningf("%v: %v", tabletAlias, err)
+				// There can be data races removing nodes - ignore them for now.
+				// We only need to set this on first error.
+				if returnErr == nil && !IsErrType(err, NoNode) {
+					returnErr = NewError(PartialResult, tabletAlias.GetCell())
+				}
+			} else {
+				if opt != nil && opt.KeyspaceShard != nil {
+					if opt.KeyspaceShard.Keyspace != "" && opt.KeyspaceShard.Keyspace != tabletInfo.Keyspace {
+						return
+					}
+					if opt.KeyspaceShard.Shard != "" && opt.KeyspaceShard.Shard != tabletInfo.Shard {
+						return
+					}
+				}
+				tabletMap[topoproto.TabletAliasString(tabletAlias)] = tabletInfo
+			}
+		}(tabletAlias)
+	}
+	wg.Wait()
+	return tabletMap, returnErr
+}
+
 // GetTabletList tries to read all the tablets in the provided list,
 // and returns them in a list.
 // If error is ErrPartialResult, the results in the list are
@@ -580,6 +727,39 @@ func (ts *Server) GetTabletList(ctx context.Context, tabletAliases []*topodatapb
 	}
 	wg.Wait()
 	return tabletList, returnErr
+}
+
+// GetVirtualTablets returns all the VIRTUAL tablets served by a physical keyspace and shard
+// This is primarily used by the tablet's registry.
+func (ts *Server) GetVirtualTablets(ctx context.Context, cell, keyspace, shard string) ([]*TabletInfo, error) {
+	// Get all tablets in the cell for the given keyspace and shard.
+	tabletInfos, err := ts.GetTabletsByCell(ctx, cell, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tablets in cell %q for keyspace %q and shard %q: %w", cell, keyspace, shard, err)
+	}
+	// Filter out only VIRTUAL tablets for the specified keyspace and shard.
+	var virtualTablets []*TabletInfo
+	for _, ti := range tabletInfos {
+		if IsVirtualType(ti.Type) {
+			// Check if the tablet has tags for physical_keyspace and physical_shard that match the arguments
+			if ti.Tablet.Tags == nil {
+				log.Warningf("VIRTUAL tablet %s missing tags", topoproto.TabletAliasString(ti.Alias))
+				continue
+			}
+			physicalKeyspace, hasPhysicalKeyspace := ti.Tablet.Tags[PhysicalKeyspaceTag]
+			physicalShard, hasPhysicalShard := ti.Tablet.Tags[PhysicalShardTag]
+
+			if !hasPhysicalKeyspace || !hasPhysicalShard {
+				log.Warningf("VIRTUAL tablet %s missing physical_keyspace or physical_shard tags", topoproto.TabletAliasString(ti.Alias))
+				continue
+			}
+			if physicalKeyspace == keyspace && physicalShard == shard {
+				log.Infof("Found VIRTUAL tablet %s for physical keyspace %s and shard %s", topoproto.TabletAliasString(ti.Alias), keyspace, shard)
+				virtualTablets = append(virtualTablets, ti)
+			}
+		}
+	}
+	return virtualTablets, nil
 }
 
 // InitTablet creates or updates a tablet. If no parent is specified

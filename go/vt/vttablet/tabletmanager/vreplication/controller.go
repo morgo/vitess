@@ -67,6 +67,9 @@ type controller struct {
 	stopPos      string
 	tabletPicker *discovery.TabletPicker
 
+	// DBName context for virtual shard support
+	targetDBName string
+
 	cancel context.CancelFunc
 	done   chan struct{}
 
@@ -122,7 +125,16 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 	}
 	ct.id = int32(id)
 	ct.workflow = params["workflow"]
-	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v", ct.id, ct.workflow, cell, tabletTypesStr)
+
+	// Determine target keyspace and dbName for virtual keyspace support
+	// Set target schema from db_name parameter, fallback to engine's default
+	if dbName, ok := params["db_name"]; ok && dbName != "" {
+		ct.targetDBName = dbName
+	} else {
+		ct.targetDBName = vre.dbName
+	}
+
+	log.Infof("creating controller with id: %v, name: %v, cell: %v, tabletTypes: %v, dbName: %v", ct.id, ct.workflow, cell, tabletTypesStr, ct.targetDBName)
 
 	ct.lastWorkflowError = vterrors.NewLastError(fmt.Sprintf("VReplication controller %d for workflow %q", ct.id, ct.workflow), workflowConfig.MaxTimeToRetryError)
 
@@ -149,7 +161,19 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 		if v := params["tablet_types"]; v != "" {
 			tabletTypesStr = v
 		}
-		log.Infof("creating tablet picker for source keyspace/shard %v/%v with cell: %v and tabletTypes: %v", ct.source.Keyspace, ct.source.Shard, cell, tabletTypesStr)
+
+		// For Virtual Shards, we need to look for tablets in the physical keyspace
+		sourceKeyspace := ct.source.Keyspace
+		// Check if this is a virtual shard and resolve to physical keyspace
+		isVirtual, err := topo.IsVirtualShard(ctx, ts, ct.source.Keyspace, ct.source.Shard)
+		if err == nil && isVirtual {
+			physicalKeyspace, physicalShard, err := topo.GetPhysicalShardInfo(ctx, ts, ct.source.Keyspace, ct.source.Shard)
+			if err == nil {
+				sourceKeyspace = physicalKeyspace
+				// Update the source shard to the physical shard for tablet picker
+				ct.source.Shard = physicalShard
+			}
+		}
 		cells := strings.Split(cell, ",")
 
 		sourceTopo := ts
@@ -159,7 +183,7 @@ func newController(ctx context.Context, params map[string]string, dbClientFactor
 				return nil, err
 			}
 		}
-		tp, err := discovery.NewTabletPicker(ctx, sourceTopo, cells, ct.vre.cell, ct.source.Keyspace, ct.source.Shard, tabletTypesStr, tpo)
+		tp, err := discovery.NewTabletPicker(ctx, sourceTopo, cells, ct.vre.cell, sourceKeyspace, ct.source.Shard, tabletTypesStr, tpo)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +277,7 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 	default:
 	}
 
-	dbClient := ct.dbClientFactory()
+	dbClient := ct.getDBNameSpecificDBClientFactory()()
 	if err := dbClient.Connect(); err != nil {
 		return vterrors.Wrap(err, "can't connect to database")
 	}
@@ -263,7 +287,6 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-
 	switch {
 	case len(ct.source.Tables) > 0:
 		// Table names can have search patterns. Resolve them against the schema.
@@ -298,6 +321,8 @@ func (ct *controller) runBlp(ctx context.Context) (err error) {
 		defer vsClient.Close(ctx)
 
 		vr := newVReplicator(ct.id, ct.source, vsClient, ct.blpStats, dbClient, ct.mysqld, ct.vre, ct.WorkflowConfig)
+		// Pass dbName context to the vreplicator for virtual shard support
+		vr.targetDBName = ct.targetDBName
 		err = vr.Replicate(ctx)
 		ct.lastWorkflowError.Record(err)
 
@@ -367,4 +392,22 @@ func (ct *controller) Stop() {
 	ct.cancel()
 	ct.blpStats.Stop()
 	<-ct.done
+}
+
+// getDBNameSpecificDBClientFactory returns a database client factory that connects to the appropriate schema
+func (ct *controller) getDBNameSpecificDBClientFactory() func() binlogplayer.DBClient {
+	if ct.targetDBName == "" || ct.targetDBName == ct.vre.dbName {
+		// Use the default factory if no specific schema or same as default
+		return ct.dbClientFactory
+	}
+
+	// Return a factory that creates clients connected to the specific schema
+	return func() binlogplayer.DBClient {
+		client := ct.dbClientFactory()
+		// Override the database name to use the target schema
+		if schemaClient, ok := client.(interface{ SetDBName(string) }); ok {
+			schemaClient.SetDBName(ct.targetDBName)
+		}
+		return client
+	}
 }

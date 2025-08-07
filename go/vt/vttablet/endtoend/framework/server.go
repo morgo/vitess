@@ -72,7 +72,7 @@ func StartCustomServer(ctx context.Context, connParams, connAppDebugParams mysql
 	}
 
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	Server = tabletserver.NewTabletServer(ctx, vtenv.NewTestEnv(), "", cfg, TopoServer, &topodatapb.TabletAlias{}, srvTopoCounts)
+	Server = tabletserver.NewTabletServer(ctx, vtenv.NewTestEnv(), "", cfg, TopoServer, &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	Server.Register()
 	err = Server.StartService(Target, dbcfgs, nil /* mysqld */)
 	if err != nil {

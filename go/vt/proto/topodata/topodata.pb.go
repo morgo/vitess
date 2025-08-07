@@ -128,6 +128,11 @@ const (
 	// to route queries from Vitess users. In this state,
 	// this tablet is dedicated to the process that uses it.
 	TabletType_DRAINED TabletType = 8
+	// VIRTUAL is used for virtual tablets that reference
+	// physical tablets. No actual vttablet process runs with this type.
+	// VIRTUAL tablets are used to create shard entries for virtual keyspaces
+	// while maintaining a clear mapping to the underlying physical tablets.
+	TabletType_VIRTUAL TabletType = 9
 )
 
 // Enum value maps for TabletType.
@@ -144,6 +149,7 @@ var (
 		6: "BACKUP",
 		7: "RESTORE",
 		8: "DRAINED",
+		9: "VIRTUAL",
 	}
 	TabletType_value = map[string]int32{
 		"UNKNOWN":      0,
@@ -157,6 +163,7 @@ var (
 		"BACKUP":       6,
 		"RESTORE":      7,
 		"DRAINED":      8,
+		"VIRTUAL":      9,
 	}
 )
 
@@ -1894,7 +1901,7 @@ const file_topodata_proto_rawDesc = "" +
 	"\fKeyspaceType\x12\n" +
 	"\n" +
 	"\x06NORMAL\x10\x00\x12\f\n" +
-	"\bSNAPSHOT\x10\x01*\x9d\x01\n" +
+	"\bSNAPSHOT\x10\x01*\xaa\x01\n" +
 	"\n" +
 	"TabletType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -1910,7 +1917,8 @@ const file_topodata_proto_rawDesc = "" +
 	"\n" +
 	"\x06BACKUP\x10\x06\x12\v\n" +
 	"\aRESTORE\x10\a\x12\v\n" +
-	"\aDRAINED\x10\b\x1a\x02\x10\x01B8\n" +
+	"\aDRAINED\x10\b\x12\v\n" +
+	"\aVIRTUAL\x10\t\x1a\x02\x10\x01B8\n" +
 	"\x0fio.vitess.protoZ%vitess.io/vitess/go/vt/proto/topodatab\x06proto3"
 
 var (

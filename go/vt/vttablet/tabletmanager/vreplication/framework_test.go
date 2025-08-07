@@ -143,8 +143,7 @@ func setup(ctx context.Context) (func(), int) {
 	vttablet.InitVReplicationConfigDefaults()
 
 	// Engines cannot be initialized in testenv because it introduces circular dependencies.
-	streamerEngine = vstreamer.NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
-	streamerEngine.InitDBConfig(env.KeyspaceName, env.ShardName)
+	streamerEngine = vstreamer.NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0], nil)
 	streamerEngine.Open()
 
 	if err := env.Mysqld.ExecuteSuperQuery(ctx, fmt.Sprintf("create database %s", vrepldb)); err != nil {
@@ -352,7 +351,7 @@ func (ftc *fakeTabletConn) VStreamRows(ctx context.Context, request *binlogdatap
 	vstreamOptions := &binlogdatapb.VStreamOptions{
 		ConfigOverrides: vttablet.GetVReplicationConfigDefaults(false).Map(),
 	}
-	return streamerEngine.StreamRows(ctx, request.Query, row, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	return streamerEngine.StreamRows(ctx, "vttest", request.Query, row, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		if vstreamRowsSendHook != nil {
 			vstreamRowsSendHook(ctx)
 		}
@@ -527,6 +526,11 @@ func (dbc *realDBClient) ExecuteFetchMulti(query string, maxrows int) ([]*sqltyp
 
 func (dbc *realDBClient) SupportsCapability(capability capabilities.FlavorCapability) (bool, error) {
 	return dbc.conn.SupportsCapability(capability)
+}
+
+// SetDBName sets the database name for virtual keyspace support
+func (dbc *realDBClient) SetDBName(dbName string) {
+	// No-op for real client - database is set during connection
 }
 
 func expectDeleteQueries(t *testing.T) {

@@ -30,6 +30,7 @@ import (
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/mysql/collations"
 	"vitess.io/vitess/go/mysql/replication"
+	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/sqltypes"
 	"vitess.io/vitess/go/vt/binlog"
 	"vitess.io/vitess/go/vt/dbconfigs"
@@ -88,6 +89,11 @@ type vstreamer struct {
 	vse     *Engine
 	options *binlogdatapb.VStreamOptions
 	config  *vttablet.VReplicationConfig
+
+	// keyspace and shard for this stream's database context
+	// resolved once during initialization from vs.cp.DBName()
+	keyspace string
+	shard    string
 }
 
 // streamerPlan extends the original plan to also include
@@ -128,6 +134,15 @@ func newVStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine
 	if err != nil {
 		return nil
 	}
+
+	// Resolve keyspace and shard for this stream's database context
+	keyspace, shard, err := vse.registry.GetKeyspaceShardByDbName(cp.DBName())
+	if err != nil {
+		log.Errorf("Failed to resolve keyspace/shard for dbName %s: %v", cp.DBName(), err)
+		// Fall back to physical keyspace/shard if resolution fails
+		keyspace, shard = vse.registry.GetPhysicalKeyspaceShard()
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	return &vstreamer{
 		ctx:          ctx,
@@ -146,6 +161,8 @@ func newVStreamer(ctx context.Context, cp dbconfigs.Connector, se *schema.Engine
 		vse:          vse,
 		options:      options,
 		config:       config,
+		keyspace:     keyspace,
+		shard:        shard,
 	}
 }
 
@@ -234,8 +251,9 @@ func (vs *vstreamer) parseEvents(ctx context.Context, events <-chan mysql.Binlog
 	// all existing rows are sent without the new row.
 	// If a single row exceeds the packet size, it will be in its own packet.
 	bufferAndTransmit := func(vevent *binlogdatapb.VEvent) error {
-		vevent.Keyspace = vs.vse.keyspace
-		vevent.Shard = vs.vse.shard
+		// Set keyspace/shard from this vstreamer's resolved context
+		vevent.Keyspace = vs.keyspace
+		vevent.Shard = vs.shard
 
 		switch vevent.Type {
 		case binlogdatapb.VEventType_GTID, binlogdatapb.VEventType_BEGIN, binlogdatapb.VEventType_FIELD,
@@ -761,6 +779,7 @@ func (vs *vstreamer) buildSidecarTablePlan(id uint64, tm *mysql.TableMap) ([]*bi
 	}
 	table := &Table{
 		Name:   tableName,
+		DBName: sidecar.GetName(),
 		Fields: fields[:len(tm.Types)],
 	}
 
@@ -789,8 +808,8 @@ func (vs *vstreamer) buildSidecarTablePlan(id uint64, tm *mysql.TableMap) ([]*bi
 			FieldEvent: &binlogdatapb.FieldEvent{
 				TableName:       tableName,
 				Fields:          plan.fields(),
-				Keyspace:        vs.vse.keyspace,
-				Shard:           vs.vse.shard,
+				Keyspace:        vs.keyspace,
+				Shard:           vs.shard,
 				IsInternalTable: plan.IsInternal,
 			}})
 	}
@@ -804,6 +823,7 @@ func (vs *vstreamer) buildTablePlan(id uint64, tm *mysql.TableMap) (*binlogdatap
 	}
 	table := &Table{
 		Name:   tm.Name,
+		DBName: tm.Database,
 		Fields: cols,
 	}
 	plan, err := buildPlan(vs.se.Environment(), table, vs.vschema, vs.filter)
@@ -826,8 +846,8 @@ func (vs *vstreamer) buildTablePlan(id uint64, tm *mysql.TableMap) (*binlogdatap
 		FieldEvent: &binlogdatapb.FieldEvent{
 			TableName: plan.Table.Name,
 			Fields:    plan.fields(),
-			Keyspace:  vs.vse.keyspace,
-			Shard:     vs.vse.shard,
+			Keyspace:  vs.keyspace,
+			Shard:     vs.shard,
 			// This mapping will be done, if needed, in the vstreamer when we process
 			// and build ROW events.
 			EnumSetStringValues: len(plan.EnumSetValuesMap) > 0,
@@ -868,7 +888,7 @@ func (vs *vstreamer) buildTableColumns(tm *mysql.TableMap) ([]*querypb.Field, er
 			Flags:   mysql.FlagsForColumn(t, coll),
 		})
 	}
-	st, err := vs.se.GetTableForPos(vs.ctx, sqlparser.NewIdentifierCS(tm.Name), replication.EncodePosition(vs.pos))
+	st, err := vs.se.GetTableForPos(vs.ctx, tm.Database, sqlparser.NewIdentifierCS(tm.Name), replication.EncodePosition(vs.pos))
 	if err != nil {
 		if vs.filter.FieldEventMode == binlogdatapb.Filter_ERR_ON_MISMATCH {
 			log.Infof("No schema found for table %s", tm.Name)
@@ -902,7 +922,20 @@ func (vs *vstreamer) buildTableColumns(tm *mysql.TableMap) ([]*querypb.Field, er
 	// target and we use that rather than any that were in the binlog events,
 	// which were for the source and which can be using a different collation
 	// than the target.
-	fieldsCopy, err := getFields(vs.ctx, vs.cp, vs.se, tm.Name, tm.Database, st.Fields[:len(tm.Types)])
+
+	// For virtual keyspaces, we need to determine the correct schema name
+	schemaName := tm.Database
+	if vs.vschema != nil && vs.vschema.keyspace != "" {
+		// Check if this is a virtual keyspace by looking at the vschema
+		// If the vschema keyspace differs from the physical database, we're dealing with a virtual keyspace
+		if vs.vschema.keyspace != tm.Database {
+			// This is a virtual keyspace, use the vschema keyspace as the schema name
+			schemaName = vs.vschema.keyspace
+			log.Infof("Virtual keyspace detected: using schema '%s' instead of '%s' for table '%s'", schemaName, tm.Database, tm.Name)
+		}
+	}
+
+	fieldsCopy, err := getFields(vs.ctx, vs.cp, vs.se, tm.Name, schemaName, st.Fields[:len(tm.Types)])
 	if err != nil {
 		return nil, err
 	}
@@ -916,12 +949,25 @@ func getExtColInfos(ctx context.Context, cp dbconfigs.Connector, se *schema.Engi
 		return nil, vterrors.Wrapf(err, "failed to connect to database %s", database)
 	}
 	defer conn.Close()
+
+	// Select the correct database for virtual keyspaces
+	dbName := cp.DBName()
+	if dbName != "" {
+		if _, err := conn.ExecuteFetch(fmt.Sprintf("USE %s", sqlescape.EscapeID(dbName)), 1, false); err != nil {
+			log.Warningf("Error selecting database %s: %v", dbName, err)
+			return nil, vterrors.Wrapf(err, "failed to select database %s", dbName)
+		}
+	}
+
 	queryTemplate := "select column_name, column_type, collation_name from information_schema.columns where table_schema=%s and table_name=%s;"
 	query := fmt.Sprintf(queryTemplate, encodeString(database), encodeString(table))
+	log.Infof("getExtColInfos: Executing query: %s", query)
 	qr, err := conn.ExecuteFetch(query, 10000, false)
 	if err != nil {
+		log.Errorf("getExtColInfos: Error executing query for table '%s' in database/schema '%s': %v", table, database, err)
 		return nil, err
 	}
+	log.Infof("getExtColInfos: Found %d columns for table '%s' in database/schema '%s'", len(qr.Rows), table, database)
 	for _, row := range qr.Rows {
 		extColInfo := &extColInfo{
 			columnType: row[1].ToString(),
@@ -1092,9 +1138,10 @@ func (vs *vstreamer) processRowEvent(vevents []*binlogdatapb.VEvent, plan *strea
 			Type: binlogdatapb.VEventType_ROW,
 			RowEvent: &binlogdatapb.RowEvent{
 				TableName:       plan.Table.Name,
+				DbName:          plan.Table.DBName,
 				RowChanges:      rowChanges,
-				Keyspace:        vs.vse.keyspace,
-				Shard:           vs.vse.shard,
+				Keyspace:        vs.keyspace,
+				Shard:           vs.shard,
 				Flags:           uint32(rows.Flags),
 				IsInternalTable: plan.IsInternal,
 			},

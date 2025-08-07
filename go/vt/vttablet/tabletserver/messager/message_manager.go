@@ -947,7 +947,7 @@ func (mm *messageManager) readPending(ctx context.Context, bindVars map[string]*
 		return nil, err
 	}
 	qr := &sqltypes.Result{}
-	err = mm.vs.StreamResults(ctx, query, func(response *binlogdatapb.VStreamResultsResponse) error {
+	err = mm.vs.StreamResults(ctx, "", query, func(response *binlogdatapb.VStreamResultsResponse) error {
 		if response.Fields != nil {
 			qr.Fields = response.Fields
 		}

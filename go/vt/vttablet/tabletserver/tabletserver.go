@@ -1,4 +1,5 @@
 /*
+
 Copyright 2019 The Vitess Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,6 +32,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"vitess.io/vitess/go/vt/vttablet/registry"
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/mysql/sqlerror"
@@ -102,6 +105,7 @@ type TabletServer struct {
 	TruncateErrorLen       int
 	enableHotRowProtection bool
 	topoServer             *topo.Server
+	registry               registry.Registry
 
 	// These are sub-components of TabletServer.
 	statelessql  *QueryList
@@ -142,17 +146,23 @@ var RegisterFunctions []func(Controller)
 
 // NewServer creates a new TabletServer based on the command line flags.
 func NewServer(ctx context.Context, env *vtenv.Environment, name string, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) *TabletServer {
-	return NewTabletServer(ctx, env, name, tabletenv.NewCurrentConfig(), topoServer, alias, srvTopoCounts)
+	return NewTabletServer(ctx, env, name, tabletenv.NewCurrentConfig(), topoServer, alias, srvTopoCounts, registry.NewTopoRegistry(topoServer))
 }
 
 // NewTabletServer creates an instance of TabletServer. Only the first
 // instance of TabletServer will expose its state variables.
-func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, config *tabletenv.TabletConfig, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel) *TabletServer {
+func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, config *tabletenv.TabletConfig, topoServer *topo.Server, alias *topodatapb.TabletAlias, srvTopoCounts *stats.CountersWithSingleLabel, reg registry.Registry) *TabletServer {
+	// If this TabletServer is created from a place where the registry is not
+	// otherwise needed, we can create a new one here.
+	if reg == nil {
+		reg = registry.NewTopoRegistry(topoServer)
+	}
 	exporter := servenv.NewExporter(name, "Tablet")
 	tsv := &TabletServer{
 		exporter:               exporter,
 		stats:                  tabletenv.NewStats(exporter),
 		config:                 config,
+		registry:               reg,
 		TerseErrors:            config.TerseErrors,
 		TruncateErrorLen:       config.TruncateErrorLen,
 		enableHotRowProtection: config.HotRowProtection.Mode != tabletenv.Disable,
@@ -164,21 +174,14 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 
 	srvTopoServer := srvtopo.NewResilientServer(ctx, topoServer, srvTopoCounts)
 
-	tabletTypeFunc := func() topodatapb.TabletType {
-		if tsv.sm == nil || tsv.sm.Target() == nil {
-			return topodatapb.TabletType_UNKNOWN
-		}
-		return tsv.sm.Target().TabletType
-	}
-
 	tsv.statelessql = NewQueryList("oltp-stateless", env.Parser())
 	tsv.statefulql = NewQueryList("oltp-stateful", env.Parser())
 	tsv.olapql = NewQueryList("olap", env.Parser())
-	tsv.se = schema.NewEngine(tsv)
+	tsv.se = schema.NewEngine(tsv, tsv.registry)
 	tsv.hs = newHealthStreamer(tsv, alias, tsv.se)
 	tsv.rt = repltracker.NewReplTracker(tsv, alias)
-	tsv.lagThrottler = throttle.NewThrottler(tsv, srvTopoServer, topoServer, alias, tsv.rt.HeartbeatWriter(), tabletTypeFunc)
-	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, tsv.lagThrottler, alias.Cell)
+	// Initialize vstreamer with registry and nil throttler - we'll update it later
+	tsv.vstreamer = vstreamer.NewEngine(tsv, srvTopoServer, tsv.se, nil, alias.Cell, tsv.registry)
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
 	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
@@ -186,9 +189,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 	tsv.te = NewTxEngine(tsv, tsv.hs.sendUnresolvedTransactionSignal)
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
-	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
-	tsv.onlineDDLExecutor = onlineddl.NewExecutor(tsv, alias, topoServer, tsv.lagThrottler, tabletTypeFunc, tsv.onlineDDLExecutorToggleTableBuffer, tsv.tableGC.RequestChecks, tsv.te.preparedPool.IsEmptyForTable)
-
+	// Initialize the state manager first, before creating components that depend on it
 	tsv.sm = &stateManager{
 		statelessql:       tsv.statelessql,
 		statefulql:        tsv.statefulql,
@@ -203,12 +204,41 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		txThrottler:       tsv.txThrottler,
 		te:                tsv.te,
 		messager:          tsv.messager,
-		ddle:              tsv.onlineDDLExecutor,
-		throttler:         tsv.lagThrottler,
-		tableGC:           tsv.tableGC,
 		rw:                newRequestsWaiter(),
 		diskHealthMonitor: newDiskHealthMonitor(ctx),
 	}
+
+	// Now define tabletTypeFunc after sm is initialized
+	tabletTypeFunc := func() topodatapb.TabletType {
+		if tsv.sm == nil || tsv.sm.Target() == nil {
+			return topodatapb.TabletType_UNKNOWN
+		}
+		return tsv.sm.Target().TabletType
+	}
+
+	// Initialize components that depend on tabletTypeFunc
+	tsv.lagThrottler = throttle.NewThrottler(tsv, srvTopoServer, topoServer, alias, tsv.rt.HeartbeatWriter(), tabletTypeFunc)
+	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
+
+	// Initialize onlineDDLExecutor after te is created
+	// Create a wrapper function to safely check preparedPool
+	isPreparedPoolEmptyFunc := func(tableName string) bool {
+		if tsv.te.preparedPool == nil {
+			return true // If preparedPool is not initialized, consider it empty
+		}
+		return tsv.te.preparedPool.IsEmptyForTable(tableName)
+	}
+	tsv.onlineDDLExecutor = onlineddl.NewExecutor(tsv, alias, topoServer, tsv.lagThrottler, tabletTypeFunc, tsv.onlineDDLExecutorToggleTableBuffer, tsv.tableGC.RequestChecks, isPreparedPoolEmptyFunc)
+
+	// Update the state manager with components that were created after it
+	tsv.sm.ddle = tsv.onlineDDLExecutor
+	tsv.sm.throttler = tsv.lagThrottler
+	tsv.sm.tableGC = tsv.tableGC
+
+	// TODO: we should somewhere in the tabletserver init
+	// discover what keyspaces (default physical + all virtual)
+	// we host so that it can be used in various places.
+	// It might be here that we do this.
 
 	tsv.exporter.NewGaugeFunc("TabletState", "Tablet server state", func() int64 { return int64(tsv.sm.State()) })
 	tsv.checkMysqlGaugeFunc = tsv.exporter.NewGaugeFunc("CheckMySQLRunning", "Check MySQL operation currently in progress", tsv.sm.isCheckMySQLRunning)
@@ -293,13 +323,15 @@ func (tsv *TabletServer) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.
 	tsv.sm.target = target.CloneVT()
 	tsv.config.DB = dbcfgs
 
-	tsv.se.InitDBConfig(tsv.config.DB.DbaWithDB())
+	tsv.se.InitDBConfig(tsv.config.DB.DbaWithoutDB())
 	tsv.rt.InitDBConfig(target, mysqld)
 	tsv.txThrottler.InitDBConfig(target)
-	tsv.vstreamer.InitDBConfig(target.Keyspace, target.Shard)
 	tsv.hs.InitDBConfig(target)
+	// TODO: this should cover all keyspaces
 	tsv.onlineDDLExecutor.InitDBConfig(target.Keyspace, target.Shard, dbcfgs.DBName)
+	// lag throttler can use physical keyspace and shard
 	tsv.lagThrottler.InitDBConfig(target.Keyspace, target.Shard)
+	// TODO: this should cover all keyspaces
 	tsv.tableGC.InitDBConfig(target.Keyspace, target.Shard, dbcfgs.DBName)
 	return nil
 }
@@ -400,6 +432,16 @@ func (tsv *TabletServer) InitACL(tableACLConfigFile string, reloadACLConfigFileI
 	return nil
 }
 
+func (tsv *TabletServer) InitRegistry(ctx context.Context, target *querypb.Target) error {
+
+	// Initialize the registry with the current tablet alias.
+	if err := tsv.registry.Init(ctx, target); err != nil {
+		return vterrors.Wrapf(err, "failed to load tablets and shards for physical target %s/%s", target.Keyspace, target.Shard)
+	}
+
+	return nil
+}
+
 // SetServingType changes the serving type of the tabletserver. It starts or
 // stops internal services as deemed necessary.
 // Returns true if the state of QueryService or the tablet type changed.
@@ -459,7 +501,7 @@ func (tsv *TabletServer) ReloadSchema(ctx context.Context) error {
 // changes to finish being applied.
 func (tsv *TabletServer) WaitForSchemaReset(timeout time.Duration) {
 	onSchemaChange := make(chan struct{}, 1)
-	tsv.se.RegisterNotifier("_tsv_wait", func(_ map[string]*schema.Table, _, _, _ []*schema.Table, _ bool) {
+	tsv.se.RegisterNotifier("_tsv_wait", func(_ map[string]map[string]*schema.Table, _, _, _ []*schema.Table, _ bool) {
 		onSchemaChange <- struct{}{}
 	}, true)
 	defer tsv.se.UnregisterNotifier("_tsv_wait")
@@ -506,6 +548,11 @@ func (tsv *TabletServer) TableGC() *gc.TableGC {
 // SchemaEngine returns the SchemaEngine part of TabletServer.
 func (tsv *TabletServer) SchemaEngine() *schema.Engine {
 	return tsv.se
+}
+
+// Registry returns the Registry part of TabletServer.
+func (tsv *TabletServer) Registry() registry.Registry {
+	return tsv.registry
 }
 
 // Begin starts a new transaction. This is allowed only if the state is StateServing.
@@ -561,6 +608,7 @@ func (tsv *TabletServer) begin(
 				qre := &QueryExecutor{
 					ctx:              ctx,
 					query:            query,
+					dbName:           target.DbName,
 					connID:           transactionID,
 					options:          options,
 					plan:             plan,
@@ -930,6 +978,7 @@ func (tsv *TabletServer) execute(ctx context.Context, target *querypb.Target, sq
 			}
 			qre := &QueryExecutor{
 				query:            query,
+				dbName:           target.DbName,
 				marginComments:   comments,
 				bindVars:         bindVariables,
 				connID:           connID,
@@ -1288,7 +1337,19 @@ func (tsv *TabletServer) VStreamRows(ctx context.Context, request *binlogdatapb.
 		}
 		row = r.Rows[0]
 	}
-	return tsv.vstreamer.StreamRows(ctx, request.Query, row, send, request.Options)
+
+	// convert request.Target to dbName
+	_, dbName, err := tsv.registry.ResolveTarget(ctx, request.Target)
+	// tsv.getDBName(request.Target)
+	if err != nil {
+		return err
+	}
+	if request.DbName != "" {
+		// If dbName is provided, use it instead of the one derived from the target.
+		dbName = request.DbName
+	}
+
+	return tsv.vstreamer.StreamRows(ctx, dbName, request.Query, row, send, request.Options)
 }
 
 // VStreamTables streams all tables.
@@ -1296,7 +1357,18 @@ func (tsv *TabletServer) VStreamTables(ctx context.Context, request *binlogdatap
 	if err := tsv.sm.VerifyTarget(ctx, request.Target); err != nil {
 		return err
 	}
-	return tsv.vstreamer.StreamTables(ctx, send, request.Options)
+	// convert request.Target to dbName
+	_, dbName, err := tsv.registry.ResolveTarget(ctx, request.Target)
+	//dbName, err := tsv.getDBName(request.Target)
+	if err != nil {
+		return err
+	}
+	if request.DbName != "" {
+		// If dbName is provided, use it instead of the one derived from the target.
+		dbName = request.DbName
+	}
+
+	return tsv.vstreamer.StreamTables(ctx, dbName, send, request.Options)
 }
 
 // VStreamResults streams rows from the specified starting point.
@@ -1304,7 +1376,12 @@ func (tsv *TabletServer) VStreamResults(ctx context.Context, target *querypb.Tar
 	if err := tsv.sm.VerifyTarget(ctx, target); err != nil {
 		return err
 	}
-	return tsv.vstreamer.StreamResults(ctx, query, send)
+	_, dbName, err := tsv.registry.ResolveTarget(ctx, target)
+	//dbName, err := tsv.getDBName(target)
+	if err != nil {
+		return err
+	}
+	return tsv.vstreamer.StreamResults(ctx, dbName, query, send)
 }
 
 // ReserveBeginExecute implements the QueryService interface
@@ -1353,6 +1430,7 @@ func (tsv *TabletServer) ReserveBeginExecute(ctx context.Context, target *queryp
 				qre := &QueryExecutor{
 					ctx:              ctx,
 					query:            query,
+					dbName:           target.DbName,
 					connID:           connID,
 					options:          options,
 					plan:             plan,
@@ -1518,6 +1596,10 @@ func txToReserveState(state queryservice.TransactionState) queryservice.Reserved
 
 // GetSchema returns table definitions for the specified tables.
 func (tsv *TabletServer) GetSchema(ctx context.Context, target *querypb.Target, tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) (err error) {
+	_, dbName, err := tsv.registry.ResolveTarget(ctx, target)
+	if err != nil {
+		return err
+	}
 	err = tsv.execRequest(
 		ctx, tsv.loadQueryTimeout(),
 		"GetSchema", "", nil,
@@ -1529,8 +1611,9 @@ func (tsv *TabletServer) GetSchema(ctx context.Context, target *querypb.Target, 
 				ctx:      ctx,
 				logStats: logStats,
 				tsv:      tsv,
+				dbName:   target.DbName,
 			}
-			return qre.GetSchemaDefinitions(tableType, tableNames, callback)
+			return qre.GetSchemaDefinitions(dbName, tableType, tableNames, callback)
 		},
 	)
 	return

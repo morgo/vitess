@@ -20,14 +20,6 @@
 
 source ../common/env.sh
 
-for i in 200 201 202; do
-	CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh
-	CELL=zone1 KEYSPACE=customer TABLET_UID=$i ../common/scripts/vttablet-up.sh
-done
+vtctldclient CreateKeyspace --sidecar-db-name="_vt" --durability-policy=semi_sync customer || fail "Failed to create keyspace 'customer'"
 
-# set the correct durability policy for the keyspace
-vtctldclient --server localhost:15999 SetKeyspaceDurabilityPolicy --durability-policy=semi_sync customer || fail "Failed to set keyspace durability policy on the customer keyspace"
-
-# Wait for all the tablets to be up and registered in the topology server
-# and for a primary tablet to be elected in the shard and become healthy/serving.
-wait_for_healthy_shard customer 0 || exit 1
+vtctldclient CreateVirtualShard customer/0 main/0 || fail "Failed to create virtual shard 'customer/0'"

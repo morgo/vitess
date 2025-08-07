@@ -340,23 +340,16 @@ func GetColumns(dbName, table string, exec func(string, int, bool) (*sqltypes.Re
 	if selectColumns == "" {
 		selectColumns = "*"
 	}
-	tableSpec, err := sqlescape.EnsureEscaped(table)
-	if err != nil {
-		return nil, nil, err
+	// required right now, can't handle edge cases.
+	if dbName == "" {
+		return nil, nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "no database name provided for GetColumns")
 	}
-	if dbName != "" {
-		dbName, err := sqlescape.EnsureEscaped(dbName)
-		if err != nil {
-			return nil, nil, err
-		}
-		tableSpec = fmt.Sprintf("%s.%s", dbName, tableSpec)
-	}
+	tableSpec := fmt.Sprintf("%s.%s", sqlescape.EscapeID(dbName), sqlescape.EscapeID(table))
 	query := fmt.Sprintf(GetFieldsQuery, selectColumns, tableSpec)
 	qr, err := exec(query, 0, true)
 	if err != nil {
 		return nil, nil, vterrors.Wrapf(err, "in Mysqld.GetColumns()")
 	}
-
 	columns := make([]string, len(qr.Fields))
 	for i, field := range qr.Fields {
 		columns[i] = field.Name
@@ -490,6 +483,11 @@ func (mysqld *Mysqld) PreflightSchemaChange(ctx context.Context, dbName string, 
 
 // ApplySchemaChange will apply the schema change to the given database.
 func (mysqld *Mysqld) ApplySchemaChange(ctx context.Context, dbName string, change *tmutils.SchemaChange) (*tabletmanagerdatapb.SchemaChangeResult, error) {
+	// Use DbNameOverride if provided, otherwise use the default dbName
+	if change.DbNameOverride != "" {
+		dbName = change.DbNameOverride
+	}
+
 	// check current schema matches
 	req := &tabletmanagerdatapb.GetSchemaRequest{IncludeViews: true}
 	beforeSchema, err := mysqld.GetSchema(ctx, dbName, req)

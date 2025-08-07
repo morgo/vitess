@@ -1403,6 +1403,7 @@ type RowEvent struct {
 	Shard           string                 `protobuf:"bytes,4,opt,name=shard,proto3" json:"shard,omitempty"`
 	Flags           uint32                 `protobuf:"varint,5,opt,name=flags,proto3" json:"flags,omitempty"`                                              // https://dev.mysql.com/doc/dev/mysql-server/latest/classbinary__log_1_1Rows__event.html
 	IsInternalTable bool                   `protobuf:"varint,6,opt,name=is_internal_table,json=isInternalTable,proto3" json:"is_internal_table,omitempty"` // set for sidecardb tables
+	DbName          string                 `protobuf:"bytes,7,opt,name=db_name,json=dbName,proto3" json:"db_name,omitempty"`                               // database/schema name for the table
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1477,6 +1478,13 @@ func (x *RowEvent) GetIsInternalTable() bool {
 		return x.IsInternalTable
 	}
 	return false
+}
+
+func (x *RowEvent) GetDbName() string {
+	if x != nil {
+		return x.DbName
+	}
+	return ""
 }
 
 // FieldEvent represents the field info for a table.
@@ -2154,7 +2162,9 @@ type VStreamOptions struct {
 	ConfigOverrides map[string]string      `protobuf:"bytes,2,rep,name=config_overrides,json=configOverrides,proto3" json:"config_overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Copy only these tables, skip the rest in the filter.
 	// If not provided, the default behaviour is to copy all tables.
-	TablesToCopy  []string `protobuf:"bytes,3,rep,name=tables_to_copy,json=tablesToCopy,proto3" json:"tables_to_copy,omitempty"`
+	TablesToCopy []string `protobuf:"bytes,3,rep,name=tables_to_copy,json=tablesToCopy,proto3" json:"tables_to_copy,omitempty"`
+	// Database name for virtual keyspaces
+	DbName        string `protobuf:"bytes,4,opt,name=db_name,json=dbName,proto3" json:"db_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2208,6 +2218,13 @@ func (x *VStreamOptions) GetTablesToCopy() []string {
 		return x.TablesToCopy
 	}
 	return nil
+}
+
+func (x *VStreamOptions) GetDbName() string {
+	if x != nil {
+		return x.DbName
+	}
+	return ""
 }
 
 // VStreamRequest is the payload for VStreamer
@@ -2357,6 +2374,7 @@ type VStreamRowsRequest struct {
 	Query             string                 `protobuf:"bytes,4,opt,name=query,proto3" json:"query,omitempty"`
 	Lastpk            *query.QueryResult     `protobuf:"bytes,5,opt,name=lastpk,proto3" json:"lastpk,omitempty"`
 	Options           *VStreamOptions        `protobuf:"bytes,6,opt,name=options,proto3" json:"options,omitempty"`
+	DbName            string                 `protobuf:"bytes,7,opt,name=db_name,json=dbName,proto3" json:"db_name,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2431,6 +2449,13 @@ func (x *VStreamRowsRequest) GetOptions() *VStreamOptions {
 		return x.Options
 	}
 	return nil
+}
+
+func (x *VStreamRowsRequest) GetDbName() string {
+	if x != nil {
+		return x.DbName
+	}
+	return ""
 }
 
 // VStreamRowsResponse is the response from VStreamRows
@@ -2544,6 +2569,7 @@ type VStreamTablesRequest struct {
 	ImmediateCallerId *query.VTGateCallerID  `protobuf:"bytes,2,opt,name=immediate_caller_id,json=immediateCallerId,proto3" json:"immediate_caller_id,omitempty"`
 	Target            *query.Target          `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
 	Options           *VStreamOptions        `protobuf:"bytes,4,opt,name=options,proto3" json:"options,omitempty"`
+	DbName            string                 `protobuf:"bytes,5,opt,name=db_name,json=dbName,proto3" json:"db_name,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2604,6 +2630,13 @@ func (x *VStreamTablesRequest) GetOptions() *VStreamOptions {
 		return x.Options
 	}
 	return nil
+}
+
+func (x *VStreamTablesRequest) GetDbName() string {
+	if x != nil {
+		return x.DbName
+	}
+	return ""
 }
 
 // VStreamTablesResponse is the response from VStreamTables
@@ -3143,7 +3176,7 @@ const file_binlogdata_proto_rawDesc = "" +
 	"\x13json_partial_values\x18\x04 \x01(\v2\x1c.binlogdata.RowChange.BitmapR\x11jsonPartialValues\x1a2\n" +
 	"\x06Bitmap\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x03R\x05count\x12\x12\n" +
-	"\x04cols\x18\x02 \x01(\fR\x04cols\"\xd5\x01\n" +
+	"\x04cols\x18\x02 \x01(\fR\x04cols\"\xee\x01\n" +
 	"\bRowEvent\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x126\n" +
@@ -3152,7 +3185,8 @@ const file_binlogdata_proto_rawDesc = "" +
 	"\bkeyspace\x18\x03 \x01(\tR\bkeyspace\x12\x14\n" +
 	"\x05shard\x18\x04 \x01(\tR\x05shard\x12\x14\n" +
 	"\x05flags\x18\x05 \x01(\rR\x05flags\x12*\n" +
-	"\x11is_internal_table\x18\x06 \x01(\bR\x0fisInternalTable\"\xe4\x01\n" +
+	"\x11is_internal_table\x18\x06 \x01(\bR\x0fisInternalTable\x12\x17\n" +
+	"\adb_name\x18\a \x01(\tR\x06dbName\"\xe4\x01\n" +
 	"\n" +
 	"FieldEvent\x12\x1d\n" +
 	"\n" +
@@ -3206,11 +3240,12 @@ const file_binlogdata_proto_rawDesc = "" +
 	"\vp_k_columns\x18\x03 \x03(\x03R\tpKColumns\x12#\n" +
 	"\x0ep_k_index_name\x18\x04 \x01(\tR\vpKIndexName\"A\n" +
 	"\rMinimalSchema\x120\n" +
-	"\x06tables\x18\x01 \x03(\v2\x18.binlogdata.MinimalTableR\x06tables\"\xff\x01\n" +
+	"\x06tables\x18\x01 \x03(\v2\x18.binlogdata.MinimalTableR\x06tables\"\x98\x02\n" +
 	"\x0eVStreamOptions\x12'\n" +
 	"\x0finternal_tables\x18\x01 \x03(\tR\x0einternalTables\x12Z\n" +
 	"\x10config_overrides\x18\x02 \x03(\v2/.binlogdata.VStreamOptions.ConfigOverridesEntryR\x0fconfigOverrides\x12$\n" +
-	"\x0etables_to_copy\x18\x03 \x03(\tR\ftablesToCopy\x1aB\n" +
+	"\x0etables_to_copy\x18\x03 \x03(\tR\ftablesToCopy\x12\x17\n" +
+	"\adb_name\x18\x04 \x01(\tR\x06dbName\x1aB\n" +
 	"\x14ConfigOverridesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfd\x02\n" +
@@ -3223,14 +3258,15 @@ const file_binlogdata_proto_rawDesc = "" +
 	"\x0ftable_last_p_ks\x18\x06 \x03(\v2\x17.binlogdata.TableLastPKR\ftableLastPKs\x124\n" +
 	"\aoptions\x18\a \x01(\v2\x1a.binlogdata.VStreamOptionsR\aoptions\"=\n" +
 	"\x0fVStreamResponse\x12*\n" +
-	"\x06events\x18\x01 \x03(\v2\x12.binlogdata.VEventR\x06events\"\xbb\x02\n" +
+	"\x06events\x18\x01 \x03(\v2\x12.binlogdata.VEventR\x06events\"\xd4\x02\n" +
 	"\x12VStreamRowsRequest\x12?\n" +
 	"\x13effective_caller_id\x18\x01 \x01(\v2\x0f.vtrpc.CallerIDR\x11effectiveCallerId\x12E\n" +
 	"\x13immediate_caller_id\x18\x02 \x01(\v2\x15.query.VTGateCallerIDR\x11immediateCallerId\x12%\n" +
 	"\x06target\x18\x03 \x01(\v2\r.query.TargetR\x06target\x12\x14\n" +
 	"\x05query\x18\x04 \x01(\tR\x05query\x12*\n" +
 	"\x06lastpk\x18\x05 \x01(\v2\x12.query.QueryResultR\x06lastpk\x124\n" +
-	"\aoptions\x18\x06 \x01(\v2\x1a.binlogdata.VStreamOptionsR\aoptions\"\xa4\x02\n" +
+	"\aoptions\x18\x06 \x01(\v2\x1a.binlogdata.VStreamOptionsR\aoptions\x12\x17\n" +
+	"\adb_name\x18\a \x01(\tR\x06dbName\"\xa4\x02\n" +
 	"\x13VStreamRowsResponse\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12(\n" +
 	"\bpkfields\x18\x02 \x03(\v2\f.query.FieldR\bpkfields\x12\x12\n" +
@@ -3241,12 +3277,13 @@ const file_binlogdata_proto_rawDesc = "" +
 	".query.RowR\x06lastpk\x12\x1c\n" +
 	"\tthrottled\x18\x06 \x01(\bR\tthrottled\x12\x1c\n" +
 	"\theartbeat\x18\a \x01(\bR\theartbeat\x12)\n" +
-	"\x10throttled_reason\x18\b \x01(\tR\x0fthrottledReason\"\xfb\x01\n" +
+	"\x10throttled_reason\x18\b \x01(\tR\x0fthrottledReason\"\x94\x02\n" +
 	"\x14VStreamTablesRequest\x12?\n" +
 	"\x13effective_caller_id\x18\x01 \x01(\v2\x0f.vtrpc.CallerIDR\x11effectiveCallerId\x12E\n" +
 	"\x13immediate_caller_id\x18\x02 \x01(\v2\x15.query.VTGateCallerIDR\x11immediateCallerId\x12%\n" +
 	"\x06target\x18\x03 \x01(\v2\r.query.TargetR\x06target\x124\n" +
-	"\aoptions\x18\x04 \x01(\v2\x1a.binlogdata.VStreamOptionsR\aoptions\"\xde\x01\n" +
+	"\aoptions\x18\x04 \x01(\v2\x1a.binlogdata.VStreamOptionsR\aoptions\x12\x17\n" +
+	"\adb_name\x18\x05 \x01(\tR\x06dbName\"\xde\x01\n" +
 	"\x15VStreamTablesResponse\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x12$\n" +

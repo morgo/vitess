@@ -66,7 +66,9 @@ func (wr *Wrangler) VDiff2(ctx context.Context, keyspace, workflowName string, a
 	}
 
 	output.Err = ts.ForAllTargets(func(target *workflow.MigrationTarget) error {
-		resp, err := wr.tmc.VDiff(ctx, target.GetPrimary().Tablet, req)
+		primary := target.GetPrimary()
+		req.DbNameOverride = primary.DbNameOverride
+		resp, err := wr.tmc.VDiff(ctx, primary.Tablet, req)
 		output.mu.Lock()
 		defer output.mu.Unlock()
 		output.Responses[target.GetShard().ShardName()] = resp

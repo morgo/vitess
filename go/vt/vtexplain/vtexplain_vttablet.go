@@ -120,7 +120,7 @@ func (vte *VTExplain) newTablet(ctx context.Context, env *vtenv.Environment, opt
 	config.EnableTableGC = false
 
 	// XXX much of this is cloned from the tabletserver tests
-	tsv := tabletserver.NewTabletServer(ctx, env, topoproto.TabletAliasString(t.Alias), config, ts, t.Alias, srvTopoCounts)
+	tsv := tabletserver.NewTabletServer(ctx, env, topoproto.TabletAliasString(t.Alias), config, ts, t.Alias, srvTopoCounts, nil)
 
 	tablet := explainTablet{db: db, tsv: tsv, vte: vte, collationEnv: env.CollationEnv()}
 	db.Handler = &tablet
@@ -444,7 +444,7 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 			}
 		}
 		showTableRows = append(showTableRows, mysql.BaseShowTablesRow(table, false, options))
-		showTableWithSizesRows = append(showTableWithSizesRows, mysql.BaseShowTablesWithSizesRow(table, true, options))
+		showTableWithSizesRows = append(showTableWithSizesRows, mysql.BaseShowTablesWithSizesRow(table, false, options))
 	}
 
 	tEnv.addResult(mysql.BaseShowTables, &sqltypes.Result{
@@ -532,7 +532,6 @@ func newTabletEnvironment(ddls []sqlparser.DDLStatement, opts *Options, collatio
 			Rows:   colValues,
 		})
 	}
-
 	tEnv.addResult(mysql.BaseShowPrimary, &sqltypes.Result{
 		Fields: mysql.ShowPrimaryFields,
 		Rows:   indexRows,

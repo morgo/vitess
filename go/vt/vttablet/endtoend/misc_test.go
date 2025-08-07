@@ -965,7 +965,7 @@ func newTestSchemaEngine(connParams *mysql.ConnParams) *schema.Engine {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.DB = dbconfigs.NewTestDBConfigs(*connParams, *connParams, connParams.DbName)
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "EngineTest")
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	se.InitDBConfig(dbconfigs.New(connParams))
 	return se
 }
@@ -1039,7 +1039,7 @@ func TestEngineReload(t *testing.T) {
 		require.NotEmpty(t, schema)
 		for _, expectTable := range expectedTables {
 			t.Run(expectTable, func(t *testing.T) {
-				tbl := engine.GetTable(sqlparser.NewIdentifierCS(expectTable))
+				tbl := engine.GetTable(connParams.DbName, sqlparser.NewIdentifierCS(expectTable))
 				require.NotNil(t, tbl)
 
 				switch expectTable {
@@ -1081,7 +1081,7 @@ func TestEngineReload(t *testing.T) {
 			require.NotEmpty(t, schema)
 			for _, expectTable := range expectedTables {
 				t.Run(expectTable, func(t *testing.T) {
-					tbl := engine.GetTable(sqlparser.NewIdentifierCS(expectTable))
+					tbl := engine.GetTable(connParams.DbName, sqlparser.NewIdentifierCS(expectTable))
 					require.NotNil(t, tbl)
 
 					switch expectTable {
@@ -1105,7 +1105,7 @@ func TestEngineReload(t *testing.T) {
 			var partitionedSize uint64
 			for _, expectTable := range expectedTables {
 				t.Run(expectTable, func(t *testing.T) {
-					tbl := engine.GetTable(sqlparser.NewIdentifierCS(expectTable))
+					tbl := engine.GetTable(connParams.DbName, sqlparser.NewIdentifierCS(expectTable))
 					require.NotNil(t, tbl)
 
 					switch expectTable {

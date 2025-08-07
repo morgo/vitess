@@ -30,8 +30,8 @@ import (
 
 // FindAllTargetsAndKeyspaces goes through all serving shards in the topology for the provided keyspaces
 // and tablet types. If no keyspaces are provided all available keyspaces in the topo are
-// fetched. It returns one Target object per keyspace/shard/matching TabletType.
-// It also returns all the keyspaces that it found.
+// fetched. It returns one Target object per keyspace/shard/matching TabletType, excluding virtual shards.
+// It also returns all the keyspaces that it found (including virtual keyspaces).
 func FindAllTargetsAndKeyspaces(ctx context.Context, ts Server, cell string, keyspaces []string, tabletTypes []topodatapb.TabletType) ([]*querypb.Target, []string, error) {
 	var err error
 	if len(keyspaces) == 0 {
@@ -40,7 +40,11 @@ func FindAllTargetsAndKeyspaces(ctx context.Context, ts Server, cell string, key
 			return nil, nil, err
 		}
 	}
-
+	// We need the topo
+	topoServer, err := ts.GetTopoServer()
+	if err != nil {
+		return nil, nil, err
+	}
 	var targets []*querypb.Target
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -76,18 +80,21 @@ func FindAllTargetsAndKeyspaces(ctx context.Context, ts Server, cell string, key
 				if !waitForIt {
 					continue
 				}
-
-				// Add all the shards. Note we can't have
-				// duplicates, as there is only one entry per
-				// TabletType in the Partitions list.
+				// Add all the shards, but skip virtual shards.
 				mu.Lock()
 				for _, shard := range ksPartition.ShardReferences {
-					targets = append(targets, &querypb.Target{
-						Cell:       cell,
-						Keyspace:   keyspace,
-						Shard:      shard.Name,
-						TabletType: ksPartition.ServedType,
-					})
+					isVirtual, err := topo.IsVirtualShard(ctx, topoServer, keyspace, shard.Name)
+					if err != nil {
+						errRecorder.RecordError(err)
+					}
+					if !isVirtual {
+						targets = append(targets, &querypb.Target{
+							Cell:       cell,
+							Keyspace:   keyspace,
+							Shard:      shard.Name,
+							TabletType: ksPartition.ServedType,
+						})
+					}
 				}
 				mu.Unlock()
 			}

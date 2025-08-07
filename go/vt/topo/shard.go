@@ -670,6 +670,16 @@ func (ts *Server) GetTabletMapForShard(ctx context.Context, keyspace, shard stri
 	return ts.GetTabletMapForShardByCell(ctx, keyspace, shard, nil)
 }
 
+// GetTabletMapForShardWithoutResolving returns the tablets for a shard without resolving
+// VIRTUAL tablets to their physical counterparts. This is useful when you need to check
+// for the presence of VIRTUAL tablets themselves.
+// It can return ErrPartialResult if it couldn't read all the cells, or all
+// the individual tablets, in which case the map is valid, but partial.
+// The map is indexed by topoproto.TabletAliasString(tablet alias).
+func (ts *Server) GetTabletMapForShardWithoutResolving(ctx context.Context, keyspace, shard string) (map[string]*TabletInfo, error) {
+	return ts.GetTabletMapForShardByCellWithoutResolving(ctx, keyspace, shard, nil)
+}
+
 // GetTabletMapForShardByCell returns the tablets for a shard. It can return
 // ErrPartialResult if it couldn't read all the cells, or all
 // the individual tablets, in which case the map is valid, but partial.
@@ -685,6 +695,28 @@ func (ts *Server) GetTabletMapForShardByCell(ctx context.Context, keyspace, shar
 	// get the tablets for the cells we were able to reach, forward
 	// ErrPartialResult from FindAllTabletAliasesInShard
 	result, gerr := ts.GetTabletMap(ctx, aliases, nil)
+	if gerr == nil && err != nil {
+		gerr = err
+	}
+	return result, gerr
+}
+
+// GetTabletMapForShardByCellWithoutResolving returns the tablets for a shard without resolving
+// VIRTUAL tablets to their physical counterparts. It can return
+// ErrPartialResult if it couldn't read all the cells, or all
+// the individual tablets, in which case the map is valid, but partial.
+// The map is indexed by topoproto.TabletAliasString(tablet alias).
+func (ts *Server) GetTabletMapForShardByCellWithoutResolving(ctx context.Context, keyspace, shard string, cells []string) (map[string]*TabletInfo, error) {
+	// if we get a partial result, we keep going. It most likely means
+	// a cell is out of commission.
+	aliases, err := ts.FindAllTabletAliasesInShardByCell(ctx, keyspace, shard, cells)
+	if err != nil && !IsErrType(err, PartialResult) {
+		return nil, err
+	}
+
+	// get the tablets for the cells we were able to reach, forward
+	// ErrPartialResult from FindAllTabletAliasesInShard
+	result, gerr := ts.GetTabletMapWithoutResolving(ctx, aliases, nil)
 	if gerr == nil && err != nil {
 		gerr = err
 	}

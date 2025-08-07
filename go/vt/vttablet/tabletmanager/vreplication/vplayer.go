@@ -90,6 +90,10 @@ type vplayer struct {
 
 	throttlerAppName string
 
+	// Virtual keyspace context - inherited from VReplicator
+	targetKeyspace string
+	targetDBName   string
+
 	// See updateFKCheck for more details on how the two fields below are used.
 
 	// foreignKeyChecksEnabled is the current state of the foreign key checks for the current session.
@@ -178,10 +182,23 @@ func newVPlayer(vr *vreplicator, settings binlogplayer.VRSettings, copyState map
 		tablePlans:       make(map[string]*TablePlan),
 		phase:            phase,
 		throttlerAppName: throttlerapp.VPlayerName.ConcatenateString(vr.throttlerAppName()),
+		targetKeyspace:   vr.targetKeyspace,
+		targetDBName:     vr.targetDBName,
 		query:            queryFunc,
 		commit:           commitFunc,
 		batchMode:        batchMode,
 	}
+}
+
+// getTargetDBName returns the target DB name for VPlayer operations.
+// For virtual keyspaces, it returns the specific DB name.
+// For regular keyspaces, it falls back to the vreplicator's target DB.
+func (vp *vplayer) getTargetDBName() string {
+	if vp.targetDBName != "" {
+		return vp.targetDBName
+	}
+	// Fall back to the vreplicator's target DB
+	return vp.vr.getTargetDBName()
 }
 
 // play is the entry point for playing binlogs.

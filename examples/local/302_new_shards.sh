@@ -19,18 +19,5 @@
 
 source ../common/env.sh
 
-for i in 300 301 302; do
-	CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh
-	SHARD=-80 CELL=zone1 KEYSPACE=customer TABLET_UID=$i ../common/scripts/vttablet-up.sh
-done
-
-for i in 400 401 402; do
-	CELL=zone1 TABLET_UID=$i ../common/scripts/mysqlctl-up.sh
-	SHARD=80- CELL=zone1 KEYSPACE=customer TABLET_UID=$i ../common/scripts/vttablet-up.sh
-done
-
-for shard in "-80" "80-"; do
-	# Wait for all the tablets to be up and registered in the topology server
-	# and for a primary tablet to be elected in the shard and become healthy/serving.
-	wait_for_healthy_shard customer "${shard}" || exit 1
-done;
+vtctldclient CreateVirtualShard customer/-80 main/0 || fail "Failed to create virtual shard 'customer/-80'"
+vtctldclient CreateVirtualShard customer/80- main/0 || fail "Failed to create virtual shard 'customer/80-'"

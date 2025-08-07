@@ -47,7 +47,7 @@ type TabletService interface {
 type VStreamer interface {
 	Stream(ctx context.Context, startPos string, tablePKs []*binlogdatapb.TableLastPK, filter *binlogdatapb.Filter,
 		throttlerApp throttlerapp.Name, send func([]*binlogdatapb.VEvent) error, options *binlogdatapb.VStreamOptions) error
-	StreamResults(ctx context.Context, query string, send func(*binlogdatapb.VStreamResultsResponse) error) error
+	StreamResults(ctx context.Context, dbName, query string, send func(*binlogdatapb.VStreamResultsResponse) error) error
 }
 
 // Engine is the engine for handling messages.
@@ -147,7 +147,7 @@ func (me *Engine) Subscribe(ctx context.Context, name string, send func(*sqltype
 	return mm.Subscribe(ctx, send), nil
 }
 
-func (me *Engine) schemaChanged(tables map[string]*schema.Table, created, altered, dropped []*schema.Table, _ bool) {
+func (me *Engine) schemaChanged(tables map[string]map[string]*schema.Table, created, altered, dropped []*schema.Table, _ bool) {
 	me.managersMu.Lock()
 	defer me.managersMu.Unlock()
 	for _, table := range append(dropped, altered...) {

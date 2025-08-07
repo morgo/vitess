@@ -1554,7 +1554,7 @@ func newTestTabletServer(ctx context.Context, flags executorFlags, db *fakesqldb
 	dbconfigs := newDBConfigs(db)
 	cfg.DB = dbconfigs
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	target := &querypb.Target{TabletType: topodatapb.TabletType_PRIMARY}
 	err := tsv.StartService(target, dbconfigs, nil /* mysqld */)
 	if err != nil {

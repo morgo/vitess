@@ -155,6 +155,7 @@ type TestRowEventSpec struct {
 	changes  []TestRowChange
 	keyspace string
 	shard    string
+	dbName   string
 }
 
 // Generates a string representation for a custom row event.
@@ -218,6 +219,9 @@ func (s *TestRowEventSpec) String() string {
 		}
 		if s.shard != "" {
 			ev.Shard = s.shard
+		}
+		if s.dbName != "" {
+			ev.DbName = s.dbName
 		}
 	}
 	vEvent := &binlogdatapb.VEvent{

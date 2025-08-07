@@ -216,6 +216,11 @@ func (client *localVtctldClient) CreateShard(ctx context.Context, in *vtctldatap
 	return client.s.CreateShard(ctx, in)
 }
 
+// CreateVirtualShard is part of the vtctlservicepb.VtctldClient interface.
+func (client *localVtctldClient) CreateVirtualShard(ctx context.Context, in *vtctldatapb.CreateVirtualShardRequest, opts ...grpc.CallOption) (*vtctldatapb.CreateVirtualShardResponse, error) {
+	return client.s.CreateVirtualShard(ctx, in)
+}
+
 // DeleteCellInfo is part of the vtctlservicepb.VtctldClient interface.
 func (client *localVtctldClient) DeleteCellInfo(ctx context.Context, in *vtctldatapb.DeleteCellInfoRequest, opts ...grpc.CallOption) (*vtctldatapb.DeleteCellInfoResponse, error) {
 	return client.s.DeleteCellInfo(ctx, in)

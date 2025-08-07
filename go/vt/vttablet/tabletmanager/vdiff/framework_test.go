@@ -274,7 +274,7 @@ func (ftc *fakeTabletConn) VStreamRows(ctx context.Context, request *binlogdatap
 		}
 		row = r.Rows[0]
 	}
-	return vdiffenv.vse.StreamRows(ctx, request.Query, row, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	return vdiffenv.vse.StreamRows(ctx, vdiffDBName, request.Query, row, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		if vstreamRowsSendHook != nil {
 			vstreamRowsSendHook(ctx)
 		}
@@ -434,6 +434,11 @@ func (dbc *realDBClient) SupportsCapability(capability capabilities.FlavorCapabi
 	return dbc.conn.SupportsCapability(capability)
 }
 
+func (dbc *realDBClient) SetDBName(dbName string) {
+	// This is a no-op for the test client since it uses a fixed database name
+	// In a real implementation, this would change the database connection
+}
+
 // ----------------------------------------------
 // fakeTMClient
 
@@ -542,8 +547,7 @@ func newTestVDiffEnv(t *testing.T) *testVDiffEnv {
 
 	tstenv.KeyspaceName = vdiffDBName
 
-	vdiffenv.vse = vstreamer.NewEngine(tstenv.TabletEnv, tstenv.SrvTopo, vdiffenv.se, nil, tstenv.Cells[0])
-	vdiffenv.vse.InitDBConfig(tstenv.KeyspaceName, tstenv.ShardName)
+	vdiffenv.vse = vstreamer.NewEngine(tstenv.TabletEnv, tstenv.SrvTopo, vdiffenv.se, nil, tstenv.Cells[0], nil)
 	vdiffenv.vse.Open()
 
 	once.Do(func() {
@@ -572,7 +576,7 @@ func newTestVDiffEnv(t *testing.T) *testVDiffEnv {
 		Fields:    testSchema.TableDefinitions[tableDefMap["t1"]].Fields,
 		PKColumns: []int{0},
 	}
-	vdiffenv.se.SetTableForTests(st)
+	vdiffenv.se.SetTableForTests(vdiffDBName, st)
 
 	tabletID := 100
 	primary := vdiffenv.addTablet(tabletID, tstenv.KeyspaceName, tstenv.ShardName, topodatapb.TabletType_PRIMARY)

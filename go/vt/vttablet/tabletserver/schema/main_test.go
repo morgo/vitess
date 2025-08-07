@@ -27,7 +27,7 @@ import (
 	"vitess.io/vitess/go/sqltypes"
 )
 
-func getTestSchemaEngine(t *testing.T, schemaMaxAgeSeconds int64) (*Engine, *fakesqldb.DB, func()) {
+func getTestSchemaEngine(t *testing.T, schemaMaxAgeSeconds int64) (*Engine, *fakesqldb.DB, string, func()) {
 	db := fakesqldb.New(t)
 	db.AddQuery("select unix_timestamp()", sqltypes.MakeTestResult(sqltypes.MakeTestFields(
 		"t",
@@ -35,14 +35,30 @@ func getTestSchemaEngine(t *testing.T, schemaMaxAgeSeconds int64) (*Engine, *fak
 		"1427325876",
 	))
 	db.AddQueryPattern(baseInnoDBTableSizesPattern, &sqltypes.Result{})
-	db.AddQuery(mysql.BaseShowTables, &sqltypes.Result{})
+	// Add dual table to the show tables result to prevent it from being dropped
+	db.AddQuery(mysql.BaseShowTables, sqltypes.MakeTestResult(mysql.BaseShowTablesFields,
+		"testdb|dual|BASE TABLE|1427325875",
+	))
+	// Mock the columns query for dual table
+	db.AddQuery("SELECT COLUMN_NAME as column_name\n\t\tFROM INFORMATION_SCHEMA.COLUMNS\n\t\tWHERE TABLE_SCHEMA = 'testdb' AND TABLE_NAME = 'dual'\n\t\tORDER BY ORDINAL_POSITION", sqltypes.MakeTestResult(sqltypes.MakeTestFields("column_name", "varchar"), "dummy"))
+	// Mock the show create table query for dual
+	db.AddQuery("SELECT `dummy` FROM `testdb`.`dual` WHERE 1 != 1", sqltypes.MakeTestResult(sqltypes.MakeTestFields("dummy", "varchar")))
+	// TODO: this query now returns the schema_name and table_name
+	// and will need fixing.
 	db.AddQuery(mysql.BaseShowPrimary, &sqltypes.Result{})
+	// Add the "show schemas" query that initTables() needs
+	db.AddQuery("show schemas", sqltypes.MakeTestResult(sqltypes.MakeTestFields(
+		"Database",
+		"varchar"),
+		"testdb",
+	))
 	AddFakeInnoDBReadRowsResult(db, 1)
 	se := newEngine(10*time.Second, 10*time.Second, schemaMaxAgeSeconds, db, nil)
 	require.NoError(t, se.Open())
+	dbName := "testdb"
 	cancel := func() {
 		defer db.Close()
 		defer se.Close()
 	}
-	return se, db, cancel
+	return se, db, dbName, cancel
 }

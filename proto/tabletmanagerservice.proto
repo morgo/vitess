@@ -220,4 +220,7 @@ service TabletManager {
 
   // GetThrottlerStatus gets the status of a tablet throttler
   rpc GetThrottlerStatus(tabletmanagerdata.GetThrottlerStatusRequest) returns (tabletmanagerdata.GetThrottlerStatusResponse) {};
+
+  // AddVirtualShard adds a virtual shard to the tablet
+  rpc AddVirtualShard(tabletmanagerdata.AddVirtualShardRequest) returns (tabletmanagerdata.AddVirtualShardResponse) {};
 }

@@ -49,11 +49,12 @@ type Engine struct {
 	cancel      context.CancelFunc
 	cancelRetry context.CancelFunc
 
-	ts                      *topo.Server
-	tmClientFactory         func() tmclient.TabletManagerClient
-	dbClientFactoryFiltered func() binlogplayer.DBClient
-	dbClientFactoryDba      func() binlogplayer.DBClient
-	dbName                  string
+	ts                            *topo.Server
+	tmClientFactory               func() tmclient.TabletManagerClient
+	dbClientFactoryFiltered       func() binlogplayer.DBClient
+	dbClientFactoryFilteredWithDB func(string) binlogplayer.DBClient
+	dbClientFactoryDba            func() binlogplayer.DBClient
+	dbName                        string
 
 	vre *vreplication.Engine
 
@@ -111,6 +112,19 @@ func (vde *Engine) InitDBConfig(dbcfgs *dbconfigs.DBConfigs) {
 	}
 	vde.dbClientFactoryFiltered = func() binlogplayer.DBClient {
 		return binlogplayer.NewDBClient(dbcfgs.FilteredWithDB(), vde.parser)
+	}
+	vde.dbClientFactoryFilteredWithDB = func(dbName string) binlogplayer.DBClient {
+		config := dbcfgs.FilteredWithDB()
+		// Get the connection params and create a copy with the new database name
+		params, err := config.MysqlParams()
+		if err != nil {
+			// Return a client that will fail on connect
+			return binlogplayer.NewDBClient(config, vde.parser)
+		}
+		connParams := *params
+		connParams.DbName = dbName
+		newConfig := dbconfigs.New(&connParams)
+		return binlogplayer.NewDBClient(newConfig, vde.parser)
 	}
 	vde.dbClientFactoryDba = func() binlogplayer.DBClient {
 		return binlogplayer.NewDBClient(dbcfgs.DbaWithDB(), vde.parser)

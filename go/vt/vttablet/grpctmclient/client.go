@@ -492,6 +492,7 @@ func (client *Client) ApplySchema(ctx context.Context, tablet *topodatapb.Tablet
 		AfterSchema:             change.AfterSchema,
 		SqlMode:                 change.SQLMode,
 		DisableForeignKeyChecks: change.DisableForeignKeyChecks,
+		DbNameOverride:          change.DbNameOverride,
 	})
 	if err != nil {
 		return nil, err
@@ -1405,6 +1406,20 @@ func (client *Client) RestoreFromBackup(ctx context.Context, tablet *topodatapb.
 		stream: stream,
 		closer: closer,
 	}, nil
+}
+
+// AddVirtualShard is part of the tmclient.TabletManagerClient interface.
+func (client *Client) AddVirtualShard(ctx context.Context, tablet *topodatapb.Tablet, req *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error) {
+	c, closer, err := client.dialer.dial(ctx, tablet)
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+	response, err := c.AddVirtualShard(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
 // Close is part of the tmclient.TabletManagerClient interface.

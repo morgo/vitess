@@ -148,6 +148,7 @@ type ColExpr struct {
 // Table contains the metadata for a table.
 type Table struct {
 	Name   string
+	DBName string
 	Fields []*querypb.Field
 }
 
@@ -500,6 +501,20 @@ func buildREPlan(env *vtenv.Environment, ti *Table, vschema *localVSchema, filte
 // BuildTablePlan handles cases where a specific table name is specified.
 // The filter must be a select statement.
 func buildTablePlan(env *vtenv.Environment, ti *Table, vschema *localVSchema, query string) (*Plan, error) {
+	if query == "" {
+		// If no query is provided, return a plan that selects all columns
+		plan := &Plan{
+			Table: ti,
+			env:   env,
+		}
+		plan.ColExprs = make([]ColExpr, len(ti.Fields))
+		for i, col := range ti.Fields {
+			plan.ColExprs[i].ColNum = i
+			plan.ColExprs[i].Field = col
+		}
+		return plan, nil
+	}
+
 	sel, fromTable, err := analyzeSelect(query, env.Parser())
 	if err != nil {
 		log.Errorf("%s", err.Error())

@@ -33,6 +33,7 @@ import (
 	"vitess.io/vitess/go/vt/srvtopo"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
@@ -174,7 +175,7 @@ func Init(ctx context.Context) (*Env, error) {
 	te.DBMinorVersion = version.Minor
 	te.DBPatchVersion = version.Patch
 
-	te.SchemaEngine = schema.NewEngine(te.TabletEnv)
+	te.SchemaEngine = schema.NewEngine(te.TabletEnv, nil)
 	te.SchemaEngine.InitDBConfig(te.Dbcfgs.DbaWithDB())
 	if err := te.SchemaEngine.Open(); err != nil {
 		return nil, err
@@ -214,6 +215,71 @@ func (te *Env) SetVSchema(vs string) error {
 	}
 	te.SchemaEngine.Reload(ctx)
 	return te.TopoServ.RebuildSrvVSchema(ctx, te.Cells)
+}
+
+// CreateVirtualShard creates a virtual shard (additional schema) for testing.
+func (te *Env) CreateVirtualShard(virtualKeyspaceName, virtualShardName string) error {
+	ctx := context.Background()
+
+	// Create the database/schema - use a unique name for the virtual shard
+	schemaName := topoproto.DefaultDatabaseName(virtualKeyspaceName, virtualShardName)
+	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", schemaName)
+	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
+		return fmt.Errorf("failed to create virtual shard database %s: %v", schemaName, err)
+	}
+
+	// Create keyspace in topology if it doesn't exist
+	if err := te.TopoServ.CreateKeyspace(ctx, virtualKeyspaceName, &topodatapb.Keyspace{}); err != nil {
+		// Ignore if keyspace already exists
+		if !topo.IsErrType(err, topo.NodeExists) {
+			return fmt.Errorf("failed to create virtual keyspace in topology: %v", err)
+		}
+	}
+
+	// Create shard for the virtual keyspace
+	if err := te.TopoServ.CreateShard(ctx, virtualKeyspaceName, virtualShardName); err != nil {
+		// Ignore if shard already exists
+		if !topo.IsErrType(err, topo.NodeExists) {
+			return fmt.Errorf("failed to create shard for virtual keyspace: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// SetVirtualShardVSchema sets the vschema for a virtual shard.
+func (te *Env) SetVirtualShardVSchema(keyspaceName, vs string) error {
+	ctx := context.Background()
+	var kspb vschemapb.Keyspace
+	if err := json2.UnmarshalPB([]byte(vs), &kspb); err != nil {
+		return err
+	}
+	ksvs := &topo.KeyspaceVSchemaInfo{
+		Name:     keyspaceName,
+		Keyspace: &kspb,
+	}
+	if err := te.TopoServ.SaveVSchema(ctx, ksvs); err != nil {
+		return err
+	}
+	te.SchemaEngine.Reload(ctx)
+	return te.TopoServ.RebuildSrvVSchema(ctx, te.Cells)
+}
+
+// DropVirtualShard drops a virtual shard.
+func (te *Env) DropVirtualShard(virtualKeyspaceName, virtualShardName string) error {
+	ctx := context.Background()
+
+	// Drop the database/schema
+	schemaName := topoproto.DefaultDatabaseName(virtualKeyspaceName, virtualShardName)
+	query := fmt.Sprintf("DROP DATABASE IF EXISTS %s", schemaName)
+	if err := te.Mysqld.ExecuteSuperQuery(ctx, query); err != nil {
+		return fmt.Errorf("failed to drop virtual shard database %s: %v", schemaName, err)
+	}
+
+	// Clean up topology (optional, as this might be used by other components)
+	// We'll leave the keyspace in topology for now
+
+	return nil
 }
 
 // In MySQL 8.0 and later information_schema no longer contains the display width for integer types and

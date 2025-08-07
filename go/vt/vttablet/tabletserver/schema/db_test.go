@@ -108,7 +108,7 @@ func TestGetCreateStatement(t *testing.T) {
 		sqltypes.MakeTestFields(" View | Create View | character_set_client | collation_connection", "varchar|varchar|varchar|varchar"),
 		fmt.Sprintf("lead|%v|utf8mb4|utf8mb4_0900_ai_ci", createStatement),
 	))
-	got, err := getCreateStatement(context.Background(), conn, "`lead`")
+	got, err := getCreateStatement(context.Background(), conn, "testdb", "`lead`")
 	require.NoError(t, err)
 	require.Equal(t, createStatement, got)
 	require.NoError(t, db.LastError())
@@ -119,7 +119,7 @@ func TestGetCreateStatement(t *testing.T) {
 		sqltypes.MakeTestFields(" Table | Create Table", "varchar|varchar"),
 		fmt.Sprintf("area|%v", createStatement),
 	))
-	got, err = getCreateStatement(context.Background(), conn, "area")
+	got, err = getCreateStatement(context.Background(), conn, "testdb", "area")
 	require.NoError(t, err)
 	require.Equal(t, createStatement, got)
 	require.NoError(t, db.LastError())
@@ -127,7 +127,7 @@ func TestGetCreateStatement(t *testing.T) {
 	// Failure
 	errMessage := "ERROR 1146 (42S02): Table 'ks.v1' doesn't exist"
 	db.AddRejectedQuery("show create table v1", errors.New(errMessage))
-	got, err = getCreateStatement(context.Background(), conn, "v1")
+	got, err = getCreateStatement(context.Background(), conn, "testdb", "v1")
 	require.ErrorContains(t, err, errMessage)
 	require.Equal(t, "", got)
 }
@@ -146,14 +146,14 @@ func TestGetChangedViewNames(t *testing.T) {
 		"v1",
 		"v2",
 	))
-	got, err := getChangedViewNames(context.Background(), conn, true)
+	got, err := getChangedViewNames(context.Background(), "testdb", conn, true)
 	require.NoError(t, err)
 	require.Len(t, got, 3)
 	require.ElementsMatch(t, maps.Keys(got), []string{"v1", "v2", "lead"})
 	require.NoError(t, db.LastError())
 
 	// Not serving primary
-	got, err = getChangedViewNames(context.Background(), conn, false)
+	got, err = getChangedViewNames(context.Background(), "testdb", conn, false)
 	require.NoError(t, err)
 	require.Len(t, got, 0)
 	require.NoError(t, db.LastError())
@@ -161,7 +161,7 @@ func TestGetChangedViewNames(t *testing.T) {
 	// Failure
 	errMessage := "ERROR 1146 (42S02): Table '_vt.views' doesn't exist"
 	db.AddRejectedQuery(query, errors.New(errMessage))
-	got, err = getChangedViewNames(context.Background(), conn, true)
+	got, err = getChangedViewNames(context.Background(), "testdb", conn, true)
 	require.ErrorContains(t, err, errMessage)
 	require.Nil(t, got)
 }
@@ -207,7 +207,7 @@ func TestGetViewDefinition(t *testing.T) {
 
 func collectGetViewDefinitions(conn *connpool.Conn, bv map[string]*querypb.BindVariable) (map[string]string, error) {
 	viewDefinitions := make(map[string]string)
-	err := getViewDefinition(context.Background(), conn, bv, func(qr *sqltypes.Result) error {
+	err := getViewDefinition(context.Background(), "testdb", conn, bv, func(qr *sqltypes.Result) error {
 		for _, row := range qr.Rows {
 			viewDefinitions[row[0].ToString()] = row[1].ToString()
 		}
@@ -223,7 +223,7 @@ func TestGetMismatchedTableNames(t *testing.T) {
 
 	testCases := []struct {
 		name               string
-		tables             map[string]*Table
+		tables             map[string]map[string]*Table
 		dbData             *sqltypes.Result
 		dbError            string
 		isServingPrimary   bool
@@ -232,11 +232,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 	}{
 		{
 			name: "TableCreateTimeDiffers",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -245,11 +247,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t1"},
 		}, {
 			name: "TableGotDeleted",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -259,15 +263,18 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t2"},
 		}, {
 			name: "TableGotCreated",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
-				}, "t2": {
-					Name:       sqlparser.NewIdentifierCS("t2"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
+					"t2": {
+						Name:       sqlparser.NewIdentifierCS("t2"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -276,12 +283,14 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t2"},
 		}, {
 			name: "DualGetsIgnored",
-			tables: map[string]*Table{
-				"dual": NewTable("dual", NoType),
-				"t2": {
-					Name:       sqlparser.NewIdentifierCS("t2"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"dual": NewTable("dual", NoType),
+					"t2": {
+						Name:       sqlparser.NewIdentifierCS("t2"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -290,17 +299,19 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{},
 		}, {
 			name: "AllProblems",
-			tables: map[string]*Table{
-				"dual": NewTable("dual", NoType),
-				"t2": {
-					Name:       sqlparser.NewIdentifierCS("t2"),
-					Type:       NoType,
-					CreateTime: 31234,
-				},
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"dual": NewTable("dual", NoType),
+					"t2": {
+						Name:       sqlparser.NewIdentifierCS("t2"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -310,11 +321,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{"t1", "t2", "t3"},
 		}, {
 			name: "NotServingPrimary",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbData: sqltypes.MakeTestResult(queryFields,
@@ -323,11 +336,13 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			expectedTableNames: []string{},
 		}, {
 			name: "ErrorInQuery",
-			tables: map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 31234,
+			tables: map[string]map[string]*Table{
+				"testdb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 31234,
+					},
 				},
 			},
 			dbError:          "some error in MySQL",
@@ -353,7 +368,7 @@ func TestGetMismatchedTableNames(t *testing.T) {
 			se := &Engine{
 				tables: tc.tables,
 			}
-			mismatchedTableNames, err := se.getMismatchedTableNames(context.Background(), conn, tc.isServingPrimary)
+			mismatchedTableNames, err := se.getMismatchedTableNames(context.Background(), "testdb", conn, tc.isServingPrimary)
 			if tc.expectedError != "" {
 				require.ErrorContains(t, err, tc.expectedError)
 			} else {
@@ -474,7 +489,7 @@ func TestReloadTablesInDB(t *testing.T) {
 				db.AddRejectedQuery(query, errorToThrow)
 			}
 
-			err = reloadTablesDataInDB(context.Background(), conn, tc.tablesToReload, tc.tablesToDelete, sqlparser.NewTestParser())
+			err = reloadTablesDataInDB(context.Background(), "testdb", conn, tc.tablesToReload, tc.tablesToDelete, sqlparser.NewTestParser())
 			if tc.expectedError != "" {
 				require.ErrorContains(t, err, tc.expectedError)
 				return
@@ -607,7 +622,7 @@ func TestReloadViewsInDB(t *testing.T) {
 				db.AddRejectedQuery(query, errorToThrow)
 			}
 
-			err = reloadViewsDataInDB(context.Background(), conn, tc.viewsToReload, tc.viewsToDelete, sqlparser.NewTestParser())
+			err = reloadViewsDataInDB(context.Background(), "testdb", conn, tc.viewsToReload, tc.viewsToDelete, sqlparser.NewTestParser())
 			if tc.expectedError != "" {
 				require.ErrorContains(t, err, tc.expectedError)
 				return
@@ -898,7 +913,7 @@ func TestReloadDataInDB(t *testing.T) {
 				db.AddRejectedQuery(query, errorToThrow)
 			}
 
-			err = reloadDataInDB(context.Background(), conn, tc.altered, tc.created, tc.dropped, false, sqlparser.NewTestParser())
+			err = reloadDataInDB(context.Background(), "testdb", conn, tc.altered, tc.created, tc.dropped, false, sqlparser.NewTestParser())
 			if tc.expectedError != "" {
 				require.ErrorContains(t, err, tc.expectedError)
 				return
@@ -929,7 +944,7 @@ func TestGetFetchViewQuery(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			query, err := GetFetchViewQuery(testcase.viewNames, sqlparser.NewTestParser())
+			query, err := GetFetchViewQuery("", testcase.viewNames, sqlparser.NewTestParser())
 			require.NoError(t, err)
 			require.Equal(t, testcase.expectedQuery, query)
 		})
@@ -956,7 +971,7 @@ func TestGetFetchTableQuery(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			query, err := GetFetchTableQuery(testcase.tableNames, sqlparser.NewTestParser())
+			query, err := GetFetchTableQuery("", testcase.tableNames, sqlparser.NewTestParser())
 			require.NoError(t, err)
 			require.Equal(t, testcase.expectedQuery, query)
 		})
@@ -983,7 +998,7 @@ func TestGetFetchTableAndViewsQuery(t *testing.T) {
 
 	for _, testcase := range testcases {
 		t.Run(testcase.name, func(t *testing.T) {
-			query, err := GetFetchTableAndViewsQuery(testcase.tableNames, sqlparser.NewTestParser())
+			query, err := GetFetchTableAndViewsQuery("", testcase.tableNames, sqlparser.NewTestParser())
 			require.NoError(t, err)
 			require.Equal(t, testcase.expectedQuery, query)
 		})

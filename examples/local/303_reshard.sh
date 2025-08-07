@@ -21,6 +21,9 @@ source ../common/env.sh
 
 vtctldclient Reshard --workflow cust2cust --target-keyspace customer create --source-shards '0' --target-shards '-80,80-'
 
+sleep 3
+vtctldclient Workflow --keyspace=customer show --workflow=cust2cust
+
 # Wait for the workflow to reach the running state.
 wait_for_workflow_running customer cust2cust
 

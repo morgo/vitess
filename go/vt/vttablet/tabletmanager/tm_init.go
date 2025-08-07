@@ -395,11 +395,14 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 		return err
 	}
 
-	err = tm.QueryServiceControl.InitDBConfig(&querypb.Target{
+	target := &querypb.Target{
+		Cell:       tablet.Alias.Cell,
 		Keyspace:   tablet.Keyspace,
 		Shard:      tablet.Shard,
 		TabletType: tablet.Type,
-	}, tm.DBConfigs, tm.MysqlDaemon)
+	}
+	// Init DBConfig for the default physical shard.
+	err = tm.QueryServiceControl.InitDBConfig(target, tm.DBConfigs, tm.MysqlDaemon)
 	if err != nil {
 		return vterrors.Wrap(err, "failed to InitDBConfig")
 	}

@@ -44,7 +44,7 @@ func TestStreamerParseRBREvents(t *testing.T) {
 	// Create a schema.Engine for this test, with just one table.
 	// We only use the Columns.
 	se := schema.NewEngineForTests()
-	se.SetTableForTests(&schema.Table{
+	se.SetTableForTests("vt_test_keyspace", &schema.Table{
 		Name: sqlparser.NewIdentifierCS("vt_a"),
 		Fields: []*querypb.Field{{
 			Name:    "id",
@@ -282,7 +282,7 @@ func TestStreamerParseRBRNameEscapes(t *testing.T) {
 
 	// Create a schema.Engine for this test using keyword names.
 	se := schema.NewEngineForTests()
-	se.SetTableForTests(&schema.Table{
+	se.SetTableForTests("vt_test_keyspace", &schema.Table{
 		Name: sqlparser.NewIdentifierCS("insert"),
 		Fields: []*querypb.Field{{
 			Name:    "update",

@@ -74,13 +74,12 @@ func getTablesInKeyspace(ctx context.Context, ts *topo.Server, tmc tmclient.Tabl
 	if err != nil {
 		return nil, err
 	}
-	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
-	schema, err := tmc.GetSchema(ctx, ti.Tablet, req)
+	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, DbNameOverride: ti.Tablet.DbNameOverride}
+	schema, err := tmc.GetSchema(ctx, ti.Tablet, req) // likely fails on this line!
 	if err != nil {
 		return nil, err
 	}
 	log.Infof("got table schemas: %+v from source primary %v.", schema, primary)
-
 	var sourceTables []string
 	for _, td := range schema.TableDefinitions {
 		sourceTables = append(sourceTables, td.Name)
@@ -262,7 +261,7 @@ func getSourceTableDDLs(ctx context.Context, ts *topo.Server, tmc tmclient.Table
 	if err != nil {
 		return nil, err
 	}
-	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
+	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, DbNameOverride: ti.DbNameOverride}
 	sourceSchema, err := tmc.GetSchema(ctx, ti.Tablet, req)
 	if err != nil {
 		return nil, err
@@ -361,7 +360,6 @@ func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManag
 	if err != nil {
 		return nil, err
 	}
-
 	var (
 		frozen          bool
 		optCells        string
@@ -382,13 +380,13 @@ func BuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManag
 			return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "shard %v/%v doesn't have a primary set", targetKeyspace, targetShard)
 		}
 
-		primary, err := ts.GetTablet(ctx, targetShard.PrimaryAlias)
+		primary, err := ts.GetTablet(ctx, targetShard.PrimaryAlias) // resolves virtual
 		if err != nil {
 			return nil, err
 		}
-
 		wf, err := tmc.ReadVReplicationWorkflow(ctx, primary.Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
-			Workflow: workflow,
+			Workflow:       workflow,
+			DbNameOverride: primary.DbNameOverride,
 		})
 		if err != nil {
 			return nil, err
@@ -564,10 +562,12 @@ func doValidateWorkflowHasCompleted(ctx context.Context, ts *trafficSwitcher) er
 		})
 	} else {
 		_ = ts.ForAllTargets(func(target *MigrationTarget) error {
+			primary := target.GetPrimary()
 			wg.Add(1)
 			defer wg.Done()
 			res, err := ts.ws.tmc.ReadVReplicationWorkflow(ctx, target.GetPrimary().Tablet, &tabletmanagerdatapb.ReadVReplicationWorkflowRequest{
-				Workflow: ts.WorkflowName(),
+				Workflow:       ts.WorkflowName(),
+				DbNameOverride: primary.DbNameOverride,
 			})
 			if err != nil {
 				rec.RecordError(err)
@@ -666,6 +666,8 @@ func areTabletsAvailableToStreamFrom(ctx context.Context, req *vtctldatapb.Workf
 			if cells == nil {
 				cells = append(cells, shard.PrimaryAlias.Cell)
 			}
+			// TODO: just need to validate that this is picking the right tablets
+			// and understanding virtual shards.
 			tp, err := discovery.NewTabletPicker(ctx, ts.ws.ts, cells, shard.PrimaryAlias.Cell, keyspace, shard.ShardName(), tabletTypesStr, discovery.TabletPickerOptions{})
 			if err != nil {
 				allErrors.RecordError(err)
@@ -739,10 +741,17 @@ func LegacyBuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.Table
 			return nil, err
 		}
 
+		// Check if this is a virtual shard and determine the appropriate database name
+		dbName := primary.DbName()
+		if targetKeyspace != primary.Keyspace {
+			// This is a virtual shard - use the virtual keyspace database name
+			dbName = topoproto.DefaultDatabaseName(targetKeyspace, targetShard)
+		}
+
 		// NB: changing the whitespace of this query breaks tests for now.
 		// (TODO:@ajm188) extend FakeDBClient to be less whitespace-sensitive on
 		// expected queries.
-		query := fmt.Sprintf("select id, source, message, cell, tablet_types, workflow_type, workflow_sub_type, defer_secondary_keys from _vt.vreplication where workflow=%s and db_name=%s", encodeString(workflow), encodeString(primary.DbName()))
+		query := fmt.Sprintf("select id, source, message, cell, tablet_types, workflow_type, workflow_sub_type, defer_secondary_keys from _vt.vreplication where workflow=%s and db_name=%s", encodeString(workflow), encodeString(dbName))
 		p3qr, err := tmc.VReplicationExec(ctx, primary.Tablet, query)
 		if err != nil {
 			return nil, err

@@ -300,7 +300,7 @@ func (hs *healthStreamer) MakePrimary(serving bool) {
 	// We register for notifications from the schema Engine only when schema tracking is enabled,
 	// and we are going to a serving primary state.
 	if serving && hs.signalWhenSchemaChange {
-		hs.se.RegisterNotifier("healthStreamer", func(full map[string]*schema.Table, created, altered, dropped []*schema.Table, udfsChanged bool) {
+		hs.se.RegisterNotifier("healthStreamer", func(full map[string]map[string]*schema.Table, created, altered, dropped []*schema.Table, udfsChanged bool) {
 			if err := hs.reload(created, altered, dropped, udfsChanged); err != nil {
 				log.Errorf("periodic schema reload failed in health stream: %v", err)
 			}

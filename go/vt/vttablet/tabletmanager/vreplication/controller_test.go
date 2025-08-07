@@ -201,7 +201,10 @@ func TestControllerStopped(t *testing.T) {
 		"options": "{}",
 	}
 
-	ct, err := newController(context.Background(), params, nil, nil, nil, "", nil, nil, defaultTabletPickerOptions)
+	// Create a minimal VRE to avoid nil pointer dereference
+	vre := NewTestEngine(nil, "", nil, nil, nil, "", nil)
+
+	ct, err := newController(context.Background(), params, nil, nil, nil, "", nil, vre, defaultTabletPickerOptions)
 	if err != nil {
 		t.Fatal(err)
 	}

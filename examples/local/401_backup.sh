@@ -18,8 +18,8 @@
 source ../common/env.sh
 
 # Set keyspace and shard details for the 'customer' keyspace
-KEYSPACE="customer"
-SHARDS=("-80" "80-")
+KEYSPACE="main"
+SHARDS=("0")
 
 # Ensure the keyspace and shards are healthy
 echo "Ensuring keyspace $KEYSPACE exists and shards are healthy..."

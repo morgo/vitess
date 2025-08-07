@@ -1663,7 +1663,7 @@ func TestHandleExecUnknownError(t *testing.T) {
 	logStats := tabletenv.NewLogStats(ctx, "TestHandleExecError", streamlog.NewQueryLogConfigForTest())
 	cfg := tabletenv.NewDefaultConfig()
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	defer tsv.handlePanicAndSendLogStats("select * from test_table", nil, logStats)
 	panic("unknown exec error")
 }
@@ -1834,7 +1834,7 @@ func TestHandleExecTabletError(t *testing.T) {
 	defer cancel()
 	cfg := tabletenv.NewDefaultConfig()
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 	err := tsv.convertAndLogError(
@@ -1860,7 +1860,7 @@ func TestTerseErrors(t *testing.T) {
 	cfg.TerseErrors = true
 	cfg.SanitizeLogMessages = false
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 
@@ -1895,7 +1895,7 @@ func TestSanitizeLogMessages(t *testing.T) {
 	cfg.TerseErrors = false
 	cfg.SanitizeLogMessages = true
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 
@@ -1929,7 +1929,7 @@ func TestTerseErrorsNonSQLError(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.TerseErrors = true
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 	err := tsv.convertAndLogError(
@@ -1955,7 +1955,7 @@ func TestSanitizeLogMessagesNonSQLError(t *testing.T) {
 	cfg.TerseErrors = false
 	cfg.SanitizeLogMessages = true
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 	err := tsv.convertAndLogError(
@@ -1981,7 +1981,7 @@ func TestSanitizeMessagesBindVars(t *testing.T) {
 	cfg.TerseErrors = true
 	cfg.SanitizeLogMessages = true
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 
@@ -2013,7 +2013,7 @@ func TestSanitizeMessagesNoBindVars(t *testing.T) {
 	cfg.TerseErrors = true
 	cfg.SanitizeLogMessages = true
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 	err := tsv.convertAndLogError(ctx, "", nil, vterrors.Errorf(vtrpcpb.Code_DEADLINE_EXCEEDED, "sensitive message"), nil)
@@ -2032,7 +2032,7 @@ func TestTruncateErrorLen(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.TruncateErrorLen = 32
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 	err := tsv.convertAndLogError(
@@ -2064,7 +2064,7 @@ func TestTruncateMessages(t *testing.T) {
 	})
 	require.NoError(t, err)
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, env, "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, env, "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 
@@ -2119,7 +2119,7 @@ func TestTerseErrorsIgnoreFailoverInProgress(t *testing.T) {
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.TerseErrors = true
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	tl := newTestLogger()
 	defer tl.Close()
 	err := tsv.convertAndLogError(ctx, "select * from test_table where id = :a",
@@ -2172,7 +2172,7 @@ func TestACLHUP(t *testing.T) {
 	tableacl.Register("simpleacl", &simpleacl.Factory{})
 	cfg := tabletenv.NewDefaultConfig()
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, vtenv.NewTestEnv(), "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 
 	f, err := os.CreateTemp("", "tableacl")
 	require.NoError(t, err)
@@ -2709,14 +2709,22 @@ func TestDatabaseNameReplaceByKeyspaceNameReserveBeginExecuteMethod(t *testing.T
 
 func setupTabletServerTest(t testing.TB, ctx context.Context, keyspaceName string) (*fakesqldb.DB, *TabletServer) {
 	cfg := tabletenv.NewDefaultConfig()
+	cfg.DB.DBName = "fakesqldb" // Set DBName before creating TabletServer
 	return setupTabletServerTestCustom(t, ctx, cfg, keyspaceName, vtenv.NewTestEnv())
 }
 
 func setupTabletServerTestCustom(t testing.TB, ctx context.Context, cfg *tabletenv.TabletConfig, keyspaceName string, env *vtenv.Environment) (*fakesqldb.DB, *TabletServer) {
 	db := setupFakeDB(t)
 	sidecardb.AddSchemaInitQueries(db, true, env.Parser())
+
+	// Ensure DBName is set in the config BEFORE creating the TabletServer
+	// This is critical because the schema engine's physicalDBName is set during NewEngine()
+	if cfg.DB.DBName == "" {
+		cfg.DB.DBName = "fakesqldb"
+	}
+
 	srvTopoCounts := stats.NewCountersWithSingleLabel("", "Resilient srvtopo server operations", "type")
-	tsv := NewTabletServer(ctx, env, "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts)
+	tsv := NewTabletServer(ctx, env, "TabletServerTest", cfg, memorytopo.NewServer(ctx, ""), &topodatapb.TabletAlias{}, srvTopoCounts, nil)
 	require.Equal(t, StateNotConnected, tsv.sm.State())
 	dbcfgs := newDBConfigs(db)
 	target := &querypb.Target{

@@ -106,10 +106,20 @@ var (
 	errAllWithIncludeExcludeWorkflows = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "cannot specify all workflows along with either of include or exclude workflows")
 )
 
+func (tm *TabletManager) getDBName(dbNameOverride string) string {
+	// Default to the DBName based on the tabletmanager's DB config.
+	// This will only be correct for physical keyspaces.
+	if dbNameOverride != "" {
+		return dbNameOverride
+	}
+	return tm.DBConfigs.DBName
+}
+
 func (tm *TabletManager) CreateVReplicationWorkflow(ctx context.Context, req *tabletmanagerdatapb.CreateVReplicationWorkflowRequest) (*tabletmanagerdatapb.CreateVReplicationWorkflowResponse, error) {
 	if req == nil || len(req.BinlogSource) == 0 {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid request, no binlog source specified")
 	}
+	dbName := tm.getDBName(req.DbNameOverride)
 	res := &sqltypes.Result{}
 	for _, bls := range req.BinlogSource {
 		protoutil.SortBinlogSourceTables(bls)
@@ -132,7 +142,7 @@ func (tm *TabletManager) CreateVReplicationWorkflow(ctx context.Context, req *ta
 			"cells":              sqltypes.StringBindVariable(strings.Join(req.Cells, ",")),
 			"tabletTypes":        sqltypes.StringBindVariable(tabletTypesStr),
 			"state":              sqltypes.StringBindVariable(wfState),
-			"dbname":             sqltypes.StringBindVariable(tm.DBConfigs.DBName),
+			"dbname":             sqltypes.StringBindVariable(dbName),
 			"workflowType":       sqltypes.Int64BindVariable(int64(req.WorkflowType)),
 			"workflowSubType":    sqltypes.Int64BindVariable(int64(req.WorkflowSubType)),
 			"deferSecondaryKeys": sqltypes.BoolBindVariable(req.DeferSecondaryKeys),
@@ -165,7 +175,7 @@ func (tm *TabletManager) DeleteTableData(ctx context.Context, req *tabletmanager
 	if req == nil {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid nil request")
 	}
-
+	dbName := tm.getDBName(req.DbNameOverride)
 	if len(req.TableFilters) == 0 { // Nothing to do
 		return &tabletmanagerdatapb.DeleteTableDataResponse{}, nil
 	}
@@ -221,7 +231,7 @@ func (tm *TabletManager) DeleteTableData(ctx context.Context, req *tabletmanager
 			res, err := tm.ExecuteFetchAsAllPrivs(ctx,
 				&tabletmanagerdatapb.ExecuteFetchAsAllPrivsRequest{
 					Query:  []byte(query),
-					DbName: tm.DBConfigs.DBName,
+					DbName: dbName,
 				})
 			if err != nil {
 				return nil, vterrors.Errorf(vtrpcpb.Code_INTERNAL, "error deleting data using query %q: %v",
@@ -253,10 +263,12 @@ func (tm *TabletManager) DeleteVReplicationWorkflow(ctx context.Context, req *ta
 	if req == nil || req.Workflow == "" {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid request, no workflow provided")
 	}
+	dbName := tm.getDBName(req.DbNameOverride)
+
 	res := &sqltypes.Result{}
 	bindVars := map[string]*querypb.BindVariable{
 		"wf": sqltypes.StringBindVariable(req.Workflow),
-		"db": sqltypes.StringBindVariable(tm.DBConfigs.DBName),
+		"db": sqltypes.StringBindVariable(dbName),
 	}
 	parsed := sqlparser.BuildParsedQuery(sqlDeleteVReplicationWorkflow, sidecar.GetIdentifier(), ":wf", ":db")
 	stmt, err := parsed.GenerateQuery(bindVars, nil)
@@ -274,8 +286,9 @@ func (tm *TabletManager) DeleteVReplicationWorkflow(ctx context.Context, req *ta
 }
 
 func (tm *TabletManager) HasVReplicationWorkflows(ctx context.Context, req *tabletmanagerdatapb.HasVReplicationWorkflowsRequest) (*tabletmanagerdatapb.HasVReplicationWorkflowsResponse, error) {
+	dbName := tm.getDBName(req.DbNameOverride)
 	bindVars := map[string]*querypb.BindVariable{
-		"db": sqltypes.StringBindVariable(tm.DBConfigs.DBName),
+		"db": sqltypes.StringBindVariable(dbName),
 	}
 	parsed := sqlparser.BuildParsedQuery(sqlHasVReplicationWorkflows, sidecar.GetIdentifier(), ":db")
 	stmt, err := parsed.GenerateQuery(bindVars, nil)
@@ -411,9 +424,10 @@ func (tm *TabletManager) ReadVReplicationWorkflow(ctx context.Context, req *tabl
 	if req == nil || req.Workflow == "" {
 		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid request, no workflow provided")
 	}
+	dbName := tm.getDBName(req.DbNameOverride)
 	bindVars := map[string]*querypb.BindVariable{
 		"wf": sqltypes.StringBindVariable(req.Workflow),
-		"db": sqltypes.StringBindVariable(tm.DBConfigs.DBName),
+		"db": sqltypes.StringBindVariable(dbName),
 	}
 	parsed := sqlparser.BuildParsedQuery(sqlReadVReplicationWorkflow, sidecar.GetIdentifier(), ":wf", ":db")
 	stmt, err := parsed.GenerateQuery(bindVars, nil)
@@ -773,7 +787,6 @@ func (tm *TabletManager) UpdateSequenceTables(ctx context.Context, req *tabletma
 		}
 		sequenceTables = append(sequenceTables, sm.BackingTableName)
 	}
-
 	// It is important to reset in-memory sequence counters on the tables,
 	// since it is possible for it to be outdated, this will prevent duplicate
 	// key errors.
@@ -917,8 +930,9 @@ func (tm *TabletManager) VReplicationWaitForPos(ctx context.Context, id int32, p
 // buildReadVReplicationWorkflowsQuery builds the SQL query used to read N
 // vreplication workflows based on the request.
 func (tm *TabletManager) buildReadVReplicationWorkflowsQuery(req *tabletmanagerdatapb.ReadVReplicationWorkflowsRequest) (string, error) {
+	dbName := tm.getDBName(req.DbNameOverride)
 	bindVars := map[string]*querypb.BindVariable{
-		"db": sqltypes.StringBindVariable(tm.DBConfigs.DBName),
+		"db": sqltypes.StringBindVariable(dbName),
 	}
 
 	additionalPredicates := strings.Builder{}
@@ -992,6 +1006,7 @@ func (tm *TabletManager) buildUpdateVReplicationWorkflowsQuery(req *tabletmanage
 	}
 	sets := strings.Builder{}
 	predicates := strings.Builder{}
+	dbName := tm.getDBName(req.DbNameOverride)
 
 	// First add the SET clauses.
 	// We also need to check for a SimulatedNull here to support older clients and
@@ -1045,5 +1060,5 @@ func (tm *TabletManager) buildUpdateVReplicationWorkflowsQuery(req *tabletmanage
 		predicates.WriteByte(')')
 	}
 
-	return sqlparser.BuildParsedQuery(sqlUpdateVReplicationWorkflows, sidecar.GetIdentifier(), sets.String(), tm.DBConfigs.DBName, predicates.String()).Query, nil
+	return sqlparser.BuildParsedQuery(sqlUpdateVReplicationWorkflows, sidecar.GetIdentifier(), sets.String(), dbName, predicates.String()).Query, nil
 }

@@ -168,7 +168,8 @@ func StreamMigratorFinalize(ctx context.Context, ts ITrafficSwitcher, workflows 
 
 	workflowList := stringListify(workflows)
 	err := ts.ForAllSources(func(source *MigrationSource) error {
-		query := fmt.Sprintf("delete from _vt.vreplication where db_name=%s and workflow in (%s)", encodeString(source.GetPrimary().DbName()), workflowList)
+		dbName := source.GetPrimary().DbName()
+		query := fmt.Sprintf("delete from _vt.vreplication where db_name=%s and workflow in (%s)", encodeString(dbName), workflowList)
 		_, err := ts.VReplicationExec(ctx, source.GetPrimary().Alias, query)
 		return err
 	})
@@ -178,7 +179,8 @@ func StreamMigratorFinalize(ctx context.Context, ts ITrafficSwitcher, workflows 
 	}
 
 	err = ts.ForAllTargets(func(target *MigrationTarget) error {
-		query := fmt.Sprintf("update _vt.vreplication set state='Running' where db_name=%s and workflow in (%s)", encodeString(target.GetPrimary().DbName()), workflowList)
+		dbName := target.GetPrimary().DbName()
+		query := fmt.Sprintf("update _vt.vreplication set state='Running' where db_name=%s and workflow in (%s)", encodeString(dbName), workflowList)
 		_, err := ts.VReplicationExec(ctx, target.GetPrimary().Alias, query)
 		return err
 	})
@@ -992,7 +994,8 @@ func (sm *StreamMigrator) createTargetStreams(ctx context.Context, tmpl []*VRepl
 	}
 
 	return sm.ts.ForAllTargets(func(target *MigrationTarget) error {
-		ig := vreplication.NewInsertGenerator(binlogdatapb.VReplicationWorkflowState_Stopped, target.GetPrimary().DbName())
+		dbName := target.GetPrimary().DbName()
+		ig := vreplication.NewInsertGenerator(binlogdatapb.VReplicationWorkflowState_Stopped, dbName)
 		tabletStreams := VReplicationStreams(tmpl).Copy().ToSlice()
 		var err error
 
@@ -1068,7 +1071,8 @@ func (sm *StreamMigrator) deleteTargetStreams(ctx context.Context) error {
 
 	workflows := stringListify(sm.workflows)
 	err := sm.ts.ForAllTargets(func(target *MigrationTarget) error {
-		query := fmt.Sprintf("delete from _vt.vreplication where db_name=%s and workflow in (%s)", encodeString(target.GetPrimary().DbName()), workflows)
+		dbName := target.GetPrimary().DbName()
+		query := fmt.Sprintf("delete from _vt.vreplication where db_name=%s and workflow in (%s)", encodeString(dbName), workflows)
 		_, err := sm.ts.VReplicationExec(ctx, target.GetPrimary().Alias, query)
 		return err
 	})

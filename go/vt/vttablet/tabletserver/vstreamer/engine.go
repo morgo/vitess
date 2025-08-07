@@ -40,6 +40,7 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/vindexes"
 	vttablet "vitess.io/vitess/go/vt/vttablet/common"
+	"vitess.io/vitess/go/vt/vttablet/registry"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle"
@@ -53,14 +54,11 @@ import (
 
 // Engine is the engine for handling vreplication streaming requests.
 type Engine struct {
-	env  tabletenv.Env
-	ts   srvtopo.Server
-	se   *schema.Engine
-	cell string
-
-	// keyspace is initialized by InitDBConfig
-	keyspace string
-	shard    string
+	env      tabletenv.Env
+	ts       srvtopo.Server
+	se       *schema.Engine
+	cell     string
+	registry registry.Registry // Registry for resolving targets and database names
 
 	// wg is incremented for every Stream, and decremented on end.
 	// Close waits for all current streams to end by waiting on wg.
@@ -79,7 +77,6 @@ type Engine struct {
 	// no stream will start until vschema is initialized by
 	// the first call through watcherOnce.
 	watcherOnce sync.Once
-	lvschema    *localVSchema
 
 	// stats variables
 	vschemaErrors  *stats.Counter
@@ -111,20 +108,19 @@ const throttledLoggerInterval = 5 * time.Minute
 // NewEngine creates a new Engine.
 // Initialization sequence is: NewEngine->InitDBConfig->Open.
 // Open and Close can be called multiple times and are idempotent.
-func NewEngine(env tabletenv.Env, ts srvtopo.Server, se *schema.Engine, lagThrottler *throttle.Throttler, cell string) *Engine {
+func NewEngine(env tabletenv.Env, ts srvtopo.Server, se *schema.Engine, lagThrottler *throttle.Throttler, cell string, registry registry.Registry) *Engine {
 	vse := &Engine{
 		env:             env,
 		ts:              ts,
 		se:              se,
 		cell:            cell,
+		registry:        registry,
 		throttlerClient: throttle.NewBackgroundClient(lagThrottler, throttlerapp.VStreamerName, base.UndefinedScope),
 
 		streamers:       make(map[int]*uvstreamer),
 		rowStreamers:    make(map[int]*rowStreamer),
 		tableStreamers:  make(map[int]*tableStreamer),
 		resultStreamers: make(map[int]*resultStreamer),
-
-		lvschema: &localVSchema{vschema: &vindexes.VSchema{}},
 
 		vschemaErrors:  env.Exporter().NewCounter("VSchemaErrors", "Count of VSchema errors"),
 		vschemaUpdates: env.Exporter().NewCounter("VSchemaUpdates", "Count of VSchema updates. Does not include errors"),
@@ -153,13 +149,8 @@ func NewEngine(env tabletenv.Env, ts srvtopo.Server, se *schema.Engine, lagThrot
 }
 
 func (vse *Engine) GetTabletInfo() string {
-	return fmt.Sprintf("%s/%s/%s", vse.cell, vse.keyspace, vse.shard)
-}
-
-// InitDBConfig initializes the target parameters for the Engine.
-func (vse *Engine) InitDBConfig(keyspace, shard string) {
-	vse.keyspace = keyspace
-	vse.shard = shard
+	keyspace, shard := vse.registry.GetPhysicalKeyspaceShard()
+	return fmt.Sprintf("%s/%s/%s", vse.cell, keyspace, shard)
 }
 
 // Open starts the Engine service.
@@ -167,6 +158,20 @@ func (vse *Engine) Open() {
 	log.Info("VStreamer: opening")
 	// If it's not already open, then open it now.
 	atomic.CompareAndSwapInt32(&vse.isOpen, 0, 1)
+
+	// Initialize empty vschemas for all keyspaces in the registry
+	// This prevents nil pointer dereferences when streamers try to access vschema
+	// before the watcher has had a chance to populate them
+	keyspaces := vse.registry.GetAllKeyspaces()
+	for _, keyspace := range keyspaces {
+		// Only set if not already present to avoid overwriting existing vschemas
+		if existingVSchema, err := vse.registry.GetVSchemaByKeyspace(keyspace); err == nil && existingVSchema == nil {
+			vse.registry.SetVSchema(keyspace, &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			})
+			log.Infof("Initialized empty vschema for keyspace %s", keyspace)
+		}
+	}
 }
 
 // IsOpen checks if the engine is opened
@@ -199,12 +204,6 @@ func (vse *Engine) Close() {
 	// stream will use the lock to remove the entry from streamers.
 	vse.wg.Wait()
 	log.Info("VStreamer: closed")
-}
-
-func (vse *Engine) vschema() *vindexes.VSchema {
-	vse.mu.Lock()
-	defer vse.mu.Unlock()
-	return vse.lvschema.vschema
 }
 
 // Only support full and noblob binlog_row_image modes.
@@ -254,8 +253,27 @@ func (vse *Engine) Stream(ctx context.Context, startPos string, tablePKs []*binl
 		}
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
-		streamer := newUVStreamer(ctx, vse, vse.env.Config().DB.FilteredWithDB(), vse.se, startPos, tablePKs,
-			filter, vse.lvschema, throttlerApp, send, options)
+
+		// Get vschema from registry - for now use physical keyspace
+		physicalKeyspace, _ := vse.registry.GetPhysicalKeyspaceShard()
+		vschema, err := vse.registry.GetVSchemaByKeyspace(physicalKeyspace)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get vschema for keyspace %s: %v", physicalKeyspace, err)
+		}
+		// Handle case where vschema is nil (keyspace not found in vschema)
+		if vschema == nil {
+			vschema = &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			}
+		}
+
+		localVSchema := &localVSchema{
+			keyspace: physicalKeyspace,
+			vschema:  vschema,
+		}
+
+		streamer := newUVStreamer(ctx, vse, vse.env.Config().DB.FilteredWithoutDB(), vse.se, startPos, tablePKs,
+			filter, localVSchema, throttlerApp, send, options)
 		idx := vse.streamIdx
 		vse.streamers[idx] = streamer
 		vse.streamIdx++
@@ -282,13 +300,13 @@ func (vse *Engine) Stream(ctx context.Context, startPos string, tablePKs []*binl
 
 // StreamRows streams rows.
 // This streams the table data rows (so we can copy the table data snapshot)
-func (vse *Engine) StreamRows(ctx context.Context, query string, lastpk []sqltypes.Value,
+func (vse *Engine) StreamRows(ctx context.Context, dbName string, query string, lastpk []sqltypes.Value,
 	send func(*binlogdatapb.VStreamRowsResponse) error, options *binlogdatapb.VStreamOptions) error {
 	// Ensure vschema is initialized and the watcher is started.
 	// Starting of the watcher has to be delayed till the first call to Stream
 	// because this overhead should be incurred only if someone uses this feature.
 	vse.watcherOnce.Do(vse.setWatch)
-	log.Infof("Streaming rows for query %s, lastpk: %s", query, lastpk)
+	log.Infof("Streaming rows for query %s, lastpk: %s, dbName: %s", query, lastpk, dbName)
 
 	// Create stream and add it to the map.
 	rowStreamer, idx, err := func() (*rowStreamer, int, error) {
@@ -298,8 +316,30 @@ func (vse *Engine) StreamRows(ctx context.Context, query string, lastpk []sqltyp
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
 
-		rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithDB(), vse.se, query, lastpk, vse.lvschema,
-			send, vse, RowStreamerModeSingleTable, nil, options)
+		// Get keyspace/shard from dbName via registry
+		keyspace, _, err := vse.registry.GetKeyspaceShardByDbName(dbName)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get keyspace for dbName %s: %v", dbName, err)
+		}
+
+		// Get vschema from registry
+		vschema, err := vse.registry.GetVSchemaByKeyspace(keyspace)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get vschema for keyspace %s: %v", keyspace, err)
+		}
+		// Handle case where vschema is nil (keyspace not found in vschema)
+		if vschema == nil {
+			vschema = &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			}
+		}
+		localVSchema := &localVSchema{
+			keyspace: keyspace,
+			vschema:  vschema,
+		}
+
+		rowStreamer := newRowStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, query, lastpk, localVSchema,
+			send, vse, RowStreamerModeSingleTable, nil, dbName, options)
 		idx := vse.streamIdx
 		vse.rowStreamers[idx] = rowStreamer
 		vse.streamIdx++
@@ -325,9 +365,10 @@ func (vse *Engine) StreamRows(ctx context.Context, query string, lastpk []sqltyp
 }
 
 // StreamTables streams all tables.
-func (vse *Engine) StreamTables(ctx context.Context,
+func (vse *Engine) StreamTables(ctx context.Context, dbName string,
 	send func(*binlogdatapb.VStreamTablesResponse) error, options *binlogdatapb.VStreamOptions) error {
 
+	log.Infof("DEBUG: starting StreamTables for db %s with options: %v", dbName, options)
 	// Ensure vschema is initialized and the watcher is started.
 	// Starting of the watcher is delayed till the first call to StreamTables
 	// so that this overhead is incurred only if someone uses this feature.
@@ -342,7 +383,29 @@ func (vse *Engine) StreamTables(ctx context.Context,
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
 
-		tableStreamer := newTableStreamer(ctx, vse.env.Config().DB.FilteredWithDB(), vse.se, vse.lvschema, send, vse, options)
+		// Get keyspace/shard from dbName via registry
+		keyspace, _, err := vse.registry.GetKeyspaceShardByDbName(dbName)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get keyspace for dbName %s: %v", dbName, err)
+		}
+
+		// Get vschema from registry
+		vschema, err := vse.registry.GetVSchemaByKeyspace(keyspace)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get vschema for keyspace %s: %v", keyspace, err)
+		}
+		// Handle case where vschema is nil (keyspace not found in vschema)
+		if vschema == nil {
+			vschema = &vindexes.VSchema{
+				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
+			}
+		}
+		localVSchema := &localVSchema{
+			keyspace: keyspace,
+			vschema:  vschema,
+		}
+
+		tableStreamer := newTableStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), vse.se, localVSchema, send, vse, dbName, options)
 		idx := vse.streamIdx
 		vse.tableStreamers[idx] = tableStreamer
 		vse.streamIdx++
@@ -368,7 +431,7 @@ func (vse *Engine) StreamTables(ctx context.Context,
 }
 
 // StreamResults streams results of the query with the gtid.
-func (vse *Engine) StreamResults(ctx context.Context, query string,
+func (vse *Engine) StreamResults(ctx context.Context, dbName, query string,
 	send func(*binlogdatapb.VStreamResultsResponse) error) error {
 
 	// Create stream and add it to the map.
@@ -378,7 +441,7 @@ func (vse *Engine) StreamResults(ctx context.Context, query string,
 		}
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
-		resultStreamer := newResultStreamer(ctx, vse.env.Config().DB.FilteredWithDB(), query, send, vse)
+		resultStreamer := newResultStreamer(ctx, vse.env.Config().DB.FilteredWithoutDB(), dbName, query, send, vse)
 		idx := vse.streamIdx
 		vse.resultStreamers[idx] = resultStreamer
 		vse.streamIdx++
@@ -410,11 +473,22 @@ func (vse *Engine) ServeHTTP(response http.ResponseWriter, request *http.Request
 		return
 	}
 	response.Header().Set("Content-Type", "application/json; charset=utf-8")
-	vs := vse.vschema()
-	if vs == nil {
-		response.Write([]byte("{}"))
+
+	// Get all vschemas from registry for all keyspaces
+	allVSchemas := make(map[string]*vindexes.VSchema)
+	keyspaces := vse.registry.GetAllKeyspaces()
+	for _, keyspace := range keyspaces {
+		if vschema, err := vse.registry.GetVSchemaByKeyspace(keyspace); err == nil {
+			allVSchemas[keyspace] = vschema
+		}
 	}
-	b, err := json.MarshalIndent(vs, "", "  ")
+
+	if len(allVSchemas) == 0 {
+		response.Write([]byte("{}"))
+		return
+	}
+
+	b, err := json.MarshalIndent(allVSchemas, "", "  ")
 	if err != nil {
 		response.Write([]byte(err.Error()))
 		return
@@ -425,21 +499,25 @@ func (vse *Engine) ServeHTTP(response http.ResponseWriter, request *http.Request
 }
 
 func (vse *Engine) setWatch() {
-	// If there's no toposerver, create an empty vschema.
+	// If there's no toposerver, update registry with empty vschema for all keyspaces.
 	if vse.ts == nil {
-		vse.lvschema = &localVSchema{
-			keyspace: vse.keyspace,
-			vschema:  &vindexes.VSchema{},
+		// For each keyspace in the registry, set an empty vschema
+		keyspaces := vse.registry.GetAllKeyspaces()
+		for _, keyspace := range keyspaces {
+			vse.registry.SetVSchema(keyspace, &vindexes.VSchema{})
 		}
 		return
 	}
 
 	// WatchSrvVSchema does not return until the inner func has been called at least once.
+	log.Infof("DEBUG: Starting WatchSrvVSchema for cell %s", vse.cell)
 	vse.ts.WatchSrvVSchema(context.TODO(), vse.cell, func(v *vschemapb.SrvVSchema, err error) bool {
+		log.Infof("DEBUG: WatchSrvVSchema callback called with err=%v", err)
 		switch {
 		case err == nil:
 			// Build vschema down below.
 		case topo.IsErrType(err, topo.NoNode):
+			log.Infof("DEBUG: No vschema node found, using empty vschema")
 			v = nil
 		default:
 			log.Errorf("Error fetching vschema: %v", err)
@@ -448,6 +526,7 @@ func (vse *Engine) setWatch() {
 		}
 		var vschema *vindexes.VSchema
 		if v != nil {
+			log.Infof("DEBUG: Building vschema from SrvVSchema")
 			vschema = vindexes.BuildVSchema(v, vse.env.Environment().Parser())
 			if err != nil {
 				log.Errorf("Error building vschema: %v", err)
@@ -455,21 +534,62 @@ func (vse *Engine) setWatch() {
 				return true
 			}
 		} else {
+			log.Infof("DEBUG: Creating empty vschema")
 			vschema = &vindexes.VSchema{}
 		}
 
-		// Broadcast the change to all streamers.
+		// Update registry with vschema for relevant keyspaces and broadcast to streamers
 		vse.mu.Lock()
 		defer vse.mu.Unlock()
-		vse.lvschema = &localVSchema{
-			keyspace: vse.keyspace,
-			vschema:  vschema,
+
+		// Get all keyspaces that this tablet cares about
+		registryKeyspaces := vse.registry.GetAllKeyspaces()
+		registryKeyspaceSet := make(map[string]bool)
+		for _, ks := range registryKeyspaces {
+			registryKeyspaceSet[ks] = true
 		}
-		b, _ := json.MarshalIndent(vschema, "", "  ")
-		log.V(2).Infof("Updated vschema: %s", b)
+
+		// If vschema is not nil, extract keyspaces from it and update registry
+		// for keyspaces that we care about
+		if vschema != nil && vschema.Keyspaces != nil {
+			for keyspaceName := range vschema.Keyspaces {
+				if registryKeyspaceSet[keyspaceName] {
+					// Create a keyspace-specific vschema containing only this keyspace
+					keyspaceVSchema := &vindexes.VSchema{
+						Keyspaces: map[string]*vindexes.KeyspaceSchema{
+							keyspaceName: vschema.Keyspaces[keyspaceName],
+						},
+					}
+					vse.registry.SetVSchema(keyspaceName, keyspaceVSchema)
+					log.Infof("Updated vschema for keyspace %s", keyspaceName)
+				}
+			}
+		} else {
+			// If vschema is nil or empty, set empty vschema for all registry keyspaces
+			for _, keyspace := range registryKeyspaces {
+				vse.registry.SetVSchema(keyspace, &vindexes.VSchema{})
+				log.Infof("Set empty vschema for keyspace %s", keyspace)
+			}
+		}
+
+		// Broadcast vschema updates to existing streamers
 		for _, s := range vse.streamers {
-			s.SetVSchema(vse.lvschema)
+			// Get the keyspace for this streamer's database
+			if dbName := s.cp.DBName(); dbName != "" {
+				keyspace, _, err := vse.registry.GetKeyspaceShardByDbName(dbName)
+				if err == nil {
+					if updatedVSchema, err := vse.registry.GetVSchemaByKeyspace(keyspace); err == nil && updatedVSchema != nil {
+						localVSchema := &localVSchema{
+							keyspace: keyspace,
+							vschema:  updatedVSchema,
+						}
+						s.SetVSchema(localVSchema)
+						log.Infof("Updated vschema for streamer using keyspace %s", keyspace)
+					}
+				}
+			}
 		}
+
 		vse.vschemaUpdates.Add(1)
 		return true
 	})

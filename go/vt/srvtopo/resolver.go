@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"vitess.io/vitess/go/vt/key"
+	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
@@ -91,6 +92,7 @@ func (rs *ResolvedShard) WithKeyspace(newKeyspace string) *ResolvedShard {
 			Shard:      rs.Target.Shard,
 			TabletType: rs.Target.TabletType,
 			Cell:       rs.Target.Cell,
+			DbName:     rs.Target.DbName, // Preserve schema name when changing keyspace
 		},
 		Gateway: rs.Gateway,
 	}
@@ -254,6 +256,13 @@ func (r *Resolver) ResolveDestinations(ctx context.Context, keyspace string, tab
 	var result []*ResolvedShard
 	var values [][]*querypb.Value
 	resolved := make(map[string]int)
+
+	// Get a topo server to check for virtual shards
+	topoServer, err := r.topoServ.GetTopoServer()
+	if err != nil {
+		topoServer = nil
+	}
+
 	for i, destination := range destinations {
 		if err := destination.Resolve(allShards, func(shard string) error {
 			s, ok := resolved[shard]
@@ -268,6 +277,35 @@ func (r *Resolver) ResolveDestinations(ctx context.Context, keyspace string, tab
 				// Later we can fallback to another cell if needed.
 				// We would then need to read the SrvKeyspace there too.
 				target.Cell = ""
+
+				// Check if this is a virtual shard and resolve to physical location
+				if topoServer != nil {
+					if isVirtual, err := topo.IsVirtualShard(ctx, topoServer, keyspace, shard); err == nil && isVirtual {
+						// Get the physical shard information
+						physicalKeyspace, physicalShard, err := topo.GetPhysicalShardInfo(ctx, topoServer, keyspace, shard)
+						if err == nil {
+							// Update target to point to physical shard but keep virtual schema name
+							virtualDbName := target.DbName
+							if virtualDbName == "" {
+								// Get the virtual tablet's DbNameOverride
+								tablets, err := topoServer.GetTabletMapForShardWithoutResolving(ctx, keyspace, shard)
+								if err == nil {
+									for _, tablet := range tablets {
+										if tablet.Type == topodatapb.TabletType_VIRTUAL {
+											virtualDbName = tablet.DbNameOverride
+											break
+										}
+									}
+								}
+							}
+
+							target.Keyspace = physicalKeyspace
+							target.Shard = physicalShard
+							target.DbName = virtualDbName
+						}
+					}
+				}
+
 				s = len(result)
 				result = append(result, &ResolvedShard{
 					Target:  target,

@@ -56,7 +56,7 @@ func TestStreamResults(t *testing.T) {
 	go func() {
 		first := true
 		defer close(ch)
-		err := engine.StreamResults(context.Background(), query, func(rows *binlogdatapb.VStreamResultsResponse) error {
+		err := engine.StreamResults(context.Background(), "", query, func(rows *binlogdatapb.VStreamResultsResponse) error {
 			if first {
 				first = false
 				if rows.Gtid == "" {

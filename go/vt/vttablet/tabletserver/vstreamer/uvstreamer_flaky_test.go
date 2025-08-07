@@ -319,6 +319,7 @@ func validateReceivedEvents(t *testing.T) {
 		case binlogdatapb.VEventType_ROW:
 			ev.RowEvent.Keyspace = ""
 			ev.RowEvent.Shard = ""
+			ev.RowEvent.DbName = ""
 		case binlogdatapb.VEventType_COPY_COMPLETED:
 			inCopyPhase = false
 		}

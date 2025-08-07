@@ -130,7 +130,7 @@ type SettingsCacheKey = theine.StringKey
 type SettingsCache = theine.Store[SettingsCacheKey, *smartconnpool.Setting]
 
 type currentSchema struct {
-	tables map[string]*schema.Table
+	tables map[string]map[string]*schema.Table
 	epoch  uint32
 }
 
@@ -156,8 +156,10 @@ type QueryEngine struct {
 	queryRuleSources *rules.Map
 
 	// Pools
-	conns       *connpool.Pool
-	streamConns *connpool.Pool
+	conns         *connpool.Pool
+	streamConns   *connpool.Pool
+	dbConns       map[string]*connpool.Pool // per-DB connections for virtual tablets
+	dbStreamConns map[string]*connpool.Pool // per-DB connections for virtual tablets
 
 	// Services
 	consolidator       sync2.Consolidator
@@ -224,9 +226,12 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	qe.settings = theine.NewStore[SettingsCacheKey, *smartconnpool.Setting](settingsCacheMemory, false)
 
 	qe.schema.Store(&currentSchema{
-		tables: make(map[string]*schema.Table),
+		tables: make(map[string]map[string]*schema.Table),
 		epoch:  0,
 	})
+
+	qe.dbConns = make(map[string]*connpool.Pool)
+	qe.dbStreamConns = make(map[string]*connpool.Pool)
 
 	qe.conns = connpool.NewPool(env, "ConnPool", config.OltpReadPool)
 	qe.streamConns = connpool.NewPool(env, "StreamConnPool", config.OlapReadPool)
@@ -320,6 +325,60 @@ func NewQueryEngine(env tabletenv.Env, se *schema.Engine) *QueryEngine {
 	return qe
 }
 
+func (qe *QueryEngine) RefreshVirtualShardPools() error {
+	config := qe.env.Config()
+	// Create a pool for each DB in the config, do handle virtual tablets/shards
+	// TODO: where/how do we handle a new DB added after startup? what about dangling pools for deleted shards?
+	for _, db := range qe.se.Registry.GetAllDBNames() {
+		if db == "" {
+			continue
+		}
+		if _, ok := qe.dbConns[db]; !ok {
+			qe.dbConns[db] = connpool.NewPool(qe.env, "DBConnPool:"+db, config.OltpReadPool)
+			log.Infof("Created connection pool for DB %s", db)
+		}
+		if _, ok := qe.dbStreamConns[db]; !ok {
+			qe.dbStreamConns[db] = connpool.NewPool(qe.env, "DBStreamConnPool:"+db, config.OlapReadPool)
+			log.Infof("Created stream connection pool for DB %s", db)
+		}
+	}
+	if len(qe.dbConns) != len(qe.dbStreamConns) {
+		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "Mismatch in number of DBs in dbConns and dbStreamConns connection pools: %d vs %d", len(qe.dbConns), len(qe.dbStreamConns))
+	}
+	for dbName, pool := range qe.dbConns {
+		if _, ok := qe.dbStreamConns[dbName]; !ok {
+			return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "Missing stream connection pool for DB %s", dbName)
+		}
+		// Make a copy of the dbConfig so we can override the DBName
+		dbConfig := *config.DB
+		// Set the DBName to the current pool's DB name
+		dbConfig.DBName = dbName
+		pool.Open(dbConfig.AppWithDB(), dbConfig.DbaWithDB(), dbConfig.AppDebugWithDB())
+		// Open the stream connection pool with the same DB config! We already checked the length of the two
+		// pools and ensured that a stream pool exists for this regular/otlp pool, so it should be safe.
+		qe.dbStreamConns[dbName].Open(dbConfig.AppWithDB(), dbConfig.DbaWithDB(), dbConfig.AppDebugWithDB())
+
+		log.Infof("Opened connection pools for DB: %s", dbName)
+		conn, err := pool.Get(tabletenv.LocalContext(), nil)
+		if err != nil {
+			pool.Close()
+			log.Errorf("Failed to get connection from pool %s: %v", pool.Name, err)
+			return err
+		}
+		err = conn.Conn.VerifyMode(qe.strictTransTables)
+		// Recycle needs to happen before error check.
+		// Otherwise, qe.conns.Close will hang.
+		conn.Recycle()
+
+		if err != nil {
+			qe.conns.Close()
+			return err
+		}
+
+	}
+	return nil
+}
+
 // Open must be called before sending requests to QueryEngine.
 func (qe *QueryEngine) Open() error {
 	if qe.isOpen.Load() {
@@ -328,6 +387,11 @@ func (qe *QueryEngine) Open() error {
 	log.Info("Query Engine: opening")
 
 	config := qe.env.Config()
+
+	err := qe.RefreshVirtualShardPools()
+	if err != nil {
+		return vterrors.Wrap(err, "Failed to refresh virtual shard pools: ")
+	}
 
 	qe.conns.Open(config.DB.AppWithDB(), config.DB.DbaWithDB(), config.DB.AppDebugWithDB())
 
@@ -379,7 +443,16 @@ func (qe *QueryEngine) getPlan(curSchema *currentSchema, sql string, noRowsLimit
 	if err != nil {
 		return nil, err
 	}
-	splan, err := planbuilder.Build(qe.env.Environment(), statement, curSchema.tables, qe.env.Config().DB.DBName, noRowsLimit)
+
+	// Flatten the schema map for the planbuilder
+	flatTables := make(map[string]*schema.Table)
+	for _, schemaMap := range curSchema.tables {
+		for tableName, table := range schemaMap {
+			flatTables[tableName] = table
+		}
+	}
+
+	splan, err := planbuilder.Build(qe.env.Environment(), statement, flatTables, qe.env.Config().DB.DBName, noRowsLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +496,15 @@ func (qe *QueryEngine) getStreamPlan(curSchema *currentSchema, sql string) (*Tab
 		return nil, err
 	}
 
-	splan, err := planbuilder.BuildStreaming(statement, curSchema.tables)
+	// Flatten the schema map for the planbuilder
+	flatTables := make(map[string]*schema.Table)
+	for _, schemaMap := range curSchema.tables {
+		for tableName, table := range schemaMap {
+			flatTables[tableName] = table
+		}
+	}
+
+	splan, err := planbuilder.BuildStreaming(statement, flatTables)
 
 	if err != nil {
 		return nil, err
@@ -479,7 +560,15 @@ func (qe *QueryEngine) getPlanCacheKey(sql string, noRowsLimit bool) string {
 
 // GetMessageStreamPlan builds a plan for Message streaming.
 func (qe *QueryEngine) GetMessageStreamPlan(name string) (*TabletPlan, error) {
-	splan, err := planbuilder.BuildMessageStreaming(name, qe.schema.Load().tables)
+	// Flatten the schema map for the planbuilder
+	flatTables := make(map[string]*schema.Table)
+	for _, schemaMap := range qe.schema.Load().tables {
+		for tableName, table := range schemaMap {
+			flatTables[tableName] = table
+		}
+	}
+
+	splan, err := planbuilder.BuildMessageStreaming(name, flatTables)
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +636,7 @@ func (qe *QueryEngine) IsMySQLReachable() error {
 	return nil
 }
 
-func (qe *QueryEngine) schemaChanged(tables map[string]*schema.Table, created, altered, dropped []*schema.Table, _ bool) {
+func (qe *QueryEngine) schemaChanged(tables map[string]map[string]*schema.Table, created, altered, dropped []*schema.Table, _ bool) {
 	qe.schemaMu.Lock()
 	defer qe.schemaMu.Unlock()
 

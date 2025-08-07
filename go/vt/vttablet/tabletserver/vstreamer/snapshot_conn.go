@@ -28,6 +28,7 @@ import (
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/mysql/replication"
 	"vitess.io/vitess/go/mysql/sqlerror"
+	"vitess.io/vitess/go/sqlescape"
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
@@ -65,7 +66,7 @@ func snapshotConnect(ctx context.Context, cp dbconfigs.Connector) (*snapshotConn
 
 // startSnapshot starts a streaming query with a snapshot view of the specified table.
 // It returns the GTID set from the time when the snapshot was taken.
-func (conn *snapshotConn) streamWithSnapshot(ctx context.Context, table, query string) (gtid string, rotatedLog bool, err error) {
+func (conn *snapshotConn) streamWithSnapshot(ctx context.Context, dbName, table, query string) (gtid string, rotatedLog bool, err error) {
 	// Rotate the binary log if needed to limit the GTID auto positioning overhead.
 	// This may be needed as the currently open binary log (which can be up to 1G in
 	// size by default) will need to be scanned and empty events will be streamed for
@@ -82,7 +83,7 @@ func (conn *snapshotConn) streamWithSnapshot(ctx context.Context, table, query s
 			query, err)
 	}
 
-	gtid, err = conn.startSnapshot(ctx, table)
+	gtid, err = conn.startSnapshot(ctx, dbName, table)
 	if err != nil {
 		return "", rotatedLog, err
 	}
@@ -93,7 +94,7 @@ func (conn *snapshotConn) streamWithSnapshot(ctx context.Context, table, query s
 }
 
 // snapshot performs the snapshotting.
-func (conn *snapshotConn) startSnapshot(ctx context.Context, table string) (gtid string, err error) {
+func (conn *snapshotConn) startSnapshot(ctx context.Context, dbName, table string) (gtid string, err error) {
 	lockConn, err := mysqlConnect(ctx, conn.cp)
 	if err != nil {
 		return "", err
@@ -107,15 +108,33 @@ func (conn *snapshotConn) startSnapshot(ctx context.Context, table string) (gtid
 		lockConn.Close()
 	}()
 
+	// Select the correct database for virtual keyspaces before locking tables
+	if dbName != "" {
+		if _, err := lockConn.ExecuteFetch(fmt.Sprintf("USE %s", sqlescape.EscapeID(dbName)), 1, false); err != nil {
+			log.Warningf("Error selecting database %s: %v", dbName, err)
+			return "", err
+		}
+	}
+
+	dbNameEscaped := sqlparser.String(sqlparser.NewIdentifierCS(dbName))
 	tableName := sqlparser.String(sqlparser.NewIdentifierCS(table))
 
-	if _, err := lockConn.ExecuteFetch(fmt.Sprintf("lock tables %s read", tableName), 1, false); err != nil {
-		log.Warningf("Error locking table %s to read: %v", tableName, err)
+	if _, err := lockConn.ExecuteFetch(fmt.Sprintf("lock tables %s.%s read", dbNameEscaped, tableName), 1, false); err != nil {
+		log.Warningf("Error locking table %s.%s to read: %v", dbNameEscaped, tableName, err)
 		return "", err
 	}
 	mpos, err := lockConn.PrimaryPosition()
 	if err != nil {
 		return "", err
+	}
+
+	// Select the correct database for virtual keyspaces on the main connection
+	// before starting the transaction
+	if dbName != "" {
+		if _, err := conn.ExecuteFetch(fmt.Sprintf("USE %s", sqlescape.EscapeID(dbName)), 1, false); err != nil {
+			log.Warningf("Error selecting database %s on main connection: %v", dbName, err)
+			return "", err
+		}
 	}
 
 	// Starting a transaction now will allow us to start the read later,
@@ -204,6 +223,15 @@ func (conn *snapshotConn) startSnapshotAllTables(ctx context.Context) (gtid stri
 	}()
 
 	log.Infof("Locking all tables")
+	// Select the correct database for virtual keyspaces before locking tables
+	dbName := conn.cp.DBName()
+	if dbName != "" {
+		if _, err := lockConn.ExecuteFetch(fmt.Sprintf("USE %s", sqlescape.EscapeID(dbName)), 1, false); err != nil {
+			log.Warningf("Error selecting database %s: %v", dbName, err)
+			return "", err
+		}
+	}
+
 	if _, err := lockConn.ExecuteFetch("FLUSH TABLES WITH READ LOCK", 1, false); err != nil {
 		attemptExplicitTablesLocks := false
 		if sqlErr, ok := err.(*sqlerror.SQLError); ok && sqlErr.Number() == sqlerror.ERAccessDeniedError {
@@ -235,6 +263,15 @@ func (conn *snapshotConn) startSnapshotAllTables(ctx context.Context) (gtid stri
 			lockClauses = append(lockClauses, lockClause)
 		}
 		if len(lockClauses) > 0 {
+			// Select the correct database for virtual keyspaces before locking tables
+			dbName := conn.cp.DBName()
+			if dbName != "" {
+				if _, err := lockConn.ExecuteFetch(fmt.Sprintf("USE %s", sqlescape.EscapeID(dbName)), 1, false); err != nil {
+					log.Warningf("Error selecting database %s: %v", dbName, err)
+					return "", err
+				}
+			}
+
 			query := fmt.Sprintf("lock tables %s", strings.Join(lockClauses, ","))
 			if _, err := lockConn.ExecuteFetch(query, 1, false); err != nil {
 				log.Error(vterrors.Wrapf(err, "explicitly locking all %v tables", len(lockClauses)))

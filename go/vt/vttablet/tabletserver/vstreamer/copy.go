@@ -37,7 +37,7 @@ func (uvs *uvstreamer) copy(ctx context.Context) error {
 	for len(uvs.tablesToCopy) > 0 {
 		tableName := uvs.tablesToCopy[0]
 		log.V(2).Infof("Copystate not empty starting catchupAndCopy on table %s", tableName)
-		if err := uvs.catchupAndCopy(ctx, tableName); err != nil {
+		if err := uvs.catchupAndCopy(ctx, uvs.cp.DBName(), tableName); err != nil {
 			uvs.vse.errorCounts.Add("Copy", 1)
 			return err
 		}
@@ -47,8 +47,8 @@ func (uvs *uvstreamer) copy(ctx context.Context) error {
 }
 
 // first does a catchup for tables already fully or partially copied (upto last pk)
-func (uvs *uvstreamer) catchupAndCopy(ctx context.Context, tableName string) error {
-	log.Infof("catchupAndCopy for %s", tableName)
+func (uvs *uvstreamer) catchupAndCopy(ctx context.Context, dbName string, tableName string) error {
+	log.Infof("catchupAndCopy for %s.%s", dbName, tableName)
 	if !uvs.pos.IsZero() {
 		if err := uvs.catchup(ctx); err != nil {
 			log.Infof("catchupAndCopy: catchup returned %v", err)
@@ -56,9 +56,9 @@ func (uvs *uvstreamer) catchupAndCopy(ctx context.Context, tableName string) err
 			return err
 		}
 	}
-	log.Infof("catchupAndCopy: before copyTable %s", tableName)
+	log.Infof("catchupAndCopy: before copyTable %s.%s", dbName, tableName)
 	uvs.fields = nil
-	return uvs.copyTable(ctx, tableName)
+	return uvs.copyTable(ctx, dbName, tableName)
 }
 
 // catchup on events for tables already fully or partially copied (upto last pk) until replication lag is small
@@ -129,17 +129,22 @@ func (uvs *uvstreamer) sendFieldEvent(ctx context.Context, gtid string, fieldEve
 }
 
 // send one RowEvent per row, followed by a LastPK (merged in VTGate with vgtid)
-func (uvs *uvstreamer) sendEventsForRows(ctx context.Context, tableName string, rows *binlogdatapb.VStreamRowsResponse, qr *querypb.QueryResult) error {
+func (uvs *uvstreamer) sendEventsForRows(ctx context.Context, dbName, tableName string, rows *binlogdatapb.VStreamRowsResponse, qr *querypb.QueryResult) error {
 	var evs []*binlogdatapb.VEvent
+	ks, shard, err := uvs.vse.registry.GetKeyspaceShardByDbName(dbName) // ensure keyspace is registered
+	if err != nil {
+		log.Errorf("failed to get keyspace/shard for dbName %s: %v", dbName, err)
+		return err
+	}
 	for _, row := range rows.Rows {
 		ev := &binlogdatapb.VEvent{
 			Type:     binlogdatapb.VEventType_ROW,
-			Keyspace: uvs.vse.keyspace,
-			Shard:    uvs.vse.shard,
+			Keyspace: ks,
+			Shard:    shard,
 			RowEvent: &binlogdatapb.RowEvent{
 				TableName: tableName,
-				Keyspace:  uvs.vse.keyspace,
-				Shard:     uvs.vse.shard,
+				Keyspace:  ks,
+				Shard:     shard,
 				RowChanges: []*binlogdatapb.RowChange{{
 					Before: nil,
 					After:  row,
@@ -158,15 +163,15 @@ func (uvs *uvstreamer) sendEventsForRows(ctx context.Context, tableName string, 
 
 	ev := &binlogdatapb.VEvent{
 		Type:        binlogdatapb.VEventType_LASTPK,
-		Keyspace:    uvs.vse.keyspace,
-		Shard:       uvs.vse.shard,
+		Keyspace:    ks,
+		Shard:       shard,
 		LastPKEvent: lastPKEvent,
 	}
 	evs = append(evs, ev)
 	evs = append(evs, &binlogdatapb.VEvent{
 		Type:     binlogdatapb.VEventType_COMMIT,
-		Keyspace: uvs.vse.keyspace,
-		Shard:    uvs.vse.shard,
+		Keyspace: ks,
+		Shard:    shard,
 	})
 
 	if err := uvs.send(evs); err != nil {
@@ -202,7 +207,7 @@ func getQRFromLastPK(fields []*querypb.Field, lastPK []sqltypes.Value) *querypb.
 }
 
 // gets batch of rows to copy. size of batch is determined by max packetsize
-func (uvs *uvstreamer) copyTable(ctx context.Context, tableName string) error {
+func (uvs *uvstreamer) copyTable(ctx context.Context, dbName string, tableName string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
@@ -216,7 +221,7 @@ func (uvs *uvstreamer) copyTable(ctx context.Context, tableName string) error {
 	log.Infof("Starting copyTable for %s, Filter: %s, LastPK: %v", tableName, filter, lastPK)
 	uvs.sendTestEvent(fmt.Sprintf("Copy Start %s", tableName))
 
-	err := uvs.vse.StreamRows(ctx, filter, lastPK, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	err := uvs.vse.StreamRows(ctx, dbName, filter, lastPK, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		select {
 		case <-ctx.Done():
 			log.Infof("Returning io.EOF in StreamRows")
@@ -254,11 +259,17 @@ func (uvs *uvstreamer) copyTable(ctx context.Context, tableName string) error {
 				return f.CloneVT()
 			})
 
+			ks, shard, err := uvs.vse.registry.GetKeyspaceShardByDbName(dbName) // ensure keyspace is registered
+			if err != nil {
+				log.Errorf("failed to get keyspace/shard for dbName %s: %v", dbName, err)
+				return err
+			}
+
 			fieldEvent := &binlogdatapb.FieldEvent{
 				TableName: tableName,
 				Fields:    uvs.fields,
-				Keyspace:  uvs.vse.keyspace,
-				Shard:     uvs.vse.shard,
+				Keyspace:  ks,
+				Shard:     shard,
 				// In the copy phase the values for ENUM and SET fields are always strings.
 				// We are including this extra uint8 in the message even though there may
 				// not be an ENUM or SET column in the table because we only have one field
@@ -297,7 +308,7 @@ func (uvs *uvstreamer) copyTable(ctx context.Context, tableName string) error {
 		})
 		qrLastPK := sqltypes.ResultToProto3(newLastPK)
 		log.V(2).Infof("Calling sendEventForRows with gtid %s", rows.Gtid)
-		if err := uvs.sendEventsForRows(ctx, tableName, rows, qrLastPK); err != nil {
+		if err := uvs.sendEventsForRows(ctx, dbName, tableName, rows, qrLastPK); err != nil {
 			log.Infof("sendEventsForRows returned error %v", err)
 			return err
 		}

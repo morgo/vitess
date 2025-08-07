@@ -82,6 +82,8 @@ service Vtctld {
   rpc CreateKeyspace(vtctldata.CreateKeyspaceRequest) returns (vtctldata.CreateKeyspaceResponse) {};
   // CreateShard creates the specified shard in the topology.
   rpc CreateShard(vtctldata.CreateShardRequest) returns (vtctldata.CreateShardResponse) {};
+  // CreateVirtualShard creates a virtual shard that maps to a physical shard.
+  rpc CreateVirtualShard(vtctldata.CreateVirtualShardRequest) returns (vtctldata.CreateVirtualShardResponse) {};
   // DeleteCellInfo deletes the CellInfo for the provided cell. The cell cannot
   // be referenced by any Shard record in the topology.
   rpc DeleteCellInfo(vtctldata.DeleteCellInfoRequest) returns (vtctldata.DeleteCellInfoResponse) {};

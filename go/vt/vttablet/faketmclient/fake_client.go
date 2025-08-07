@@ -427,6 +427,11 @@ func (client *FakeTabletManagerClient) GetThrottlerStatus(ctx context.Context, t
 	return &tabletmanagerdatapb.GetThrottlerStatusResponse{}, nil
 }
 
+// AddVirtualShard is part of the tmclient.TabletManagerClient interface.
+func (client *FakeTabletManagerClient) AddVirtualShard(ctx context.Context, tablet *topodatapb.Tablet, request *tabletmanagerdatapb.AddVirtualShardRequest) (*tabletmanagerdatapb.AddVirtualShardResponse, error) {
+	return &tabletmanagerdatapb.AddVirtualShardResponse{}, nil
+}
+
 //
 // Management related methods
 //

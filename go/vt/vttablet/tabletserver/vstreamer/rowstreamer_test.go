@@ -48,7 +48,7 @@ func TestRowStreamerQuery(t *testing.T) {
 	})
 	// We need to StreamRows, to get an initialized RowStreamer.
 	// Note that the query passed into StreamRows is overwritten while running the test.
-	err := engine.StreamRows(context.Background(), "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	err := engine.StreamRows(context.Background(), "vttest", "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		type testCase struct {
 			directives      string
 			sendQuerySuffix string
@@ -279,7 +279,7 @@ func TestStreamRowsUnicode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = engine.StreamRows(context.Background(), "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	err = engine.StreamRows(context.Background(), "vttest", "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		// Skip fields.
 		if len(rows.Rows) == 0 {
 			return nil
@@ -541,7 +541,7 @@ func TestStreamRowsCancel(t *testing.T) {
 	utils.SetFlagVariantsForTests(options.ConfigOverrides, "vstream-dynamic-packet-size", "false")
 	utils.SetFlagVariantsForTests(options.ConfigOverrides, "vstream-packet-size", "10")
 
-	err := engine.StreamRows(ctx, "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	err := engine.StreamRows(ctx, "vttest", "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		cancel()
 		return nil
 	}, &options)
@@ -588,7 +588,7 @@ func TestStreamRowsHeartbeat(t *testing.T) {
 	options.ConfigOverrides["vstream_dynamic_packet_size"] = "false"
 	options.ConfigOverrides["vstream_packet_size"] = "10"
 
-	err := engine.StreamRows(ctx, "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
+	err := engine.StreamRows(ctx, "vttest", "select * from t1", nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
 		if rows.Heartbeat {
 			atomic.AddInt32(&heartbeatCount, 1)
 			// After receiving at least 3 heartbeats, we can be confident the fix is working
@@ -640,7 +640,7 @@ func checkStream(t *testing.T, query string, lastpk []sqltypes.Value, wantQuery 
 		utils.SetFlagVariantsForTests(options.ConfigOverrides, "vstream-dynamic-packet-size", strconv.FormatBool(vttablet.VStreamerUseDynamicPacketSize))
 		utils.SetFlagVariantsForTests(options.ConfigOverrides, "vstream-packet-size", strconv.Itoa(vttablet.VStreamerDefaultPacketSize))
 
-		err := engine.StreamRows(context.Background(), query, lastpk, func(rows *binlogdatapb.VStreamRowsResponse) error {
+		err := engine.StreamRows(context.Background(), "vttest", query, lastpk, func(rows *binlogdatapb.VStreamRowsResponse) error {
 			if first {
 				if rows.Gtid == "" {
 					ch <- fmt.Errorf("stream gtid is empty")
@@ -682,7 +682,7 @@ func expectStreamError(t *testing.T, query string, want string) {
 	ch := make(chan error)
 	go func() {
 		defer close(ch)
-		err := engine.StreamRows(context.Background(), query, nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
+		err := engine.StreamRows(context.Background(), "vttest", query, nil, func(rows *binlogdatapb.VStreamRowsResponse) error {
 			return nil
 		}, nil)
 		require.EqualError(t, err, want, "Got incorrect error")

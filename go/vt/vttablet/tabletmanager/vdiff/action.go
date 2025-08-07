@@ -84,7 +84,13 @@ func (vde *Engine) PerformVDiffAction(ctx context.Context, req *tabletmanagerdat
 		Output: nil,
 	}
 	// We use the db_filtered user for vreplication related work.
-	dbClient := vde.dbClientFactoryFiltered()
+	var dbClient binlogplayer.DBClient
+	if req.DbNameOverride != "" {
+		// For virtual shards, use the override database name
+		dbClient = vde.dbClientFactoryFilteredWithDB(req.DbNameOverride)
+	} else {
+		dbClient = vde.dbClientFactoryFiltered()
+	}
 	if err := dbClient.Connect(); err != nil {
 		return nil, err
 	}

@@ -40,15 +40,15 @@ fi
 # start vtctld
 CELL=zone1 ../common/scripts/vtctld-up.sh
 
-if vtctldclient GetKeyspace commerce > /dev/null 2>&1 ; then
+if vtctldclient GetKeyspace main > /dev/null 2>&1 ; then
 	# Keyspace already exists: we could be running this 101 example on an non-empty VTDATAROOT
-	vtctldclient SetKeyspaceDurabilityPolicy --durability-policy=semi_sync commerce || fail "Failed to set keyspace durability policy on the commerce keyspace"
+	vtctldclient SetKeyspaceDurabilityPolicy --durability-policy=semi_sync main || fail "Failed to set keyspace durability policy on the main keyspace"
 else
 	# Create the keyspace with the sidecar database name and set the
 	# correct durability policy. Please see the comment above for
 	# more context on using a custom sidecar database name in your
 	# Vitess clusters.
-	vtctldclient CreateKeyspace --sidecar-db-name="${SIDECAR_DB_NAME}" --durability-policy=semi_sync commerce || fail "Failed to create and configure the commerce keyspace"
+	vtctldclient CreateKeyspace --sidecar-db-name="${SIDECAR_DB_NAME}" --durability-policy=semi_sync main || fail "Failed to create and configure the main keyspace"
 fi
 
 # start mysqlctls for keyspace commerce
@@ -65,7 +65,7 @@ echo "mysqlctls are running!"
 
 # start vttablets for keyspace commerce
 for i in 100 101 102; do
-	CELL=zone1 KEYSPACE=commerce TABLET_UID=$i ../common/scripts/vttablet-up.sh
+	CELL=zone1 KEYSPACE=main TABLET_UID=$i ../common/scripts/vttablet-up.sh
 done
 
 # start vtorc
@@ -73,7 +73,19 @@ done
 
 # Wait for all the tablets to be up and registered in the topology server
 # and for a primary tablet to be elected in the shard and become healthy/serving.
-wait_for_healthy_shard commerce 0 || exit 1
+wait_for_healthy_shard main 0 || exit 1
+
+# Create keyspace 'commerce' using normal CreateKeyspace
+# Keyspaces themselves are virtual. It's when we create our first shard that
+# the steps are different.
+echo "Creating keyspace 'commerce'..."
+vtctldclient CreateKeyspace --sidecar-db-name="${SIDECAR_DB_NAME}" --durability-policy=semi_sync commerce || fail "Failed to create keyspace 'commerce'"
+
+# Create virtual shard 0 for commerce that maps to main shard 0
+echo "Creating virtual shard 'commerce/0' on physical shard 'main/0'..."
+vtctldclient CreateVirtualShard commerce/0 main/0 || fail "Failed to create virtual shard 'commerce/0'"
+
+echo "Virtual shard 'commerce/0' setup complete!"
 
 # create the schema
 vtctldclient ApplySchema --sql-file create_commerce_schema.sql commerce || fail "Failed to apply schema for the commerce keyspace"
@@ -83,11 +95,4 @@ vtctldclient ApplyVSchema --vschema-file vschema_commerce_initial.json commerce 
 
 # start vtgate
 CELL=zone1 ../common/scripts/vtgate-up.sh
-
-# start vtadmin
-if [[ -n ${SKIP_VTADMIN} ]]; then
-	echo -e "\nSkipping VTAdmin! If this is not what you want then please unset the SKIP_VTADMIN env variable in your shell."
-else
-	../common/scripts/vtadmin-up.sh
-fi
 

@@ -54,6 +54,7 @@ import (
 // QueryExecutor is used for executing a query request.
 type QueryExecutor struct {
 	query          string
+	dbName         string
 	marginComments sqlparser.MarginComments
 	bindVars       map[string]*querypb.BindVariable
 	connID         int64
@@ -820,6 +821,25 @@ func (qre *QueryExecutor) getConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
+	// Return from per-db connection pool if dbName is set.
+	if qre.dbName != "" {
+		pool, ok := qre.tsv.qe.dbConns[qre.dbName]
+		if !ok {
+			log.Warningf("no connection pool for db %s, refreshing pools", qre.dbName)
+			err := qre.tsv.qe.RefreshVirtualShardPools()
+			if err != nil {
+				return nil, vterrors.Wrapf(err, "failed to open connection pool for db %s", qre.dbName)
+			}
+			pool, ok = qre.tsv.qe.dbConns[qre.dbName]
+			if !ok {
+				log.Errorf("no connection pool for db %s after refreshing pools", qre.dbName)
+				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "no connection pool for db %s", qre.dbName)
+			}
+		}
+		log.Infof("returning connection from per-db pool for db %s", qre.dbName)
+		return pool.Get(ctx, qre.setting)
+	}
+	log.Infof("returning connection from physical tablet pool for keyspace %s", qre.tsv.sm.target.Keyspace)
 	return qre.tsv.qe.conns.Get(ctx, qre.setting)
 }
 
@@ -830,6 +850,25 @@ func (qre *QueryExecutor) getStreamConn() (*connpool.PooledConn, error) {
 	defer func(start time.Time) {
 		qre.logStats.WaitingForConnection += time.Since(start)
 	}(time.Now())
+	// Return from per-db connection pool if dbName is set.
+	if qre.dbName != "" {
+		pool, ok := qre.tsv.qe.dbStreamConns[qre.dbName]
+		if !ok {
+			log.Warningf("no streaming connection pool for db %s, refreshing pools", qre.dbName)
+			err := qre.tsv.qe.RefreshVirtualShardPools()
+			if err != nil {
+				return nil, vterrors.Wrapf(err, "failed to open streaming connection pool for db %s", qre.dbName)
+			}
+			pool, ok = qre.tsv.qe.dbConns[qre.dbName]
+			if !ok {
+				log.Errorf("no streaming connection pool for db %s after refreshing pools", qre.dbName)
+				return nil, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "no streaming connection pool for db %s", qre.dbName)
+			}
+		}
+		log.Infof("returning connection from per-db streaming pool for db %s", qre.dbName)
+		return pool.Get(ctx, qre.setting)
+	}
+	log.Infof("returning connection from physical tablet streaming pool for keyspace %s", qre.tsv.sm.target.Keyspace)
 	return qre.tsv.qe.streamConns.Get(ctx, qre.setting)
 }
 
@@ -1161,6 +1200,11 @@ func (qre *QueryExecutor) execDBConn(conn *connpool.Conn, sql string, wantfields
 	}
 	defer qre.tsv.statelessql.Remove(qd)
 
+	// Handle schema switching for virtual keyspaces
+	if err := qre.ensureSchemaContext(ctx, conn); err != nil {
+		return nil, err
+	}
+
 	if err := qre.resetLastInsertIDIfNeeded(ctx, conn); err != nil {
 		return nil, err
 	}
@@ -1188,6 +1232,11 @@ func (qre *QueryExecutor) execStatefulConn(conn *StatefulConnection, sql string,
 		return nil, err
 	}
 	defer qre.tsv.statefulql.Remove(qd)
+
+	// Handle schema switching for virtual keyspaces
+	if err := qre.ensureSchemaContext(ctx, conn.UnderlyingDBConn().Conn); err != nil {
+		return nil, err
+	}
 
 	if err := qre.resetLastInsertIDIfNeeded(ctx, conn.UnderlyingDBConn().Conn); err != nil {
 		return nil, err
@@ -1261,6 +1310,11 @@ func (qre *QueryExecutor) execStreamSQL(conn *connpool.PooledConn, isTransaction
 	// once their grace period is over.
 	qd := NewQueryDetail(qre.logStats.Ctx, conn.Conn)
 
+	// Handle schema switching for virtual keyspaces
+	if err := qre.ensureSchemaContext(ctx, conn.Conn); err != nil {
+		return err
+	}
+
 	if err := qre.resetLastInsertIDIfNeeded(ctx, conn.Conn); err != nil {
 		return err
 	}
@@ -1318,38 +1372,38 @@ func (qre *QueryExecutor) recordUserQuery(queryType string, duration int64) {
 	qre.tsv.Stats().UserTableQueryTimesNs.Add([]string{tableName, username, queryType}, duration)
 }
 
-func (qre *QueryExecutor) GetSchemaDefinitions(tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+func (qre *QueryExecutor) GetSchemaDefinitions(dbName string, tableType querypb.SchemaTableType, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
 	switch tableType {
 	case querypb.SchemaTableType_VIEWS:
-		return qre.getViewDefinitions(tableNames, callback)
+		return qre.getViewDefinitions(dbName, tableNames, callback)
 	case querypb.SchemaTableType_TABLES:
-		return qre.getTableDefinitions(tableNames, callback)
+		return qre.getTableDefinitions(dbName, tableNames, callback)
 	case querypb.SchemaTableType_ALL:
-		return qre.getAllDefinitions(tableNames, callback)
+		return qre.getAllDefinitions(dbName, tableNames, callback)
 	case querypb.SchemaTableType_UDFS:
 		return qre.getUDFs(callback)
 	}
 	return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid table type %v", tableType)
 }
 
-func (qre *QueryExecutor) getViewDefinitions(viewNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
-	query, err := eschema.GetFetchViewQuery(viewNames, qre.tsv.env.Parser())
+func (qre *QueryExecutor) getViewDefinitions(dbName string, viewNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+	query, err := eschema.GetFetchViewQuery(dbName, viewNames, qre.tsv.env.Parser())
 	if err != nil {
 		return err
 	}
 	return qre.executeGetSchemaQuery(query, callback)
 }
 
-func (qre *QueryExecutor) getTableDefinitions(tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
-	query, err := eschema.GetFetchTableQuery(tableNames, qre.tsv.env.Parser())
+func (qre *QueryExecutor) getTableDefinitions(dbName string, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+	query, err := eschema.GetFetchTableQuery(dbName, tableNames, qre.tsv.env.Parser())
 	if err != nil {
 		return err
 	}
 	return qre.executeGetSchemaQuery(query, callback)
 }
 
-func (qre *QueryExecutor) getAllDefinitions(tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
-	query, err := eschema.GetFetchTableAndViewsQuery(tableNames, qre.tsv.env.Parser())
+func (qre *QueryExecutor) getAllDefinitions(dbName string, tableNames []string, callback func(schemaRes *querypb.GetSchemaResponse) error) error {
+	query, err := eschema.GetFetchTableAndViewsQuery(dbName, tableNames, qre.tsv.env.Parser())
 	if err != nil {
 		return err
 	}
@@ -1404,4 +1458,38 @@ func (qre *QueryExecutor) getUDFs(callback func(schemaRes *querypb.GetSchemaResp
 			Udfs: udfs,
 		})
 	})
+}
+
+// ensureSchemaContext ensures that the connection is using the correct schema
+// for virtual shards. If the target has a db_name specified, it will
+// switch to that schema before executing the query.
+func (qre *QueryExecutor) ensureSchemaContext(ctx context.Context, conn *connpool.Conn) error {
+	// Get the target from the log stats if available
+	target := qre.logStats.Target
+	if target == nil {
+		// Fallback to tablet server target
+		target = qre.tsv.sm.Target()
+	}
+	// Always switch schema to ensure we're using the correct database
+	// This prevents stale connection issues and ensures proper database routing
+	var targetDbName string
+
+	// Check if we need to switch schema for virtual shard
+	if target != nil && target.DbName != "" {
+		targetDbName = target.DbName
+	} else if qre.dbName != "" {
+		targetDbName = qre.dbName
+	} else {
+		// Default to the physical database name
+		targetDbName = qre.tsv.config.DB.DBName
+	}
+
+	// Always execute USE statement to ensure correct database context
+	useSQL := fmt.Sprintf("USE `%s`", targetDbName)
+	_, err := conn.Exec(ctx, useSQL, 1, false)
+	if err != nil {
+		return vterrors.Wrapf(err, "failed to switch to DbName %s", targetDbName)
+	}
+
+	return nil
 }

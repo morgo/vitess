@@ -169,7 +169,7 @@ func (s *server) PreflightSchema(ctx context.Context, request *tabletmanagerdata
 	defer s.tm.HandleRPCPanic(ctx, "PreflightSchema", request, response, true /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
 	response = &tabletmanagerdatapb.PreflightSchemaResponse{}
-	results, err := s.tm.PreflightSchema(ctx, request.Changes)
+	results, err := s.tm.PreflightSchema(ctx, "", request.Changes)
 	if err == nil {
 		response.ChangeResults = results
 	}
@@ -188,6 +188,7 @@ func (s *server) ApplySchema(ctx context.Context, request *tabletmanagerdatapb.A
 		AfterSchema:             request.AfterSchema,
 		SQLMode:                 request.SqlMode,
 		DisableForeignKeyChecks: request.DisableForeignKeyChecks,
+		DbNameOverride:          request.DbNameOverride,
 	})
 	if err == nil {
 		response.BeforeSchema = scr.BeforeSchema
@@ -713,6 +714,13 @@ func (s *server) GetThrottlerStatus(ctx context.Context, request *tabletmanagerd
 	defer s.tm.HandleRPCPanic(ctx, "GetThrottlerStatus", request, response, false /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
 	response, err = s.tm.GetThrottlerStatus(ctx, request)
+	return response, err
+}
+
+func (s *server) AddVirtualShard(ctx context.Context, request *tabletmanagerdatapb.AddVirtualShardRequest) (response *tabletmanagerdatapb.AddVirtualShardResponse, err error) {
+	defer s.tm.HandleRPCPanic(ctx, "AddVirtualShard", request, response, true /*verbose*/, &err)
+	ctx = callinfo.GRPCCallInfo(ctx)
+	response, err = s.tm.AddVirtualShard(ctx, request)
 	return response, err
 }
 

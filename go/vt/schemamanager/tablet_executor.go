@@ -121,13 +121,12 @@ func (exec *TabletExecutor) Open(ctx context.Context, keyspace string) error {
 		if !shardInfo.HasPrimary() {
 			return fmt.Errorf("shard: %s does not have a primary", shardName)
 		}
-		tabletInfo, err := exec.ts.GetTablet(ctx, shardInfo.PrimaryAlias)
+		tabletInfo, err := exec.ts.GetTablet(ctx, shardInfo.PrimaryAlias) // it will have dbNameOverride set.
 		if err != nil {
 			return fmt.Errorf("unable to get primary tablet info, keyspace: %s, shard: %s, error: %v", keyspace, shardName, err)
 		}
 		exec.tablets = append(exec.tablets, tabletInfo.Tablet)
 	}
-
 	if len(exec.tablets) == 0 {
 		return fmt.Errorf("keyspace: %s does not contain any primary tablets", keyspace)
 	}
@@ -588,6 +587,12 @@ func (exec *TabletExecutor) executeOneTablet(
 				return
 			}
 		}
+
+		// If we have a DbNameOverride, prefix the SQL with USE statement
+		if tablet.DbNameOverride != "" {
+			sql = fmt.Sprintf("USE %s; %s", tablet.DbNameOverride, sql)
+		}
+
 		request := &tabletmanagerdatapb.ExecuteMultiFetchAsDbaRequest{
 			Sql:     []byte(sql),
 			MaxRows: 10,

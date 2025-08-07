@@ -36,6 +36,8 @@ message Target {
   // cell is used for routing queries between vtgate and vttablets. It
   // is not used when Target is part of the Session sent by the client.
   string cell = 4;
+  // db_name is used for virtual shards to specify the target MySQL schema.
+  string db_name = 5;
 }
 
 // VTGateCallerID is sent by VTGate to VTTablet to describe the

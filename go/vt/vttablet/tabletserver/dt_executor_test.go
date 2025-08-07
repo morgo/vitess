@@ -720,13 +720,15 @@ func newTestTxExecutor(t *testing.T, ctx context.Context) (txe *DTExecutor, tsv 
 	cfg := tabletenv.NewDefaultConfig()
 	cfg.DB = newDBConfigs(db)
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TabletServerTest")
-	se := schema.NewEngine(env)
+	se := schema.NewEngine(env, nil)
 	qe := NewQueryEngine(env, se)
 	db.AddQueryPattern("insert into _vt\\.redo_state\\(dtid, state, time_created\\) values \\(_binary'aa', 1,.*", &sqltypes.Result{})
 	db.AddQueryPattern("insert into _vt\\.redo_statement.*", &sqltypes.Result{})
 	db.AddQuery("delete from _vt.redo_state where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("delete from _vt.redo_statement where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("update test_table set `name` = 2 where pk = 1 limit 10001", &sqltypes.Result{})
+	db.AddQuery("update test_table set name = 2 where pk = 1", &sqltypes.Result{})
+	db.AddQuery("update test_table set `name` = 2 where pk = 1", &sqltypes.Result{})
 	db.AddRejectedQuery("bogus", sqlerror.NewSQLError(sqlerror.ERUnknownError, sqlerror.SSUnknownSQLState, "bogus query"))
 	return &DTExecutor{
 			ctx:      ctx,
@@ -749,6 +751,7 @@ func newShortAgeExecutor(t *testing.T, ctx context.Context) (txe *DTExecutor, ts
 	db.AddQuery("delete from _vt.redo_state where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("delete from _vt.redo_statement where dtid = _binary'aa'", &sqltypes.Result{})
 	db.AddQuery("update test_table set `name` = 2 where pk = 1 limit 10001", &sqltypes.Result{})
+	db.AddQuery("update test_table set name = 2 where pk = 1", &sqltypes.Result{})
 	return &DTExecutor{
 		ctx:      ctx,
 		logStats: logStats,

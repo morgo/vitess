@@ -166,6 +166,7 @@ func (mz *materializer) createWorkflowStreams(req *tabletmanagerdatapb.CreateVRe
 			return err
 		}
 
+		tabletReq.DbNameOverride = targetPrimary.Tablet.DbNameOverride
 		_, err = mz.tmc.CreateVReplicationWorkflow(mz.ctx, targetPrimary.Tablet, tabletReq)
 		return err
 	})
@@ -309,7 +310,12 @@ func (mz *materializer) deploySchema() error {
 		allTables := []string{"/.*/"}
 
 		hasTargetTable := map[string]bool{}
-		req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
+		// GetTablet will resolve any virtual shard
+		ti, err := mz.ts.GetTablet(mz.ctx, target.PrimaryAlias)
+		if err != nil {
+			return vterrors.Wrapf(err, "GetTablet(%v) failed", target.PrimaryAlias)
+		}
+		req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, DbNameOverride: ti.DbNameOverride}
 		targetSchema, err := schematools.GetSchema(mz.ctx, mz.ts, mz.tmc, target.PrimaryAlias, req)
 		if err != nil {
 			return err
@@ -460,6 +466,7 @@ func (mz *materializer) deploySchema() error {
 				AllowReplication:        true,
 				SQLMode:                 vreplication.SQLMode,
 				DisableForeignKeyChecks: true,
+				DbNameOverride:          ti.DbNameOverride,
 			})
 			if err != nil {
 				return err
@@ -811,7 +818,6 @@ func (mz *materializer) insertTablesInCopyStateTable(ctx context.Context, stream
 		if err != nil {
 			return err
 		}
-
 		var streams []*tabletmanagerdatapb.ReadVReplicationWorkflowResponse_Stream
 		func() {
 			mu.Lock()

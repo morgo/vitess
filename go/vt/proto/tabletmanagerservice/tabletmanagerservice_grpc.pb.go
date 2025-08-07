@@ -133,6 +133,8 @@ type TabletManagerClient interface {
 	CheckThrottler(ctx context.Context, in *tabletmanagerdata.CheckThrottlerRequest, opts ...grpc.CallOption) (*tabletmanagerdata.CheckThrottlerResponse, error)
 	// GetThrottlerStatus gets the status of a tablet throttler
 	GetThrottlerStatus(ctx context.Context, in *tabletmanagerdata.GetThrottlerStatusRequest, opts ...grpc.CallOption) (*tabletmanagerdata.GetThrottlerStatusResponse, error)
+	// AddVirtualShard adds a virtual shard to the tablet
+	AddVirtualShard(ctx context.Context, in *tabletmanagerdata.AddVirtualShardRequest, opts ...grpc.CallOption) (*tabletmanagerdata.AddVirtualShardResponse, error)
 }
 
 type tabletManagerClient struct {
@@ -810,6 +812,15 @@ func (c *tabletManagerClient) GetThrottlerStatus(ctx context.Context, in *tablet
 	return out, nil
 }
 
+func (c *tabletManagerClient) AddVirtualShard(ctx context.Context, in *tabletmanagerdata.AddVirtualShardRequest, opts ...grpc.CallOption) (*tabletmanagerdata.AddVirtualShardResponse, error) {
+	out := new(tabletmanagerdata.AddVirtualShardResponse)
+	err := c.cc.Invoke(ctx, "/tabletmanagerservice.TabletManager/AddVirtualShard", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TabletManagerServer is the server API for TabletManager service.
 // All implementations must embed UnimplementedTabletManagerServer
 // for forward compatibility
@@ -924,6 +935,8 @@ type TabletManagerServer interface {
 	CheckThrottler(context.Context, *tabletmanagerdata.CheckThrottlerRequest) (*tabletmanagerdata.CheckThrottlerResponse, error)
 	// GetThrottlerStatus gets the status of a tablet throttler
 	GetThrottlerStatus(context.Context, *tabletmanagerdata.GetThrottlerStatusRequest) (*tabletmanagerdata.GetThrottlerStatusResponse, error)
+	// AddVirtualShard adds a virtual shard to the tablet
+	AddVirtualShard(context.Context, *tabletmanagerdata.AddVirtualShardRequest) (*tabletmanagerdata.AddVirtualShardResponse, error)
 	mustEmbedUnimplementedTabletManagerServer()
 }
 
@@ -1137,6 +1150,9 @@ func (UnimplementedTabletManagerServer) CheckThrottler(context.Context, *tabletm
 }
 func (UnimplementedTabletManagerServer) GetThrottlerStatus(context.Context, *tabletmanagerdata.GetThrottlerStatusRequest) (*tabletmanagerdata.GetThrottlerStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetThrottlerStatus not implemented")
+}
+func (UnimplementedTabletManagerServer) AddVirtualShard(context.Context, *tabletmanagerdata.AddVirtualShardRequest) (*tabletmanagerdata.AddVirtualShardResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddVirtualShard not implemented")
 }
 func (UnimplementedTabletManagerServer) mustEmbedUnimplementedTabletManagerServer() {}
 
@@ -2399,6 +2415,24 @@ func _TabletManager_GetThrottlerStatus_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TabletManager_AddVirtualShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(tabletmanagerdata.AddVirtualShardRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TabletManagerServer).AddVirtualShard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tabletmanagerservice.TabletManager/AddVirtualShard",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TabletManagerServer).AddVirtualShard(ctx, req.(*tabletmanagerdata.AddVirtualShardRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TabletManager_ServiceDesc is the grpc.ServiceDesc for TabletManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2673,6 +2707,10 @@ var TabletManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetThrottlerStatus",
 			Handler:    _TabletManager_GetThrottlerStatus_Handler,
+		},
+		{
+			MethodName: "AddVirtualShard",
+			Handler:    _TabletManager_AddVirtualShard_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

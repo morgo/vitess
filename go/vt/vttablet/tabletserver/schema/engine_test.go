@@ -177,7 +177,7 @@ func TestOpenAndReloadLegacy(t *testing.T) {
 	AddFakeInnoDBReadRowsResult(db, secondReadRowsValue)
 
 	firstTime := true
-	notifier := func(full map[string]*Table, created, altered, dropped []*Table, _ bool) {
+	notifier := func(full map[string]map[string]*Table, created, altered, dropped []*Table, _ bool) {
 		if firstTime {
 			firstTime = false
 			createTables := extractNamesFromTablesList(created)
@@ -197,7 +197,7 @@ func TestOpenAndReloadLegacy(t *testing.T) {
 
 	assert.EqualValues(t, secondReadRowsValue, se.innoDbReadRowsCounter.Get())
 
-	want["test_table_03"] = &Table{
+	want["testdb"]["test_table_03"] = &Table{
 		Name: sqlparser.NewIdentifierCS("test_table_03"),
 		Fields: []*querypb.Field{{
 			Name: "pk1",
@@ -212,7 +212,7 @@ func TestOpenAndReloadLegacy(t *testing.T) {
 		PKColumns:  []int{0, 1},
 		CreateTime: 1427325877,
 	}
-	want["test_table_04"] = &Table{
+	want["testdb"]["test_table_04"] = &Table{
 		Name: sqlparser.NewIdentifierCS("test_table_04"),
 		Fields: []*querypb.Field{{
 			Name: "pk",
@@ -221,7 +221,7 @@ func TestOpenAndReloadLegacy(t *testing.T) {
 		PKColumns:  []int{0},
 		CreateTime: 1427325875,
 	}
-	delete(want, "msg")
+	delete(want["testdb"], "msg")
 	assert.Equal(t, want, se.GetSchema())
 	assert.Equal(t, int64(0), se.tableAllocatedSizeGauge.Counts()["msg"])
 	assert.Equal(t, int64(0), se.tableFileSizeGauge.Counts()["msg"])
@@ -274,7 +274,7 @@ func TestOpenAndReloadLegacy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, se.GetSchema())
 
-	delete(want, "test_table_03")
+	delete(want["testdb"], "test_table_03")
 	err = se.ReloadAt(context.Background(), pos2)
 	require.NoError(t, err)
 	assert.Equal(t, want, se.GetSchema())
@@ -415,7 +415,7 @@ func TestOpenAndReload(t *testing.T) {
 	AddFakeInnoDBReadRowsResult(db, secondReadRowsValue)
 
 	firstTime := true
-	notifier := func(full map[string]*Table, created, altered, dropped []*Table, _ bool) {
+	notifier := func(full map[string]map[string]*Table, created, altered, dropped []*Table, _ bool) {
 		if firstTime {
 			firstTime = false
 			createTables := extractNamesFromTablesList(created)
@@ -435,7 +435,7 @@ func TestOpenAndReload(t *testing.T) {
 
 	assert.EqualValues(t, secondReadRowsValue, se.innoDbReadRowsCounter.Get())
 
-	want["test_table_03"] = &Table{
+	want["testdb"]["test_table_03"] = &Table{
 		Name: sqlparser.NewIdentifierCS("test_table_03"),
 		Fields: []*querypb.Field{{
 			Name: "pk1",
@@ -450,7 +450,7 @@ func TestOpenAndReload(t *testing.T) {
 		PKColumns:  []int{0, 1},
 		CreateTime: 1427325877,
 	}
-	want["test_table_04"] = &Table{
+	want["testdb"]["test_table_04"] = &Table{
 		Name: sqlparser.NewIdentifierCS("test_table_04"),
 		Fields: []*querypb.Field{{
 			Name: "pk",
@@ -459,7 +459,7 @@ func TestOpenAndReload(t *testing.T) {
 		PKColumns:  []int{0},
 		CreateTime: 1427325875,
 	}
-	delete(want, "msg")
+	delete(want["testdb"], "msg")
 	assert.Equal(t, want, se.GetSchema())
 	assert.Equal(t, int64(0), se.tableAllocatedSizeGauge.Counts()["msg"])
 	assert.Equal(t, int64(0), se.tableFileSizeGauge.Counts()["msg"])
@@ -512,7 +512,7 @@ func TestOpenAndReload(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, se.GetSchema())
 
-	delete(want, "test_table_03")
+	delete(want["testdb"], "test_table_03")
 	err = se.ReloadAt(context.Background(), pos2)
 	require.NoError(t, err)
 	assert.Equal(t, want, se.GetSchema())
@@ -613,7 +613,7 @@ func TestReloadWithSwappedTables(t *testing.T) {
 	err := se.Reload(context.Background())
 	require.NoError(t, err)
 
-	want["test_table_04"] = &Table{
+	want["testdb"]["test_table_04"] = &Table{
 		Name: sqlparser.NewIdentifierCS("test_table_04"),
 		Fields: []*querypb.Field{{
 			Name: "mypk",
@@ -693,9 +693,9 @@ func TestReloadWithSwappedTables(t *testing.T) {
 	err = se.Reload(context.Background())
 	require.NoError(t, err)
 
-	delete(want, "test_table_03")
-	delete(want, "test_table_04")
-	want["test_table_03"] = &Table{
+	delete(want["testdb"], "test_table_03")
+	delete(want["testdb"], "test_table_04")
+	want["testdb"]["test_table_03"] = &Table{
 		Name: sqlparser.NewIdentifierCS("test_table_03"),
 		Fields: []*querypb.Field{{
 			Name: "mypk",
@@ -704,7 +704,7 @@ func TestReloadWithSwappedTables(t *testing.T) {
 		PKColumns:  []int{0},
 		CreateTime: 1427325877,
 	}
-	want["test_table_04"] = &Table{
+	want["testdb"]["test_table_04"] = &Table{
 		Name: sqlparser.NewIdentifierCS("test_table_04"),
 		Fields: []*querypb.Field{{
 			Name: "pk",
@@ -839,7 +839,7 @@ func newEngine(reloadTime time.Duration, idleTimeout time.Duration, schemaMaxAge
 	if env == nil {
 		env = vtenv.NewTestEnv()
 	}
-	se := NewEngine(tabletenv.NewEnv(env, cfg, "SchemaTest"))
+	se := NewEngine(tabletenv.NewEnv(env, cfg, "SchemaTest"), nil)
 	se.InitDBConfig(dbConfigs.DbaWithDB())
 	return se
 }
@@ -850,107 +850,109 @@ func newDBConfigs(db *fakesqldb.DB) *dbconfigs.DBConfigs {
 	return dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb")
 }
 
-func initialSchema() map[string]*Table {
-	return map[string]*Table{
-		"dual": {
-			Name: sqlparser.NewIdentifierCS("dual"),
-		},
-		"test_table_01": {
-			Name: sqlparser.NewIdentifierCS("test_table_01"),
-			Fields: []*querypb.Field{{
-				Name: "pk",
-				Type: sqltypes.Int32,
-			}},
-			PKColumns:     []int{0},
-			CreateTime:    1427325875,
-			FileSize:      0,
-			AllocatedSize: 0,
-		},
-		"test_table_02": {
-			Name: sqlparser.NewIdentifierCS("test_table_02"),
-			Fields: []*querypb.Field{{
-				Name: "pk",
-				Type: sqltypes.Int32,
-			}},
-			PKColumns:     []int{0},
-			CreateTime:    1427325875,
-			FileSize:      0,
-			AllocatedSize: 0,
-		},
-		"test_table_03": {
-			Name: sqlparser.NewIdentifierCS("test_table_03"),
-			Fields: []*querypb.Field{{
-				Name: "pk",
-				Type: sqltypes.Int32,
-			}},
-			PKColumns:     []int{0},
-			CreateTime:    1427325875,
-			FileSize:      0,
-			AllocatedSize: 0,
-		},
-		"seq": {
-			Name: sqlparser.NewIdentifierCS("seq"),
-			Type: Sequence,
-			Fields: []*querypb.Field{{
-				Name: "id",
-				Type: sqltypes.Int32,
-			}, {
-				Name: "next_id",
-				Type: sqltypes.Int64,
-			}, {
-				Name: "cache",
-				Type: sqltypes.Int64,
-			}, {
-				Name: "increment",
-				Type: sqltypes.Int64,
-			}},
-			PKColumns:     []int{0},
-			CreateTime:    1427325875,
-			FileSize:      0,
-			AllocatedSize: 0,
-			SequenceInfo:  &SequenceInfo{},
-		},
-		"msg": {
-			Name: sqlparser.NewIdentifierCS("msg"),
-			Type: Message,
-			Fields: []*querypb.Field{{
-				Name: "id",
-				Type: sqltypes.Int64,
-			}, {
-				Name: "priority",
-				Type: sqltypes.Int64,
-			}, {
-				Name: "time_next",
-				Type: sqltypes.Int64,
-			}, {
-				Name: "epoch",
-				Type: sqltypes.Int64,
-			}, {
-				Name: "time_acked",
-				Type: sqltypes.Int64,
-			}, {
-				Name: "message",
-				Type: sqltypes.Int64,
-			}},
-			PKColumns:     []int{0},
-			CreateTime:    1427325875,
-			FileSize:      0,
-			AllocatedSize: 0,
-			MessageInfo: &MessageInfo{
+func initialSchema() map[string]map[string]*Table {
+	return map[string]map[string]*Table{
+		"testdb": {
+			"dual": {
+				Name: sqlparser.NewIdentifierCS("dual"),
+			},
+			"test_table_01": {
+				Name: sqlparser.NewIdentifierCS("test_table_01"),
+				Fields: []*querypb.Field{{
+					Name: "pk",
+					Type: sqltypes.Int32,
+				}},
+				PKColumns:     []int{0},
+				CreateTime:    1427325875,
+				FileSize:      0,
+				AllocatedSize: 0,
+			},
+			"test_table_02": {
+				Name: sqlparser.NewIdentifierCS("test_table_02"),
+				Fields: []*querypb.Field{{
+					Name: "pk",
+					Type: sqltypes.Int32,
+				}},
+				PKColumns:     []int{0},
+				CreateTime:    1427325875,
+				FileSize:      0,
+				AllocatedSize: 0,
+			},
+			"test_table_03": {
+				Name: sqlparser.NewIdentifierCS("test_table_03"),
+				Fields: []*querypb.Field{{
+					Name: "pk",
+					Type: sqltypes.Int32,
+				}},
+				PKColumns:     []int{0},
+				CreateTime:    1427325875,
+				FileSize:      0,
+				AllocatedSize: 0,
+			},
+			"seq": {
+				Name: sqlparser.NewIdentifierCS("seq"),
+				Type: Sequence,
 				Fields: []*querypb.Field{{
 					Name: "id",
+					Type: sqltypes.Int32,
+				}, {
+					Name: "next_id",
+					Type: sqltypes.Int64,
+				}, {
+					Name: "cache",
+					Type: sqltypes.Int64,
+				}, {
+					Name: "increment",
+					Type: sqltypes.Int64,
+				}},
+				PKColumns:     []int{0},
+				CreateTime:    1427325875,
+				FileSize:      0,
+				AllocatedSize: 0,
+				SequenceInfo:  &SequenceInfo{},
+			},
+			"msg": {
+				Name: sqlparser.NewIdentifierCS("msg"),
+				Type: Message,
+				Fields: []*querypb.Field{{
+					Name: "id",
+					Type: sqltypes.Int64,
+				}, {
+					Name: "priority",
+					Type: sqltypes.Int64,
+				}, {
+					Name: "time_next",
+					Type: sqltypes.Int64,
+				}, {
+					Name: "epoch",
+					Type: sqltypes.Int64,
+				}, {
+					Name: "time_acked",
 					Type: sqltypes.Int64,
 				}, {
 					Name: "message",
 					Type: sqltypes.Int64,
 				}},
-				AckWaitDuration:    30 * time.Second,
-				PurgeAfterDuration: 120 * time.Second,
-				MinBackoff:         30 * time.Second,
-				BatchSize:          1,
-				CacheSize:          10,
-				PollInterval:       30 * time.Second,
-				IDType:             sqltypes.Int64,
+				PKColumns:     []int{0},
+				CreateTime:    1427325875,
+				FileSize:      0,
+				AllocatedSize: 0,
+				MessageInfo: &MessageInfo{
+					Fields: []*querypb.Field{{
+						Name: "id",
+						Type: sqltypes.Int64,
+					}, {
+						Name: "message",
+						Type: sqltypes.Int64,
+					}},
+					AckWaitDuration:    30 * time.Second,
+					PurgeAfterDuration: 120 * time.Second,
+					MinBackoff:         30 * time.Second,
+					BatchSize:          1,
+					CacheSize:          10,
+					PollInterval:       30 * time.Second,
+					IDType:             sqltypes.Int64,
+				},
 			},
 		},
 	}
@@ -970,21 +972,23 @@ func TestRegisterNotifier(t *testing.T) {
 	// Create a new engine for testing
 	se := NewEngineForTests()
 	se.notifiers = map[string]notifier{}
-	se.tables = map[string]*Table{
-		"t1": nil,
-		"t2": nil,
-		"t3": nil,
+	se.tables = map[string]map[string]*Table{
+		"testdb": {
+			"t1": nil,
+			"t2": nil,
+			"t3": nil,
+		},
 	}
 
-	var tablesReceived map[string]*Table
+	var tablesReceived map[string]map[string]*Table
 	// Register a notifier and make it run immediately.
-	se.RegisterNotifier("TestRegisterNotifier", func(full map[string]*Table, created, altered, dropped []*Table, _ bool) {
+	se.RegisterNotifier("TestRegisterNotifier", func(full map[string]map[string]*Table, created, altered, dropped []*Table, _ bool) {
 		tablesReceived = full
 	}, true)
 
 	// Change the se.tables and make sure it doesn't affect the tables received by the notifier.
-	se.tables["t4"] = nil
-	require.Len(t, tablesReceived, 3)
+	se.tables["testdb"]["t4"] = nil
+	require.Len(t, tablesReceived["testdb"], 3)
 }
 
 // TestEngineMysqlTime tests the functionality of Engine.mysqlTime function
@@ -1143,7 +1147,7 @@ func TestEnginePopulatePrimaryKeys(t *testing.T) {
 				db.AddRejectedQuery(query, errToThrow)
 			}
 
-			err = se.populatePrimaryKeys(context.Background(), conn, tt.tables)
+			err = se.populatePrimaryKeys(context.Background(), "testdb", conn, tt.tables)
 			if tt.expectedError != "" {
 				require.ErrorContains(t, err, tt.expectedError)
 				return
@@ -1206,7 +1210,8 @@ func TestEngineUpdateInnoDBRowsRead(t *testing.T) {
 				db.AddRejectedQuery(query, errToThrow)
 			}
 
-			err = se.updateInnoDBRowsRead(context.Background(), conn)
+			const dbName = "testdb"
+			err = se.updateInnoDBRowsRead(context.Background(), dbName, conn)
 			if tt.expectedError != "" {
 				require.ErrorContains(t, err, tt.expectedError)
 				return
@@ -1257,7 +1262,7 @@ func TestEngineGetTableData(t *testing.T) {
 				defer db.DeleteRejectedQuery(query)
 			}
 
-			_, err = getTableData(context.Background(), conn, false)
+			_, err = getTableData(context.Background(), "testdb", conn, false)
 			if tt.expectedError != "" {
 				require.ErrorContains(t, err, tt.expectedError)
 				return
@@ -1371,11 +1376,13 @@ func TestEngineGetDroppedTables(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			se := &Engine{
-				tables: tt.tables,
+				tables: map[string]map[string]*Table{
+					"testdb": tt.tables,
+				},
 			}
 			se.tableFileSizeGauge = stats.NewGaugesWithSingleLabel("TestEngineGetDroppedTables-"+tt.name, "", "Table")
 			se.tableAllocatedSizeGauge = stats.NewGaugesWithSingleLabel("TestEngineGetDroppedTables-allocated-"+tt.name, "", "Table")
-			gotDroppedTables := se.getDroppedTables(tt.curTables, tt.changedViews, tt.mismatchTables)
+			gotDroppedTables := se.getDroppedTables("", tt.curTables, tt.changedViews, tt.mismatchTables)
 			require.ElementsMatch(t, gotDroppedTables, tt.wantDroppedTables)
 		})
 	}
@@ -1414,36 +1421,38 @@ func TestEngineReload(t *testing.T) {
 			se.lastChange = 987654321
 
 			// Initial tables in the schema engine
-			se.tables = map[string]*Table{
-				"t1": {
-					Name:       sqlparser.NewIdentifierCS("t1"),
-					Type:       NoType,
-					CreateTime: 123456789,
-				},
-				"t2": {
-					Name:       sqlparser.NewIdentifierCS("t2"),
-					Type:       NoType,
-					CreateTime: 123456789,
-				},
-				"t4": {
-					Name:       sqlparser.NewIdentifierCS("t4"),
-					Type:       NoType,
-					CreateTime: 123456789,
-				},
-				"v1": {
-					Name:       sqlparser.NewIdentifierCS("v1"),
-					Type:       View,
-					CreateTime: 123456789,
-				},
-				"v2": {
-					Name:       sqlparser.NewIdentifierCS("v2"),
-					Type:       View,
-					CreateTime: 123456789,
-				},
-				"v4": {
-					Name:       sqlparser.NewIdentifierCS("v4"),
-					Type:       View,
-					CreateTime: 123456789,
+			se.tables = map[string]map[string]*Table{
+				"fakesqldb": {
+					"t1": {
+						Name:       sqlparser.NewIdentifierCS("t1"),
+						Type:       NoType,
+						CreateTime: 123456789,
+					},
+					"t2": {
+						Name:       sqlparser.NewIdentifierCS("t2"),
+						Type:       NoType,
+						CreateTime: 123456789,
+					},
+					"t4": {
+						Name:       sqlparser.NewIdentifierCS("t4"),
+						Type:       NoType,
+						CreateTime: 123456789,
+					},
+					"v1": {
+						Name:       sqlparser.NewIdentifierCS("v1"),
+						Type:       View,
+						CreateTime: 123456789,
+					},
+					"v2": {
+						Name:       sqlparser.NewIdentifierCS("v2"),
+						Type:       View,
+						CreateTime: 123456789,
+					},
+					"v4": {
+						Name:       sqlparser.NewIdentifierCS("v4"),
+						Type:       View,
+						CreateTime: 123456789,
+					},
 				},
 			}
 			// MySQL unix timestamp query.
@@ -1547,7 +1556,7 @@ func TestEngineReload(t *testing.T) {
 			db.AddQueryPattern(udfQueryPattern, &sqltypes.Result{})
 
 			// Verify the list of created, altered and dropped tables seen.
-			se.RegisterNotifier("test", func(full map[string]*Table, created, altered, dropped []*Table, _ bool) {
+			se.RegisterNotifier("test", func(full map[string]map[string]*Table, created, altered, dropped []*Table, _ bool) {
 				require.ElementsMatch(t, extractNamesFromTablesList(created), []string{"T2", "V2"})
 				require.ElementsMatch(t, extractNamesFromTablesList(altered), []string{"t2", "v2"})
 				require.ElementsMatch(t, extractNamesFromTablesList(dropped), []string{"t4", "v4", "t5", "v5"})
@@ -1668,7 +1677,7 @@ func TestGetTableForPosLegacy(t *testing.T) {
 				addExpectedReloadQueries(db)
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, table, "")
+				tbl, err := se.GetTableForPos(ctx, "", table, "")
 				require.NoError(t, err)
 				require.Equal(t, tableMt, tbl)
 			},
@@ -1681,7 +1690,7 @@ func TestGetTableForPosLegacy(t *testing.T) {
 				addExpectedReloadQueries(db)
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, sqlparser.NewIdentifierCS("nobueno"), "")
+				tbl, err := se.GetTableForPos(ctx, "testdb", sqlparser.NewIdentifierCS("nobueno"), "")
 				require.EqualError(t, err, "table nobueno not found in vttablet schema")
 				require.Nil(t, tbl)
 			},
@@ -1694,7 +1703,7 @@ func TestGetTableForPosLegacy(t *testing.T) {
 				addExpectedReloadQueries(db)
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, table, "")
+				tbl, err := se.GetTableForPos(ctx, "testdb", table, "")
 				require.NoError(t, err)
 				require.Equal(t, tableMt, tbl)
 			},
@@ -1726,7 +1735,7 @@ func TestGetTableForPosLegacy(t *testing.T) {
 				db.AddQuery("rollback", &sqltypes.Result{})
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, table, "MySQL56/1497ddb0-7cb9-11ed-a1eb-0242ac120002:1-891")
+				tbl, err := se.GetTableForPos(ctx, "testdb", table, "MySQL56/1497ddb0-7cb9-11ed-a1eb-0242ac120002:1-891")
 				require.NoError(t, err)
 				require.NotNil(t, tbl)
 				require.Equal(t, &binlogdatapb.MinimalTable{
@@ -1752,7 +1761,9 @@ func TestGetTableForPosLegacy(t *testing.T) {
 			fakedb.DeleteAllQueries()
 			AddFakeInnoDBReadRowsResult(fakedb, int(rand.Int32N(1000000)))
 			tc.expectedQueriesFunc(fakedb)
-			se.tables = tc.initialCacheState
+			se.tables = map[string]map[string]*Table{
+				"fakesqldb": tc.initialCacheState,
+			}
 			tc.expectFunc()
 			fakedb.VerifyAllExecutedOrFail()
 			require.NoError(t, fakedb.LastError())
@@ -1794,7 +1805,7 @@ func TestGetTableForPos(t *testing.T) {
 	se.historian.enabled = false
 
 	addExpectedReloadQueries := func(db *fakesqldb.DB) {
-		db.AddQuery(mysql.ShowPartitons, &sqltypes.Result{})
+		db.AddQuery(mysql.ShowPartitions, &sqltypes.Result{})
 		db.AddQuery(mysql.ShowTableRowCountClusteredIndex, &sqltypes.Result{})
 		db.AddQuery(mysql.ShowIndexSizes, &sqltypes.Result{})
 		db.AddQuery(mysql.ShowIndexCardinalities, &sqltypes.Result{})
@@ -1866,7 +1877,7 @@ func TestGetTableForPos(t *testing.T) {
 				addExpectedReloadQueries(db)
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, table, "")
+				tbl, err := se.GetTableForPos(ctx, "", table, "")
 				require.NoError(t, err)
 				require.Equal(t, tableMt, tbl)
 			},
@@ -1879,7 +1890,7 @@ func TestGetTableForPos(t *testing.T) {
 				addExpectedReloadQueries(db)
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, sqlparser.NewIdentifierCS("nobueno"), "")
+				tbl, err := se.GetTableForPos(ctx, "", sqlparser.NewIdentifierCS("nobueno"), "")
 				require.EqualError(t, err, "table nobueno not found in vttablet schema")
 				require.Nil(t, tbl)
 			},
@@ -1892,7 +1903,7 @@ func TestGetTableForPos(t *testing.T) {
 				addExpectedReloadQueries(db)
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, table, "")
+				tbl, err := se.GetTableForPos(ctx, "", table, "")
 				require.NoError(t, err)
 				require.Equal(t, tableMt, tbl)
 			},
@@ -1924,7 +1935,7 @@ func TestGetTableForPos(t *testing.T) {
 				db.AddQuery("rollback", &sqltypes.Result{})
 			},
 			expectFunc: func() {
-				tbl, err := se.GetTableForPos(ctx, table, "MySQL56/1497ddb0-7cb9-11ed-a1eb-0242ac120002:1-891")
+				tbl, err := se.GetTableForPos(ctx, "testdb", table, "MySQL56/1497ddb0-7cb9-11ed-a1eb-0242ac120002:1-891")
 				require.NoError(t, err)
 				require.NotNil(t, tbl)
 				require.Equal(t, &binlogdatapb.MinimalTable{
@@ -1950,7 +1961,9 @@ func TestGetTableForPos(t *testing.T) {
 			fakedb.DeleteAllQueries()
 			AddFakeInnoDBReadRowsResult(fakedb, int(rand.Int32N(1000000)))
 			tc.expectedQueriesFunc(fakedb)
-			se.tables = tc.initialCacheState
+			se.tables = map[string]map[string]*Table{
+				"fakesqldb": tc.initialCacheState,
+			}
 			tc.expectFunc()
 			fakedb.VerifyAllExecutedOrFail()
 			require.NoError(t, fakedb.LastError())

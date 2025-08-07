@@ -354,6 +354,7 @@ message RowEvent {
   string shard = 4;
   uint32 flags = 5; // https://dev.mysql.com/doc/dev/mysql-server/latest/classbinary__log_1_1Rows__event.html
   bool is_internal_table = 6; // set for sidecardb tables
+  string db_name = 7; // database/schema name for the table
 }
 
 // FieldEvent represents the field info for a table.
@@ -500,6 +501,8 @@ message VStreamOptions {
   // Copy only these tables, skip the rest in the filter.
   // If not provided, the default behaviour is to copy all tables.
   repeated string tables_to_copy = 3;
+  // Database name for virtual keyspaces
+  string db_name = 4;
 }
 
 // VStreamRequest is the payload for VStreamer
@@ -529,6 +532,7 @@ message VStreamRowsRequest {
   string query = 4;
   query.QueryResult lastpk = 5;
   VStreamOptions options = 6;
+  string db_name = 7;
 }
 
 // VStreamRowsResponse is the response from VStreamRows
@@ -553,6 +557,7 @@ message VStreamTablesRequest {
   query.VTGateCallerID immediate_caller_id = 2;
   query.Target target = 3;
   VStreamOptions options = 4;
+  string db_name = 5;
 }
 
 // VStreamTablesResponse is the response from VStreamTables
