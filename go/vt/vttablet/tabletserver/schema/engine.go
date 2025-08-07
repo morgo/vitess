@@ -108,7 +108,7 @@ type Engine struct {
 
 	innoDbReadRowsCounter *stats.Counter
 	SchemaReloadTimings   *servenv.TimingsWrapper
-	registry              registry.Registry
+	Registry              registry.Registry
 }
 
 // NewEngine creates a new Engine.
@@ -124,7 +124,7 @@ func NewEngine(env tabletenv.Env, registry registry.Registry) *Engine {
 		}),
 		ticks:           timer.NewTimer(reloadTime),
 		throttledLogger: logutil.NewThrottledLogger("schema-tracker", 1*time.Minute),
-		registry:        registry,
+		Registry:        registry,
 	}
 	se.schemaCopy = env.Config().SignalWhenSchemaChange
 	_ = env.Exporter().NewGaugeDurationFunc("SchemaReloadTime", "vttablet keeps table schemas in its own memory and periodically refreshes it from MySQL. This config controls the reload time.", se.ticks.Interval)
@@ -506,7 +506,7 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	// one after the other.
 	// Refresh first - as we need up to date.
 	// TODO: figure out why this is needed.
-	if err := se.registry.Refresh(context.Background()); err != nil {
+	if err := se.Registry.Refresh(context.Background()); err != nil {
 		log.Warningf("failed to refresh registry: %v", err)
 	}
 
@@ -514,7 +514,7 @@ func (se *Engine) reload(ctx context.Context, includeStats bool) error {
 	var allCreated, allAltered, allDropped []*Table
 	var anyUdfsChanged bool
 
-	dbNames := se.registry.GetAllDBNames()
+	dbNames := se.Registry.GetAllDBNames()
 	for _, dbName := range dbNames {
 		created, altered, dropped, udfsChanged, err := se.reloadIndividualDB(ctx, dbName, includeStats)
 		if err != nil {

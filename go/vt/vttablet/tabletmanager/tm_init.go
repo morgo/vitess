@@ -406,11 +406,6 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 	if err != nil {
 		return vterrors.Wrap(err, "failed to InitDBConfig")
 	}
-	// Init registry to disover the virtual shards present.
-	err = tm.QueryServiceControl.InitRegistry(ctx, target)
-	if err != nil {
-		return vterrors.Wrap(err, "failed to InitRegistry")
-	}
 	tm.QueryServiceControl.RegisterQueryRuleSource(denyListQueryList)
 
 	if tm.UpdateStream != nil {
