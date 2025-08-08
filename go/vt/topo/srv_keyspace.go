@@ -567,9 +567,18 @@ func (ts *Server) MigrateServedType(ctx context.Context, keyspace string, shards
 					for _, shardReference := range partition.GetShardReferences() {
 						inShardsToRemove := false
 						for _, si := range shardsToRemove {
-							if key.KeyRangeEqual(shardReference.GetKeyRange(), si.GetKeyRange()) {
-								inShardsToRemove = true
-								break
+							// For virtual shards, match by name since they don't have meaningful KeyRanges
+							if partition.GetServedType() == topodatapb.TabletType_VIRTUAL {
+								if shardReference.GetName() == si.ShardName() {
+									inShardsToRemove = true
+									break
+								}
+							} else {
+								// For regular shards, use KeyRange comparison
+								if key.KeyRangeEqual(shardReference.GetKeyRange(), si.GetKeyRange()) {
+									inShardsToRemove = true
+									break
+								}
 							}
 						}
 
@@ -581,9 +590,18 @@ func (ts *Server) MigrateServedType(ctx context.Context, keyspace string, shards
 					for _, si := range shardsToAdd {
 						alreadyAdded := false
 						for _, shardReference := range partition.GetShardReferences() {
-							if key.KeyRangeEqual(shardReference.GetKeyRange(), si.GetKeyRange()) {
-								alreadyAdded = true
-								break
+							// For virtual shards, match by name since they don't have meaningful KeyRanges
+							if partition.GetServedType() == topodatapb.TabletType_VIRTUAL {
+								if shardReference.GetName() == si.ShardName() {
+									alreadyAdded = true
+									break
+								}
+							} else {
+								// For regular shards, use KeyRange comparison
+								if key.KeyRangeEqual(shardReference.GetKeyRange(), si.GetKeyRange()) {
+									alreadyAdded = true
+									break
+								}
 							}
 						}
 

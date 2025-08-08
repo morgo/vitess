@@ -18,5 +18,4 @@
 
 source ../common/env.sh
 
-# TODO: DeleteShards should work for virtual shards, but it currently does not.
 vtctldclient DeleteShards --force --recursive customer/0

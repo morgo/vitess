@@ -590,15 +590,123 @@ func (ts *trafficSwitcher) removeSourceTables(ctx context.Context, removalType T
 // FIXME: even after dropSourceShards there are still entries in the topo, need to research and fix
 func (ts *trafficSwitcher) dropSourceShards(ctx context.Context) error {
 	return ts.ForAllSources(func(source *MigrationSource) error {
-		ts.Logger().Infof("Deleting shard %s.%s\n", source.GetShard().Keyspace(), source.GetShard().ShardName())
-		err := ts.ws.DeleteShard(ctx, source.GetShard().Keyspace(), source.GetShard().ShardName(), true, false)
-		if err != nil {
-			ts.Logger().Errorf("Error deleting shard %s: %v", source.GetShard().ShardName(), err)
+		keyspace := source.GetShard().Keyspace()
+		shardName := source.GetShard().ShardName()
+
+		ts.Logger().Infof("Deleting shard %s.%s\n", keyspace, shardName)
+
+		// For virtual shards, we need to clean up virtual tablets first
+		// to ensure the shard is not still referenced in VIRTUAL partitions
+		if err := ts.cleanupVirtualTabletsForShard(ctx, keyspace, shardName); err != nil {
+			ts.Logger().Errorf("Error cleaning up virtual tablets for shard %s: %v", shardName, err)
 			return err
 		}
-		ts.Logger().Infof("Deleted shard %s.%s\n", source.GetShard().Keyspace(), source.GetShard().ShardName())
+
+		err := ts.ws.DeleteShard(ctx, keyspace, shardName, true, false)
+		if err != nil {
+			ts.Logger().Errorf("Error deleting shard %s: %v", shardName, err)
+			return err
+		}
+		ts.Logger().Infof("Deleted shard %s.%s\n", keyspace, shardName)
 		return nil
 	})
+}
+
+// cleanupVirtualTabletsForShard removes any virtual tablets associated with the shard
+// and cleans up VIRTUAL partition references to prevent the shard from being considered "serving"
+func (ts *trafficSwitcher) cleanupVirtualTabletsForShard(ctx context.Context, keyspace, shardName string) error {
+	ts.Logger().Infof("Cleaning up virtual tablets and references for shard %s/%s", keyspace, shardName)
+
+	// First, find and delete any virtual tablets in the shard
+	aliases, err := ts.TopoServer().FindAllTabletAliasesInShard(ctx, keyspace, shardName)
+	if err != nil {
+		if topo.IsErrType(err, topo.NoNode) {
+			// No tablets in this shard, which is fine
+			ts.Logger().Infof("No tablets found in shard %s/%s", keyspace, shardName)
+		} else {
+			return err
+		}
+	} else {
+		// Check each tablet to see if it's virtual and delete it
+		for _, alias := range aliases {
+			tablet, err := ts.TopoServer().GetTablet(ctx, alias)
+			if err != nil {
+				if topo.IsErrType(err, topo.NoNode) {
+					// Tablet already gone, continue
+					continue
+				}
+				return err
+			}
+
+			// Check if this is a virtual tablet (has VIRTUAL type)
+			if tablet.Type == topodatapb.TabletType_VIRTUAL {
+				ts.Logger().Infof("Deleting virtual tablet %s", topoproto.TabletAliasString(alias))
+				if err := ts.TopoServer().DeleteTablet(ctx, alias); err != nil && !topo.IsErrType(err, topo.NoNode) {
+					ts.Logger().Warningf("Failed to delete virtual tablet %s: %v", topoproto.TabletAliasString(alias), err)
+					// Don't fail the whole operation for this, just log and continue
+				}
+			}
+		}
+	}
+
+	// Second, clean up any VIRTUAL partition references in SrvKeyspace
+	if err := ts.cleanupVirtualShardReferences(ctx, keyspace, shardName); err != nil {
+		ts.Logger().Warningf("Failed to clean up virtual shard references: %v", err)
+		// Don't fail the whole operation, but log the warning
+	}
+
+	return nil
+}
+
+// cleanupVirtualShardReferences removes references to the virtual shard from VIRTUAL partitions
+func (ts *trafficSwitcher) cleanupVirtualShardReferences(ctx context.Context, keyspace, shardName string) error {
+	ts.Logger().Infof("Cleaning up virtual shard references for %s/%s", keyspace, shardName)
+
+	// Get all cells to update SrvKeyspace in each
+	cells, err := ts.TopoServer().GetCellInfoNames(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, cell := range cells {
+		srvKeyspace, err := ts.TopoServer().GetSrvKeyspace(ctx, cell, keyspace)
+		if err != nil {
+			if topo.IsErrType(err, topo.NoNode) {
+				// No SrvKeyspace in this cell, continue
+				continue
+			}
+			return err
+		}
+
+		modified := false
+		for _, partition := range srvKeyspace.GetPartitions() {
+			if partition.GetServedType() == topodatapb.TabletType_VIRTUAL {
+				// Filter out the shard reference we want to remove
+				newShardRefs := make([]*topodatapb.ShardReference, 0)
+				for _, shardRef := range partition.GetShardReferences() {
+					if shardRef.GetName() != shardName {
+						newShardRefs = append(newShardRefs, shardRef)
+					} else {
+						ts.Logger().Infof("Removing virtual shard reference %s from VIRTUAL partition in cell %s", shardName, cell)
+						modified = true
+					}
+				}
+				partition.ShardReferences = newShardRefs
+			}
+		}
+
+		// Update the SrvKeyspace if we made changes
+		if modified {
+			if err := ts.TopoServer().UpdateSrvKeyspace(ctx, cell, keyspace, srvKeyspace); err != nil {
+				ts.Logger().Warningf("Failed to update SrvKeyspace in cell %s: %v", cell, err)
+				// Continue with other cells even if one fails
+			} else {
+				ts.Logger().Infof("Updated SrvKeyspace in cell %s to remove virtual shard reference", cell)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (ts *trafficSwitcher) switchShardReads(ctx context.Context, cells []string, servedTypes []topodatapb.TabletType, direction TrafficSwitchDirection) error {
