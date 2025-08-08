@@ -306,6 +306,14 @@ func (vse *Engine) StreamRows(ctx context.Context, dbName string, query string, 
 	// Starting of the watcher has to be delayed till the first call to Stream
 	// because this overhead should be incurred only if someone uses this feature.
 	vse.watcherOnce.Do(vse.setWatch)
+
+	// Refresh the registry to ensure we have the latest keyspace mappings
+	// This is critical for virtual shards where keyspaces may be added dynamically
+	if err := vse.registry.Refresh(ctx); err != nil {
+		log.Warningf("Failed to refresh registry before StreamRows: %v", err)
+		// Continue anyway as the registry might still have the required information
+	}
+
 	log.Infof("Streaming rows for query %s, lastpk: %s, dbName: %s", query, lastpk, dbName)
 
 	// Create stream and add it to the map.
@@ -324,14 +332,8 @@ func (vse *Engine) StreamRows(ctx context.Context, dbName string, query string, 
 
 		// Get vschema from registry
 		vschema, err := vse.registry.GetVSchemaByKeyspace(keyspace)
-		if err != nil {
+		if err != nil || vschema == nil {
 			return nil, 0, fmt.Errorf("failed to get vschema for keyspace %s: %v", keyspace, err)
-		}
-		// Handle case where vschema is nil (keyspace not found in vschema)
-		if vschema == nil {
-			vschema = &vindexes.VSchema{
-				Keyspaces: make(map[string]*vindexes.KeyspaceSchema),
-			}
 		}
 		localVSchema := &localVSchema{
 			keyspace: keyspace,
@@ -515,7 +517,6 @@ func (vse *Engine) setWatch() {
 		case err == nil:
 			// Build vschema down below.
 		case topo.IsErrType(err, topo.NoNode):
-			log.Infof("DEBUG: No vschema node found, using empty vschema")
 			v = nil
 		default:
 			log.Errorf("Error fetching vschema: %v", err)
@@ -524,7 +525,6 @@ func (vse *Engine) setWatch() {
 		}
 		var vschema *vindexes.VSchema
 		if v != nil {
-			log.Infof("DEBUG: Building vschema from SrvVSchema")
 			vschema = vindexes.BuildVSchema(v, vse.env.Environment().Parser())
 			if err != nil {
 				log.Errorf("Error building vschema: %v", err)
@@ -532,7 +532,6 @@ func (vse *Engine) setWatch() {
 				return true
 			}
 		} else {
-			log.Infof("DEBUG: Creating empty vschema")
 			vschema = &vindexes.VSchema{}
 		}
 

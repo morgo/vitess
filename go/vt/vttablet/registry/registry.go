@@ -224,9 +224,7 @@ func (reg *TopoRegistry) GetKeyspaceShardByDbName(dbName string) (string, string
 
 	tablet, exists := reg.dbNameTablets[dbName]
 	if !exists {
-		// Fallback to physical keyspace if not found
-		log.Infof("No tablet found for dbName %s, falling back to physical keyspace %s", dbName, reg.physicalTarget.Keyspace)
-		return reg.physicalTarget.Keyspace, reg.physicalTarget.Shard, nil
+		return "", "", vterrors.New(vtrpcpb.Code_NOT_FOUND, fmt.Sprintf("no tablet found for dbName %s", dbName))
 	}
 
 	log.Infof("Resolved dbName %s to keyspace %s", dbName, tablet.Keyspace)

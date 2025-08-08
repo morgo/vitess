@@ -1348,7 +1348,6 @@ func (tsv *TabletServer) VStreamRows(ctx context.Context, request *binlogdatapb.
 		// If dbName is provided, use it instead of the one derived from the target.
 		dbName = request.DbName
 	}
-
 	return tsv.vstreamer.StreamRows(ctx, dbName, request.Query, row, send, request.Options)
 }
 
