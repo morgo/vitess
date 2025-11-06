@@ -17,6 +17,7 @@ package tablegc
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -104,7 +105,7 @@ func TestMain(m *testing.M) {
 			utils.GetFlagVariantForTests("--heartbeat-interval"), "250ms",
 			utils.GetFlagVariantForTests("--gc-check-interval"), gcCheckInterval.String(),
 			utils.GetFlagVariantForTests("--gc-purge-check-interval"), gcPurgeCheckInterval.String(),
-			"--table_gc_lifecycle", "hold,purge,evac,drop",
+			utils.GetFlagVariantForTests("--table-gc-lifecycle"), "hold,purge,evac,drop",
 		}
 
 		// Start keyspace
@@ -169,7 +170,7 @@ func populateTable(t *testing.T) {
 // tableExists sees that a given table exists in MySQL
 func tableExists(exprs ...string) (exists bool, tableName string, err error) {
 	if len(exprs) == 0 {
-		return false, "", fmt.Errorf("empty table list")
+		return false, "", errors.New("empty table list")
 	}
 	var clauses []string
 	for _, expr := range exprs {

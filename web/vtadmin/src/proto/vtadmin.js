@@ -42400,6 +42400,7 @@ export const topodata = $root.topodata = (() => {
          * @property {Array.<topodata.Shard.ISourceShard>|null} [source_shards] Shard source_shards
          * @property {Array.<topodata.Shard.ITabletControl>|null} [tablet_controls] Shard tablet_controls
          * @property {boolean|null} [is_primary_serving] Shard is_primary_serving
+         * @property {vtorcdata.IShard|null} [vtorc_state] Shard vtorc_state
          */
 
         /**
@@ -42468,6 +42469,14 @@ export const topodata = $root.topodata = (() => {
         Shard.prototype.is_primary_serving = false;
 
         /**
+         * Shard vtorc_state.
+         * @member {vtorcdata.IShard|null|undefined} vtorc_state
+         * @memberof topodata.Shard
+         * @instance
+         */
+        Shard.prototype.vtorc_state = null;
+
+        /**
          * Creates a new Shard instance using the specified properties.
          * @function create
          * @memberof topodata.Shard
@@ -42505,6 +42514,8 @@ export const topodata = $root.topodata = (() => {
                 writer.uint32(/* id 7, wireType 0 =*/56).bool(message.is_primary_serving);
             if (message.primary_term_start_time != null && Object.hasOwnProperty.call(message, "primary_term_start_time"))
                 $root.vttime.Time.encode(message.primary_term_start_time, writer.uint32(/* id 8, wireType 2 =*/66).fork()).ldelim();
+            if (message.vtorc_state != null && Object.hasOwnProperty.call(message, "vtorc_state"))
+                $root.vtorcdata.Shard.encode(message.vtorc_state, writer.uint32(/* id 9, wireType 2 =*/74).fork()).ldelim();
             return writer;
         };
 
@@ -42565,6 +42576,10 @@ export const topodata = $root.topodata = (() => {
                     }
                 case 7: {
                         message.is_primary_serving = reader.bool();
+                        break;
+                    }
+                case 9: {
+                        message.vtorc_state = $root.vtorcdata.Shard.decode(reader, reader.uint32());
                         break;
                     }
                 default:
@@ -42638,6 +42653,11 @@ export const topodata = $root.topodata = (() => {
             if (message.is_primary_serving != null && message.hasOwnProperty("is_primary_serving"))
                 if (typeof message.is_primary_serving !== "boolean")
                     return "is_primary_serving: boolean expected";
+            if (message.vtorc_state != null && message.hasOwnProperty("vtorc_state")) {
+                let error = $root.vtorcdata.Shard.verify(message.vtorc_state);
+                if (error)
+                    return "vtorc_state." + error;
+            }
             return null;
         };
 
@@ -42690,6 +42710,11 @@ export const topodata = $root.topodata = (() => {
             }
             if (object.is_primary_serving != null)
                 message.is_primary_serving = Boolean(object.is_primary_serving);
+            if (object.vtorc_state != null) {
+                if (typeof object.vtorc_state !== "object")
+                    throw TypeError(".topodata.Shard.vtorc_state: object expected");
+                message.vtorc_state = $root.vtorcdata.Shard.fromObject(object.vtorc_state);
+            }
             return message;
         };
 
@@ -42715,6 +42740,7 @@ export const topodata = $root.topodata = (() => {
                 object.key_range = null;
                 object.is_primary_serving = false;
                 object.primary_term_start_time = null;
+                object.vtorc_state = null;
             }
             if (message.primary_alias != null && message.hasOwnProperty("primary_alias"))
                 object.primary_alias = $root.topodata.TabletAlias.toObject(message.primary_alias, options);
@@ -42734,6 +42760,8 @@ export const topodata = $root.topodata = (() => {
                 object.is_primary_serving = message.is_primary_serving;
             if (message.primary_term_start_time != null && message.hasOwnProperty("primary_term_start_time"))
                 object.primary_term_start_time = $root.vttime.Time.toObject(message.primary_term_start_time, options);
+            if (message.vtorc_state != null && message.hasOwnProperty("vtorc_state"))
+                object.vtorc_state = $root.vtorcdata.Shard.toObject(message.vtorc_state, options);
             return object;
         };
 
@@ -43467,6 +43495,7 @@ export const topodata = $root.topodata = (() => {
          * @property {string|null} [durability_policy] Keyspace durability_policy
          * @property {topodata.IThrottlerConfig|null} [throttler_config] Keyspace throttler_config
          * @property {string|null} [sidecar_db_name] Keyspace sidecar_db_name
+         * @property {vtorcdata.IKeyspace|null} [vtorc_state] Keyspace vtorc_state
          */
 
         /**
@@ -43533,6 +43562,14 @@ export const topodata = $root.topodata = (() => {
         Keyspace.prototype.sidecar_db_name = "";
 
         /**
+         * Keyspace vtorc_state.
+         * @member {vtorcdata.IKeyspace|null|undefined} vtorc_state
+         * @memberof topodata.Keyspace
+         * @instance
+         */
+        Keyspace.prototype.vtorc_state = null;
+
+        /**
          * Creates a new Keyspace instance using the specified properties.
          * @function create
          * @memberof topodata.Keyspace
@@ -43568,6 +43605,8 @@ export const topodata = $root.topodata = (() => {
                 $root.topodata.ThrottlerConfig.encode(message.throttler_config, writer.uint32(/* id 9, wireType 2 =*/74).fork()).ldelim();
             if (message.sidecar_db_name != null && Object.hasOwnProperty.call(message, "sidecar_db_name"))
                 writer.uint32(/* id 10, wireType 2 =*/82).string(message.sidecar_db_name);
+            if (message.vtorc_state != null && Object.hasOwnProperty.call(message, "vtorc_state"))
+                $root.vtorcdata.Keyspace.encode(message.vtorc_state, writer.uint32(/* id 11, wireType 2 =*/90).fork()).ldelim();
             return writer;
         };
 
@@ -43624,6 +43663,10 @@ export const topodata = $root.topodata = (() => {
                     }
                 case 10: {
                         message.sidecar_db_name = reader.string();
+                        break;
+                    }
+                case 11: {
+                        message.vtorc_state = $root.vtorcdata.Keyspace.decode(reader, reader.uint32());
                         break;
                     }
                 default:
@@ -43688,6 +43731,11 @@ export const topodata = $root.topodata = (() => {
             if (message.sidecar_db_name != null && message.hasOwnProperty("sidecar_db_name"))
                 if (!$util.isString(message.sidecar_db_name))
                     return "sidecar_db_name: string expected";
+            if (message.vtorc_state != null && message.hasOwnProperty("vtorc_state")) {
+                let error = $root.vtorcdata.Keyspace.verify(message.vtorc_state);
+                if (error)
+                    return "vtorc_state." + error;
+            }
             return null;
         };
 
@@ -43735,6 +43783,11 @@ export const topodata = $root.topodata = (() => {
             }
             if (object.sidecar_db_name != null)
                 message.sidecar_db_name = String(object.sidecar_db_name);
+            if (object.vtorc_state != null) {
+                if (typeof object.vtorc_state !== "object")
+                    throw TypeError(".topodata.Keyspace.vtorc_state: object expected");
+                message.vtorc_state = $root.vtorcdata.Keyspace.fromObject(object.vtorc_state);
+            }
             return message;
         };
 
@@ -43758,6 +43811,7 @@ export const topodata = $root.topodata = (() => {
                 object.durability_policy = "";
                 object.throttler_config = null;
                 object.sidecar_db_name = "";
+                object.vtorc_state = null;
             }
             if (message.keyspace_type != null && message.hasOwnProperty("keyspace_type"))
                 object.keyspace_type = options.enums === String ? $root.topodata.KeyspaceType[message.keyspace_type] === undefined ? message.keyspace_type : $root.topodata.KeyspaceType[message.keyspace_type] : message.keyspace_type;
@@ -43771,6 +43825,8 @@ export const topodata = $root.topodata = (() => {
                 object.throttler_config = $root.topodata.ThrottlerConfig.toObject(message.throttler_config, options);
             if (message.sidecar_db_name != null && message.hasOwnProperty("sidecar_db_name"))
                 object.sidecar_db_name = message.sidecar_db_name;
+            if (message.vtorc_state != null && message.hasOwnProperty("vtorc_state"))
+                object.vtorc_state = $root.vtorcdata.Keyspace.toObject(message.vtorc_state, options);
             return object;
         };
 
@@ -47691,6 +47747,424 @@ export const topodata = $root.topodata = (() => {
     })();
 
     return topodata;
+})();
+
+export const vtorcdata = $root.vtorcdata = (() => {
+
+    /**
+     * Namespace vtorcdata.
+     * @exports vtorcdata
+     * @namespace
+     */
+    const vtorcdata = {};
+
+    vtorcdata.Keyspace = (function() {
+
+        /**
+         * Properties of a Keyspace.
+         * @memberof vtorcdata
+         * @interface IKeyspace
+         * @property {boolean|null} [disable_emergency_reparent] Keyspace disable_emergency_reparent
+         */
+
+        /**
+         * Constructs a new Keyspace.
+         * @memberof vtorcdata
+         * @classdesc Represents a Keyspace.
+         * @implements IKeyspace
+         * @constructor
+         * @param {vtorcdata.IKeyspace=} [properties] Properties to set
+         */
+        function Keyspace(properties) {
+            if (properties)
+                for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                    if (properties[keys[i]] != null)
+                        this[keys[i]] = properties[keys[i]];
+        }
+
+        /**
+         * Keyspace disable_emergency_reparent.
+         * @member {boolean} disable_emergency_reparent
+         * @memberof vtorcdata.Keyspace
+         * @instance
+         */
+        Keyspace.prototype.disable_emergency_reparent = false;
+
+        /**
+         * Creates a new Keyspace instance using the specified properties.
+         * @function create
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {vtorcdata.IKeyspace=} [properties] Properties to set
+         * @returns {vtorcdata.Keyspace} Keyspace instance
+         */
+        Keyspace.create = function create(properties) {
+            return new Keyspace(properties);
+        };
+
+        /**
+         * Encodes the specified Keyspace message. Does not implicitly {@link vtorcdata.Keyspace.verify|verify} messages.
+         * @function encode
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {vtorcdata.IKeyspace} message Keyspace message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        Keyspace.encode = function encode(message, writer) {
+            if (!writer)
+                writer = $Writer.create();
+            if (message.disable_emergency_reparent != null && Object.hasOwnProperty.call(message, "disable_emergency_reparent"))
+                writer.uint32(/* id 1, wireType 0 =*/8).bool(message.disable_emergency_reparent);
+            return writer;
+        };
+
+        /**
+         * Encodes the specified Keyspace message, length delimited. Does not implicitly {@link vtorcdata.Keyspace.verify|verify} messages.
+         * @function encodeDelimited
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {vtorcdata.IKeyspace} message Keyspace message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        Keyspace.encodeDelimited = function encodeDelimited(message, writer) {
+            return this.encode(message, writer).ldelim();
+        };
+
+        /**
+         * Decodes a Keyspace message from the specified reader or buffer.
+         * @function decode
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @param {number} [length] Message length if known beforehand
+         * @returns {vtorcdata.Keyspace} Keyspace
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        Keyspace.decode = function decode(reader, length) {
+            if (!(reader instanceof $Reader))
+                reader = $Reader.create(reader);
+            let end = length === undefined ? reader.len : reader.pos + length, message = new $root.vtorcdata.Keyspace();
+            while (reader.pos < end) {
+                let tag = reader.uint32();
+                switch (tag >>> 3) {
+                case 1: {
+                        message.disable_emergency_reparent = reader.bool();
+                        break;
+                    }
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+                }
+            }
+            return message;
+        };
+
+        /**
+         * Decodes a Keyspace message from the specified reader or buffer, length delimited.
+         * @function decodeDelimited
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @returns {vtorcdata.Keyspace} Keyspace
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        Keyspace.decodeDelimited = function decodeDelimited(reader) {
+            if (!(reader instanceof $Reader))
+                reader = new $Reader(reader);
+            return this.decode(reader, reader.uint32());
+        };
+
+        /**
+         * Verifies a Keyspace message.
+         * @function verify
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {Object.<string,*>} message Plain object to verify
+         * @returns {string|null} `null` if valid, otherwise the reason why it is not
+         */
+        Keyspace.verify = function verify(message) {
+            if (typeof message !== "object" || message === null)
+                return "object expected";
+            if (message.disable_emergency_reparent != null && message.hasOwnProperty("disable_emergency_reparent"))
+                if (typeof message.disable_emergency_reparent !== "boolean")
+                    return "disable_emergency_reparent: boolean expected";
+            return null;
+        };
+
+        /**
+         * Creates a Keyspace message from a plain object. Also converts values to their respective internal types.
+         * @function fromObject
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {Object.<string,*>} object Plain object
+         * @returns {vtorcdata.Keyspace} Keyspace
+         */
+        Keyspace.fromObject = function fromObject(object) {
+            if (object instanceof $root.vtorcdata.Keyspace)
+                return object;
+            let message = new $root.vtorcdata.Keyspace();
+            if (object.disable_emergency_reparent != null)
+                message.disable_emergency_reparent = Boolean(object.disable_emergency_reparent);
+            return message;
+        };
+
+        /**
+         * Creates a plain object from a Keyspace message. Also converts values to other types if specified.
+         * @function toObject
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {vtorcdata.Keyspace} message Keyspace
+         * @param {$protobuf.IConversionOptions} [options] Conversion options
+         * @returns {Object.<string,*>} Plain object
+         */
+        Keyspace.toObject = function toObject(message, options) {
+            if (!options)
+                options = {};
+            let object = {};
+            if (options.defaults)
+                object.disable_emergency_reparent = false;
+            if (message.disable_emergency_reparent != null && message.hasOwnProperty("disable_emergency_reparent"))
+                object.disable_emergency_reparent = message.disable_emergency_reparent;
+            return object;
+        };
+
+        /**
+         * Converts this Keyspace to JSON.
+         * @function toJSON
+         * @memberof vtorcdata.Keyspace
+         * @instance
+         * @returns {Object.<string,*>} JSON object
+         */
+        Keyspace.prototype.toJSON = function toJSON() {
+            return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+        };
+
+        /**
+         * Gets the default type url for Keyspace
+         * @function getTypeUrl
+         * @memberof vtorcdata.Keyspace
+         * @static
+         * @param {string} [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+         * @returns {string} The default type url
+         */
+        Keyspace.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+            if (typeUrlPrefix === undefined) {
+                typeUrlPrefix = "type.googleapis.com";
+            }
+            return typeUrlPrefix + "/vtorcdata.Keyspace";
+        };
+
+        return Keyspace;
+    })();
+
+    vtorcdata.Shard = (function() {
+
+        /**
+         * Properties of a Shard.
+         * @memberof vtorcdata
+         * @interface IShard
+         * @property {boolean|null} [disable_emergency_reparent] Shard disable_emergency_reparent
+         */
+
+        /**
+         * Constructs a new Shard.
+         * @memberof vtorcdata
+         * @classdesc Represents a Shard.
+         * @implements IShard
+         * @constructor
+         * @param {vtorcdata.IShard=} [properties] Properties to set
+         */
+        function Shard(properties) {
+            if (properties)
+                for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                    if (properties[keys[i]] != null)
+                        this[keys[i]] = properties[keys[i]];
+        }
+
+        /**
+         * Shard disable_emergency_reparent.
+         * @member {boolean} disable_emergency_reparent
+         * @memberof vtorcdata.Shard
+         * @instance
+         */
+        Shard.prototype.disable_emergency_reparent = false;
+
+        /**
+         * Creates a new Shard instance using the specified properties.
+         * @function create
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {vtorcdata.IShard=} [properties] Properties to set
+         * @returns {vtorcdata.Shard} Shard instance
+         */
+        Shard.create = function create(properties) {
+            return new Shard(properties);
+        };
+
+        /**
+         * Encodes the specified Shard message. Does not implicitly {@link vtorcdata.Shard.verify|verify} messages.
+         * @function encode
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {vtorcdata.IShard} message Shard message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        Shard.encode = function encode(message, writer) {
+            if (!writer)
+                writer = $Writer.create();
+            if (message.disable_emergency_reparent != null && Object.hasOwnProperty.call(message, "disable_emergency_reparent"))
+                writer.uint32(/* id 1, wireType 0 =*/8).bool(message.disable_emergency_reparent);
+            return writer;
+        };
+
+        /**
+         * Encodes the specified Shard message, length delimited. Does not implicitly {@link vtorcdata.Shard.verify|verify} messages.
+         * @function encodeDelimited
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {vtorcdata.IShard} message Shard message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        Shard.encodeDelimited = function encodeDelimited(message, writer) {
+            return this.encode(message, writer).ldelim();
+        };
+
+        /**
+         * Decodes a Shard message from the specified reader or buffer.
+         * @function decode
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @param {number} [length] Message length if known beforehand
+         * @returns {vtorcdata.Shard} Shard
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        Shard.decode = function decode(reader, length) {
+            if (!(reader instanceof $Reader))
+                reader = $Reader.create(reader);
+            let end = length === undefined ? reader.len : reader.pos + length, message = new $root.vtorcdata.Shard();
+            while (reader.pos < end) {
+                let tag = reader.uint32();
+                switch (tag >>> 3) {
+                case 1: {
+                        message.disable_emergency_reparent = reader.bool();
+                        break;
+                    }
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+                }
+            }
+            return message;
+        };
+
+        /**
+         * Decodes a Shard message from the specified reader or buffer, length delimited.
+         * @function decodeDelimited
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @returns {vtorcdata.Shard} Shard
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        Shard.decodeDelimited = function decodeDelimited(reader) {
+            if (!(reader instanceof $Reader))
+                reader = new $Reader(reader);
+            return this.decode(reader, reader.uint32());
+        };
+
+        /**
+         * Verifies a Shard message.
+         * @function verify
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {Object.<string,*>} message Plain object to verify
+         * @returns {string|null} `null` if valid, otherwise the reason why it is not
+         */
+        Shard.verify = function verify(message) {
+            if (typeof message !== "object" || message === null)
+                return "object expected";
+            if (message.disable_emergency_reparent != null && message.hasOwnProperty("disable_emergency_reparent"))
+                if (typeof message.disable_emergency_reparent !== "boolean")
+                    return "disable_emergency_reparent: boolean expected";
+            return null;
+        };
+
+        /**
+         * Creates a Shard message from a plain object. Also converts values to their respective internal types.
+         * @function fromObject
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {Object.<string,*>} object Plain object
+         * @returns {vtorcdata.Shard} Shard
+         */
+        Shard.fromObject = function fromObject(object) {
+            if (object instanceof $root.vtorcdata.Shard)
+                return object;
+            let message = new $root.vtorcdata.Shard();
+            if (object.disable_emergency_reparent != null)
+                message.disable_emergency_reparent = Boolean(object.disable_emergency_reparent);
+            return message;
+        };
+
+        /**
+         * Creates a plain object from a Shard message. Also converts values to other types if specified.
+         * @function toObject
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {vtorcdata.Shard} message Shard
+         * @param {$protobuf.IConversionOptions} [options] Conversion options
+         * @returns {Object.<string,*>} Plain object
+         */
+        Shard.toObject = function toObject(message, options) {
+            if (!options)
+                options = {};
+            let object = {};
+            if (options.defaults)
+                object.disable_emergency_reparent = false;
+            if (message.disable_emergency_reparent != null && message.hasOwnProperty("disable_emergency_reparent"))
+                object.disable_emergency_reparent = message.disable_emergency_reparent;
+            return object;
+        };
+
+        /**
+         * Converts this Shard to JSON.
+         * @function toJSON
+         * @memberof vtorcdata.Shard
+         * @instance
+         * @returns {Object.<string,*>} JSON object
+         */
+        Shard.prototype.toJSON = function toJSON() {
+            return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+        };
+
+        /**
+         * Gets the default type url for Shard
+         * @function getTypeUrl
+         * @memberof vtorcdata.Shard
+         * @static
+         * @param {string} [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+         * @returns {string} The default type url
+         */
+        Shard.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+            if (typeUrlPrefix === undefined) {
+                typeUrlPrefix = "type.googleapis.com";
+            }
+            return typeUrlPrefix + "/vtorcdata.Shard";
+        };
+
+        return Shard;
+    })();
+
+    return vtorcdata;
 })();
 
 export const vtrpc = $root.vtrpc = (() => {
@@ -64388,6 +64862,384 @@ export const tabletmanagerdata = $root.tabletmanagerdata = (() => {
         };
 
         return StartReplicationResponse;
+    })();
+
+    tabletmanagerdata.RestartReplicationRequest = (function() {
+
+        /**
+         * Properties of a RestartReplicationRequest.
+         * @memberof tabletmanagerdata
+         * @interface IRestartReplicationRequest
+         * @property {boolean|null} [semiSync] RestartReplicationRequest semiSync
+         */
+
+        /**
+         * Constructs a new RestartReplicationRequest.
+         * @memberof tabletmanagerdata
+         * @classdesc Represents a RestartReplicationRequest.
+         * @implements IRestartReplicationRequest
+         * @constructor
+         * @param {tabletmanagerdata.IRestartReplicationRequest=} [properties] Properties to set
+         */
+        function RestartReplicationRequest(properties) {
+            if (properties)
+                for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                    if (properties[keys[i]] != null)
+                        this[keys[i]] = properties[keys[i]];
+        }
+
+        /**
+         * RestartReplicationRequest semiSync.
+         * @member {boolean} semiSync
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @instance
+         */
+        RestartReplicationRequest.prototype.semiSync = false;
+
+        /**
+         * Creates a new RestartReplicationRequest instance using the specified properties.
+         * @function create
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {tabletmanagerdata.IRestartReplicationRequest=} [properties] Properties to set
+         * @returns {tabletmanagerdata.RestartReplicationRequest} RestartReplicationRequest instance
+         */
+        RestartReplicationRequest.create = function create(properties) {
+            return new RestartReplicationRequest(properties);
+        };
+
+        /**
+         * Encodes the specified RestartReplicationRequest message. Does not implicitly {@link tabletmanagerdata.RestartReplicationRequest.verify|verify} messages.
+         * @function encode
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {tabletmanagerdata.IRestartReplicationRequest} message RestartReplicationRequest message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        RestartReplicationRequest.encode = function encode(message, writer) {
+            if (!writer)
+                writer = $Writer.create();
+            if (message.semiSync != null && Object.hasOwnProperty.call(message, "semiSync"))
+                writer.uint32(/* id 1, wireType 0 =*/8).bool(message.semiSync);
+            return writer;
+        };
+
+        /**
+         * Encodes the specified RestartReplicationRequest message, length delimited. Does not implicitly {@link tabletmanagerdata.RestartReplicationRequest.verify|verify} messages.
+         * @function encodeDelimited
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {tabletmanagerdata.IRestartReplicationRequest} message RestartReplicationRequest message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        RestartReplicationRequest.encodeDelimited = function encodeDelimited(message, writer) {
+            return this.encode(message, writer).ldelim();
+        };
+
+        /**
+         * Decodes a RestartReplicationRequest message from the specified reader or buffer.
+         * @function decode
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @param {number} [length] Message length if known beforehand
+         * @returns {tabletmanagerdata.RestartReplicationRequest} RestartReplicationRequest
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        RestartReplicationRequest.decode = function decode(reader, length) {
+            if (!(reader instanceof $Reader))
+                reader = $Reader.create(reader);
+            let end = length === undefined ? reader.len : reader.pos + length, message = new $root.tabletmanagerdata.RestartReplicationRequest();
+            while (reader.pos < end) {
+                let tag = reader.uint32();
+                switch (tag >>> 3) {
+                case 1: {
+                        message.semiSync = reader.bool();
+                        break;
+                    }
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+                }
+            }
+            return message;
+        };
+
+        /**
+         * Decodes a RestartReplicationRequest message from the specified reader or buffer, length delimited.
+         * @function decodeDelimited
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @returns {tabletmanagerdata.RestartReplicationRequest} RestartReplicationRequest
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        RestartReplicationRequest.decodeDelimited = function decodeDelimited(reader) {
+            if (!(reader instanceof $Reader))
+                reader = new $Reader(reader);
+            return this.decode(reader, reader.uint32());
+        };
+
+        /**
+         * Verifies a RestartReplicationRequest message.
+         * @function verify
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {Object.<string,*>} message Plain object to verify
+         * @returns {string|null} `null` if valid, otherwise the reason why it is not
+         */
+        RestartReplicationRequest.verify = function verify(message) {
+            if (typeof message !== "object" || message === null)
+                return "object expected";
+            if (message.semiSync != null && message.hasOwnProperty("semiSync"))
+                if (typeof message.semiSync !== "boolean")
+                    return "semiSync: boolean expected";
+            return null;
+        };
+
+        /**
+         * Creates a RestartReplicationRequest message from a plain object. Also converts values to their respective internal types.
+         * @function fromObject
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {Object.<string,*>} object Plain object
+         * @returns {tabletmanagerdata.RestartReplicationRequest} RestartReplicationRequest
+         */
+        RestartReplicationRequest.fromObject = function fromObject(object) {
+            if (object instanceof $root.tabletmanagerdata.RestartReplicationRequest)
+                return object;
+            let message = new $root.tabletmanagerdata.RestartReplicationRequest();
+            if (object.semiSync != null)
+                message.semiSync = Boolean(object.semiSync);
+            return message;
+        };
+
+        /**
+         * Creates a plain object from a RestartReplicationRequest message. Also converts values to other types if specified.
+         * @function toObject
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {tabletmanagerdata.RestartReplicationRequest} message RestartReplicationRequest
+         * @param {$protobuf.IConversionOptions} [options] Conversion options
+         * @returns {Object.<string,*>} Plain object
+         */
+        RestartReplicationRequest.toObject = function toObject(message, options) {
+            if (!options)
+                options = {};
+            let object = {};
+            if (options.defaults)
+                object.semiSync = false;
+            if (message.semiSync != null && message.hasOwnProperty("semiSync"))
+                object.semiSync = message.semiSync;
+            return object;
+        };
+
+        /**
+         * Converts this RestartReplicationRequest to JSON.
+         * @function toJSON
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @instance
+         * @returns {Object.<string,*>} JSON object
+         */
+        RestartReplicationRequest.prototype.toJSON = function toJSON() {
+            return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+        };
+
+        /**
+         * Gets the default type url for RestartReplicationRequest
+         * @function getTypeUrl
+         * @memberof tabletmanagerdata.RestartReplicationRequest
+         * @static
+         * @param {string} [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+         * @returns {string} The default type url
+         */
+        RestartReplicationRequest.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+            if (typeUrlPrefix === undefined) {
+                typeUrlPrefix = "type.googleapis.com";
+            }
+            return typeUrlPrefix + "/tabletmanagerdata.RestartReplicationRequest";
+        };
+
+        return RestartReplicationRequest;
+    })();
+
+    tabletmanagerdata.RestartReplicationResponse = (function() {
+
+        /**
+         * Properties of a RestartReplicationResponse.
+         * @memberof tabletmanagerdata
+         * @interface IRestartReplicationResponse
+         */
+
+        /**
+         * Constructs a new RestartReplicationResponse.
+         * @memberof tabletmanagerdata
+         * @classdesc Represents a RestartReplicationResponse.
+         * @implements IRestartReplicationResponse
+         * @constructor
+         * @param {tabletmanagerdata.IRestartReplicationResponse=} [properties] Properties to set
+         */
+        function RestartReplicationResponse(properties) {
+            if (properties)
+                for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                    if (properties[keys[i]] != null)
+                        this[keys[i]] = properties[keys[i]];
+        }
+
+        /**
+         * Creates a new RestartReplicationResponse instance using the specified properties.
+         * @function create
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {tabletmanagerdata.IRestartReplicationResponse=} [properties] Properties to set
+         * @returns {tabletmanagerdata.RestartReplicationResponse} RestartReplicationResponse instance
+         */
+        RestartReplicationResponse.create = function create(properties) {
+            return new RestartReplicationResponse(properties);
+        };
+
+        /**
+         * Encodes the specified RestartReplicationResponse message. Does not implicitly {@link tabletmanagerdata.RestartReplicationResponse.verify|verify} messages.
+         * @function encode
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {tabletmanagerdata.IRestartReplicationResponse} message RestartReplicationResponse message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        RestartReplicationResponse.encode = function encode(message, writer) {
+            if (!writer)
+                writer = $Writer.create();
+            return writer;
+        };
+
+        /**
+         * Encodes the specified RestartReplicationResponse message, length delimited. Does not implicitly {@link tabletmanagerdata.RestartReplicationResponse.verify|verify} messages.
+         * @function encodeDelimited
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {tabletmanagerdata.IRestartReplicationResponse} message RestartReplicationResponse message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        RestartReplicationResponse.encodeDelimited = function encodeDelimited(message, writer) {
+            return this.encode(message, writer).ldelim();
+        };
+
+        /**
+         * Decodes a RestartReplicationResponse message from the specified reader or buffer.
+         * @function decode
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @param {number} [length] Message length if known beforehand
+         * @returns {tabletmanagerdata.RestartReplicationResponse} RestartReplicationResponse
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        RestartReplicationResponse.decode = function decode(reader, length) {
+            if (!(reader instanceof $Reader))
+                reader = $Reader.create(reader);
+            let end = length === undefined ? reader.len : reader.pos + length, message = new $root.tabletmanagerdata.RestartReplicationResponse();
+            while (reader.pos < end) {
+                let tag = reader.uint32();
+                switch (tag >>> 3) {
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+                }
+            }
+            return message;
+        };
+
+        /**
+         * Decodes a RestartReplicationResponse message from the specified reader or buffer, length delimited.
+         * @function decodeDelimited
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @returns {tabletmanagerdata.RestartReplicationResponse} RestartReplicationResponse
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        RestartReplicationResponse.decodeDelimited = function decodeDelimited(reader) {
+            if (!(reader instanceof $Reader))
+                reader = new $Reader(reader);
+            return this.decode(reader, reader.uint32());
+        };
+
+        /**
+         * Verifies a RestartReplicationResponse message.
+         * @function verify
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {Object.<string,*>} message Plain object to verify
+         * @returns {string|null} `null` if valid, otherwise the reason why it is not
+         */
+        RestartReplicationResponse.verify = function verify(message) {
+            if (typeof message !== "object" || message === null)
+                return "object expected";
+            return null;
+        };
+
+        /**
+         * Creates a RestartReplicationResponse message from a plain object. Also converts values to their respective internal types.
+         * @function fromObject
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {Object.<string,*>} object Plain object
+         * @returns {tabletmanagerdata.RestartReplicationResponse} RestartReplicationResponse
+         */
+        RestartReplicationResponse.fromObject = function fromObject(object) {
+            if (object instanceof $root.tabletmanagerdata.RestartReplicationResponse)
+                return object;
+            return new $root.tabletmanagerdata.RestartReplicationResponse();
+        };
+
+        /**
+         * Creates a plain object from a RestartReplicationResponse message. Also converts values to other types if specified.
+         * @function toObject
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {tabletmanagerdata.RestartReplicationResponse} message RestartReplicationResponse
+         * @param {$protobuf.IConversionOptions} [options] Conversion options
+         * @returns {Object.<string,*>} Plain object
+         */
+        RestartReplicationResponse.toObject = function toObject() {
+            return {};
+        };
+
+        /**
+         * Converts this RestartReplicationResponse to JSON.
+         * @function toJSON
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @instance
+         * @returns {Object.<string,*>} JSON object
+         */
+        RestartReplicationResponse.prototype.toJSON = function toJSON() {
+            return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+        };
+
+        /**
+         * Gets the default type url for RestartReplicationResponse
+         * @function getTypeUrl
+         * @memberof tabletmanagerdata.RestartReplicationResponse
+         * @static
+         * @param {string} [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+         * @returns {string} The default type url
+         */
+        RestartReplicationResponse.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+            if (typeUrlPrefix === undefined) {
+                typeUrlPrefix = "type.googleapis.com";
+            }
+            return typeUrlPrefix + "/tabletmanagerdata.RestartReplicationResponse";
+        };
+
+        return RestartReplicationResponse;
     })();
 
     tabletmanagerdata.StartReplicationUntilAfterRequest = (function() {
@@ -90017,6 +90869,7 @@ export const binlogdata = $root.binlogdata = (() => {
      * @property {number} LASTPK=18 LASTPK value
      * @property {number} SAVEPOINT=19 SAVEPOINT value
      * @property {number} COPY_COMPLETED=20 COPY_COMPLETED value
+     * @property {number} PREVIOUS_GTIDS=21 PREVIOUS_GTIDS value
      */
     binlogdata.VEventType = (function() {
         const valuesById = {}, values = Object.create(valuesById);
@@ -90041,6 +90894,7 @@ export const binlogdata = $root.binlogdata = (() => {
         values[valuesById[18] = "LASTPK"] = 18;
         values[valuesById[19] = "SAVEPOINT"] = 19;
         values[valuesById[20] = "COPY_COMPLETED"] = 20;
+        values[valuesById[21] = "PREVIOUS_GTIDS"] = 21;
         return values;
     })();
 
@@ -92501,6 +93355,9 @@ export const binlogdata = $root.binlogdata = (() => {
          * @property {string|null} [shard] VEvent shard
          * @property {boolean|null} [throttled] VEvent throttled
          * @property {string|null} [throttled_reason] VEvent throttled_reason
+         * @property {number|Long|null} [commit_parent] VEvent commit_parent
+         * @property {number|Long|null} [sequence_number] VEvent sequence_number
+         * @property {string|null} [event_gtid] VEvent event_gtid
          */
 
         /**
@@ -92639,6 +93496,30 @@ export const binlogdata = $root.binlogdata = (() => {
         VEvent.prototype.throttled_reason = "";
 
         /**
+         * VEvent commit_parent.
+         * @member {number|Long} commit_parent
+         * @memberof binlogdata.VEvent
+         * @instance
+         */
+        VEvent.prototype.commit_parent = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+        /**
+         * VEvent sequence_number.
+         * @member {number|Long} sequence_number
+         * @memberof binlogdata.VEvent
+         * @instance
+         */
+        VEvent.prototype.sequence_number = $util.Long ? $util.Long.fromBits(0,0,false) : 0;
+
+        /**
+         * VEvent event_gtid.
+         * @member {string} event_gtid
+         * @memberof binlogdata.VEvent
+         * @instance
+         */
+        VEvent.prototype.event_gtid = "";
+
+        /**
          * Creates a new VEvent instance using the specified properties.
          * @function create
          * @memberof binlogdata.VEvent
@@ -92692,6 +93573,12 @@ export const binlogdata = $root.binlogdata = (() => {
                 writer.uint32(/* id 24, wireType 0 =*/192).bool(message.throttled);
             if (message.throttled_reason != null && Object.hasOwnProperty.call(message, "throttled_reason"))
                 writer.uint32(/* id 25, wireType 2 =*/202).string(message.throttled_reason);
+            if (message.commit_parent != null && Object.hasOwnProperty.call(message, "commit_parent"))
+                writer.uint32(/* id 26, wireType 0 =*/208).int64(message.commit_parent);
+            if (message.sequence_number != null && Object.hasOwnProperty.call(message, "sequence_number"))
+                writer.uint32(/* id 27, wireType 0 =*/216).int64(message.sequence_number);
+            if (message.event_gtid != null && Object.hasOwnProperty.call(message, "event_gtid"))
+                writer.uint32(/* id 28, wireType 2 =*/226).string(message.event_gtid);
             return writer;
         };
 
@@ -92786,6 +93673,18 @@ export const binlogdata = $root.binlogdata = (() => {
                         message.throttled_reason = reader.string();
                         break;
                     }
+                case 26: {
+                        message.commit_parent = reader.int64();
+                        break;
+                    }
+                case 27: {
+                        message.sequence_number = reader.int64();
+                        break;
+                    }
+                case 28: {
+                        message.event_gtid = reader.string();
+                        break;
+                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -92846,6 +93745,7 @@ export const binlogdata = $root.binlogdata = (() => {
                 case 18:
                 case 19:
                 case 20:
+                case 21:
                     break;
                 }
             if (message.timestamp != null && message.hasOwnProperty("timestamp"))
@@ -92900,6 +93800,15 @@ export const binlogdata = $root.binlogdata = (() => {
             if (message.throttled_reason != null && message.hasOwnProperty("throttled_reason"))
                 if (!$util.isString(message.throttled_reason))
                     return "throttled_reason: string expected";
+            if (message.commit_parent != null && message.hasOwnProperty("commit_parent"))
+                if (!$util.isInteger(message.commit_parent) && !(message.commit_parent && $util.isInteger(message.commit_parent.low) && $util.isInteger(message.commit_parent.high)))
+                    return "commit_parent: integer|Long expected";
+            if (message.sequence_number != null && message.hasOwnProperty("sequence_number"))
+                if (!$util.isInteger(message.sequence_number) && !(message.sequence_number && $util.isInteger(message.sequence_number.low) && $util.isInteger(message.sequence_number.high)))
+                    return "sequence_number: integer|Long expected";
+            if (message.event_gtid != null && message.hasOwnProperty("event_gtid"))
+                if (!$util.isString(message.event_gtid))
+                    return "event_gtid: string expected";
             return null;
         };
 
@@ -93006,6 +93915,10 @@ export const binlogdata = $root.binlogdata = (() => {
             case 20:
                 message.type = 20;
                 break;
+            case "PREVIOUS_GTIDS":
+            case 21:
+                message.type = 21;
+                break;
             }
             if (object.timestamp != null)
                 if ($util.Long)
@@ -93064,6 +93977,26 @@ export const binlogdata = $root.binlogdata = (() => {
                 message.throttled = Boolean(object.throttled);
             if (object.throttled_reason != null)
                 message.throttled_reason = String(object.throttled_reason);
+            if (object.commit_parent != null)
+                if ($util.Long)
+                    (message.commit_parent = $util.Long.fromValue(object.commit_parent)).unsigned = false;
+                else if (typeof object.commit_parent === "string")
+                    message.commit_parent = parseInt(object.commit_parent, 10);
+                else if (typeof object.commit_parent === "number")
+                    message.commit_parent = object.commit_parent;
+                else if (typeof object.commit_parent === "object")
+                    message.commit_parent = new $util.LongBits(object.commit_parent.low >>> 0, object.commit_parent.high >>> 0).toNumber();
+            if (object.sequence_number != null)
+                if ($util.Long)
+                    (message.sequence_number = $util.Long.fromValue(object.sequence_number)).unsigned = false;
+                else if (typeof object.sequence_number === "string")
+                    message.sequence_number = parseInt(object.sequence_number, 10);
+                else if (typeof object.sequence_number === "number")
+                    message.sequence_number = object.sequence_number;
+                else if (typeof object.sequence_number === "object")
+                    message.sequence_number = new $util.LongBits(object.sequence_number.low >>> 0, object.sequence_number.high >>> 0).toNumber();
+            if (object.event_gtid != null)
+                message.event_gtid = String(object.event_gtid);
             return message;
         };
 
@@ -93104,6 +94037,17 @@ export const binlogdata = $root.binlogdata = (() => {
                 object.shard = "";
                 object.throttled = false;
                 object.throttled_reason = "";
+                if ($util.Long) {
+                    let long = new $util.Long(0, 0, false);
+                    object.commit_parent = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+                } else
+                    object.commit_parent = options.longs === String ? "0" : 0;
+                if ($util.Long) {
+                    let long = new $util.Long(0, 0, false);
+                    object.sequence_number = options.longs === String ? long.toString() : options.longs === Number ? long.toNumber() : long;
+                } else
+                    object.sequence_number = options.longs === String ? "0" : 0;
+                object.event_gtid = "";
             }
             if (message.type != null && message.hasOwnProperty("type"))
                 object.type = options.enums === String ? $root.binlogdata.VEventType[message.type] === undefined ? message.type : $root.binlogdata.VEventType[message.type] : message.type;
@@ -93141,6 +94085,18 @@ export const binlogdata = $root.binlogdata = (() => {
                 object.throttled = message.throttled;
             if (message.throttled_reason != null && message.hasOwnProperty("throttled_reason"))
                 object.throttled_reason = message.throttled_reason;
+            if (message.commit_parent != null && message.hasOwnProperty("commit_parent"))
+                if (typeof message.commit_parent === "number")
+                    object.commit_parent = options.longs === String ? String(message.commit_parent) : message.commit_parent;
+                else
+                    object.commit_parent = options.longs === String ? $util.Long.prototype.toString.call(message.commit_parent) : options.longs === Number ? new $util.LongBits(message.commit_parent.low >>> 0, message.commit_parent.high >>> 0).toNumber() : message.commit_parent;
+            if (message.sequence_number != null && message.hasOwnProperty("sequence_number"))
+                if (typeof message.sequence_number === "number")
+                    object.sequence_number = options.longs === String ? String(message.sequence_number) : message.sequence_number;
+                else
+                    object.sequence_number = options.longs === String ? $util.Long.prototype.toString.call(message.sequence_number) : options.longs === Number ? new $util.LongBits(message.sequence_number.low >>> 0, message.sequence_number.high >>> 0).toNumber() : message.sequence_number;
+            if (message.event_gtid != null && message.hasOwnProperty("event_gtid"))
+                object.event_gtid = message.event_gtid;
             return object;
         };
 
@@ -99385,6 +100341,7 @@ export const query = $root.query = (() => {
          * @property {number|Long|null} [authoritative_timeout] ExecuteOptions authoritative_timeout
          * @property {boolean|null} [fetch_last_insert_id] ExecuteOptions fetch_last_insert_id
          * @property {boolean|null} [in_dml_execution] ExecuteOptions in_dml_execution
+         * @property {number|Long|null} [transaction_timeout] ExecuteOptions transaction_timeout
          */
 
         /**
@@ -99523,6 +100480,14 @@ export const query = $root.query = (() => {
          */
         ExecuteOptions.prototype.in_dml_execution = false;
 
+        /**
+         * ExecuteOptions transaction_timeout.
+         * @member {number|Long|null|undefined} transaction_timeout
+         * @memberof query.ExecuteOptions
+         * @instance
+         */
+        ExecuteOptions.prototype.transaction_timeout = null;
+
         // OneOf field names bound to virtual getters and setters
         let $oneOfFields;
 
@@ -99534,6 +100499,12 @@ export const query = $root.query = (() => {
          */
         Object.defineProperty(ExecuteOptions.prototype, "timeout", {
             get: $util.oneOfGetter($oneOfFields = ["authoritative_timeout"]),
+            set: $util.oneOfSetter($oneOfFields)
+        });
+
+        // Virtual OneOf for proto3 optional field
+        Object.defineProperty(ExecuteOptions.prototype, "_transaction_timeout", {
+            get: $util.oneOfGetter($oneOfFields = ["transaction_timeout"]),
             set: $util.oneOfSetter($oneOfFields)
         });
 
@@ -99595,6 +100566,8 @@ export const query = $root.query = (() => {
                 writer.uint32(/* id 18, wireType 0 =*/144).bool(message.fetch_last_insert_id);
             if (message.in_dml_execution != null && Object.hasOwnProperty.call(message, "in_dml_execution"))
                 writer.uint32(/* id 19, wireType 0 =*/152).bool(message.in_dml_execution);
+            if (message.transaction_timeout != null && Object.hasOwnProperty.call(message, "transaction_timeout"))
+                writer.uint32(/* id 20, wireType 0 =*/160).int64(message.transaction_timeout);
             return writer;
         };
 
@@ -99694,6 +100667,10 @@ export const query = $root.query = (() => {
                     }
                 case 19: {
                         message.in_dml_execution = reader.bool();
+                        break;
+                    }
+                case 20: {
+                        message.transaction_timeout = reader.int64();
                         break;
                     }
                 default:
@@ -99830,6 +100807,11 @@ export const query = $root.query = (() => {
             if (message.in_dml_execution != null && message.hasOwnProperty("in_dml_execution"))
                 if (typeof message.in_dml_execution !== "boolean")
                     return "in_dml_execution: boolean expected";
+            if (message.transaction_timeout != null && message.hasOwnProperty("transaction_timeout")) {
+                properties._transaction_timeout = 1;
+                if (!$util.isInteger(message.transaction_timeout) && !(message.transaction_timeout && $util.isInteger(message.transaction_timeout.low) && $util.isInteger(message.transaction_timeout.high)))
+                    return "transaction_timeout: integer|Long expected";
+            }
             return null;
         };
 
@@ -100046,6 +101028,15 @@ export const query = $root.query = (() => {
                 message.fetch_last_insert_id = Boolean(object.fetch_last_insert_id);
             if (object.in_dml_execution != null)
                 message.in_dml_execution = Boolean(object.in_dml_execution);
+            if (object.transaction_timeout != null)
+                if ($util.Long)
+                    (message.transaction_timeout = $util.Long.fromValue(object.transaction_timeout)).unsigned = false;
+                else if (typeof object.transaction_timeout === "string")
+                    message.transaction_timeout = parseInt(object.transaction_timeout, 10);
+                else if (typeof object.transaction_timeout === "number")
+                    message.transaction_timeout = object.transaction_timeout;
+                else if (typeof object.transaction_timeout === "object")
+                    message.transaction_timeout = new $util.LongBits(object.transaction_timeout.low >>> 0, object.transaction_timeout.high >>> 0).toNumber();
             return message;
         };
 
@@ -100125,6 +101116,14 @@ export const query = $root.query = (() => {
                 object.fetch_last_insert_id = message.fetch_last_insert_id;
             if (message.in_dml_execution != null && message.hasOwnProperty("in_dml_execution"))
                 object.in_dml_execution = message.in_dml_execution;
+            if (message.transaction_timeout != null && message.hasOwnProperty("transaction_timeout")) {
+                if (typeof message.transaction_timeout === "number")
+                    object.transaction_timeout = options.longs === String ? String(message.transaction_timeout) : message.transaction_timeout;
+                else
+                    object.transaction_timeout = options.longs === String ? $util.Long.prototype.toString.call(message.transaction_timeout) : options.longs === Number ? new $util.LongBits(message.transaction_timeout.low >>> 0, message.transaction_timeout.high >>> 0).toNumber() : message.transaction_timeout;
+                if (options.oneofs)
+                    object._transaction_timeout = "transaction_timeout";
+            }
             return object;
         };
 
@@ -196334,6 +197333,24 @@ export const vtctldata = $root.vtctldata = (() => {
         return WorkflowStatusRequest;
     })();
 
+    /**
+     * TableCopyPhase enum.
+     * @name vtctldata.TableCopyPhase
+     * @enum {number}
+     * @property {number} UNKNOWN=0 UNKNOWN value
+     * @property {number} NOT_STARTED=1 NOT_STARTED value
+     * @property {number} IN_PROGRESS=2 IN_PROGRESS value
+     * @property {number} COMPLETE=3 COMPLETE value
+     */
+    vtctldata.TableCopyPhase = (function() {
+        const valuesById = {}, values = Object.create(valuesById);
+        values[valuesById[0] = "UNKNOWN"] = 0;
+        values[valuesById[1] = "NOT_STARTED"] = 1;
+        values[valuesById[2] = "IN_PROGRESS"] = 2;
+        values[valuesById[3] = "COMPLETE"] = 3;
+        return values;
+    })();
+
     vtctldata.WorkflowStatusResponse = (function() {
 
         /**
@@ -196677,6 +197694,7 @@ export const vtctldata = $root.vtctldata = (() => {
              * @property {number|Long|null} [bytes_copied] TableCopyState bytes_copied
              * @property {number|Long|null} [bytes_total] TableCopyState bytes_total
              * @property {number|null} [bytes_percentage] TableCopyState bytes_percentage
+             * @property {vtctldata.TableCopyPhase|null} [phase] TableCopyState phase
              */
 
             /**
@@ -196743,6 +197761,14 @@ export const vtctldata = $root.vtctldata = (() => {
             TableCopyState.prototype.bytes_percentage = 0;
 
             /**
+             * TableCopyState phase.
+             * @member {vtctldata.TableCopyPhase} phase
+             * @memberof vtctldata.WorkflowStatusResponse.TableCopyState
+             * @instance
+             */
+            TableCopyState.prototype.phase = 0;
+
+            /**
              * Creates a new TableCopyState instance using the specified properties.
              * @function create
              * @memberof vtctldata.WorkflowStatusResponse.TableCopyState
@@ -196778,6 +197804,8 @@ export const vtctldata = $root.vtctldata = (() => {
                     writer.uint32(/* id 5, wireType 0 =*/40).int64(message.bytes_total);
                 if (message.bytes_percentage != null && Object.hasOwnProperty.call(message, "bytes_percentage"))
                     writer.uint32(/* id 6, wireType 5 =*/53).float(message.bytes_percentage);
+                if (message.phase != null && Object.hasOwnProperty.call(message, "phase"))
+                    writer.uint32(/* id 7, wireType 0 =*/56).int32(message.phase);
                 return writer;
             };
 
@@ -196836,6 +197864,10 @@ export const vtctldata = $root.vtctldata = (() => {
                             message.bytes_percentage = reader.float();
                             break;
                         }
+                    case 7: {
+                            message.phase = reader.int32();
+                            break;
+                        }
                     default:
                         reader.skipType(tag & 7);
                         break;
@@ -196889,6 +197921,16 @@ export const vtctldata = $root.vtctldata = (() => {
                 if (message.bytes_percentage != null && message.hasOwnProperty("bytes_percentage"))
                     if (typeof message.bytes_percentage !== "number")
                         return "bytes_percentage: number expected";
+                if (message.phase != null && message.hasOwnProperty("phase"))
+                    switch (message.phase) {
+                    default:
+                        return "phase: enum value expected";
+                    case 0:
+                    case 1:
+                    case 2:
+                    case 3:
+                        break;
+                    }
                 return null;
             };
 
@@ -196944,6 +197986,30 @@ export const vtctldata = $root.vtctldata = (() => {
                         message.bytes_total = new $util.LongBits(object.bytes_total.low >>> 0, object.bytes_total.high >>> 0).toNumber();
                 if (object.bytes_percentage != null)
                     message.bytes_percentage = Number(object.bytes_percentage);
+                switch (object.phase) {
+                default:
+                    if (typeof object.phase === "number") {
+                        message.phase = object.phase;
+                        break;
+                    }
+                    break;
+                case "UNKNOWN":
+                case 0:
+                    message.phase = 0;
+                    break;
+                case "NOT_STARTED":
+                case 1:
+                    message.phase = 1;
+                    break;
+                case "IN_PROGRESS":
+                case 2:
+                    message.phase = 2;
+                    break;
+                case "COMPLETE":
+                case 3:
+                    message.phase = 3;
+                    break;
+                }
                 return message;
             };
 
@@ -196983,6 +198049,7 @@ export const vtctldata = $root.vtctldata = (() => {
                     } else
                         object.bytes_total = options.longs === String ? "0" : 0;
                     object.bytes_percentage = 0;
+                    object.phase = options.enums === String ? "UNKNOWN" : 0;
                 }
                 if (message.rows_copied != null && message.hasOwnProperty("rows_copied"))
                     if (typeof message.rows_copied === "number")
@@ -197008,6 +198075,8 @@ export const vtctldata = $root.vtctldata = (() => {
                         object.bytes_total = options.longs === String ? $util.Long.prototype.toString.call(message.bytes_total) : options.longs === Number ? new $util.LongBits(message.bytes_total.low >>> 0, message.bytes_total.high >>> 0).toNumber() : message.bytes_total;
                 if (message.bytes_percentage != null && message.hasOwnProperty("bytes_percentage"))
                     object.bytes_percentage = options.json && !isFinite(message.bytes_percentage) ? String(message.bytes_percentage) : message.bytes_percentage;
+                if (message.phase != null && message.hasOwnProperty("phase"))
+                    object.phase = options.enums === String ? $root.vtctldata.TableCopyPhase[message.phase] === undefined ? message.phase : $root.vtctldata.TableCopyPhase[message.phase] : message.phase;
                 return object;
             };
 
@@ -200175,6 +201244,431 @@ export const vtctldata = $root.vtctldata = (() => {
         };
 
         return WorkflowMirrorTrafficResponse;
+    })();
+
+    vtctldata.SetVtorcEmergencyReparentRequest = (function() {
+
+        /**
+         * Properties of a SetVtorcEmergencyReparentRequest.
+         * @memberof vtctldata
+         * @interface ISetVtorcEmergencyReparentRequest
+         * @property {string|null} [keyspace] SetVtorcEmergencyReparentRequest keyspace
+         * @property {string|null} [shard] SetVtorcEmergencyReparentRequest shard
+         * @property {boolean|null} [disable] SetVtorcEmergencyReparentRequest disable
+         */
+
+        /**
+         * Constructs a new SetVtorcEmergencyReparentRequest.
+         * @memberof vtctldata
+         * @classdesc Represents a SetVtorcEmergencyReparentRequest.
+         * @implements ISetVtorcEmergencyReparentRequest
+         * @constructor
+         * @param {vtctldata.ISetVtorcEmergencyReparentRequest=} [properties] Properties to set
+         */
+        function SetVtorcEmergencyReparentRequest(properties) {
+            if (properties)
+                for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                    if (properties[keys[i]] != null)
+                        this[keys[i]] = properties[keys[i]];
+        }
+
+        /**
+         * SetVtorcEmergencyReparentRequest keyspace.
+         * @member {string} keyspace
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @instance
+         */
+        SetVtorcEmergencyReparentRequest.prototype.keyspace = "";
+
+        /**
+         * SetVtorcEmergencyReparentRequest shard.
+         * @member {string} shard
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @instance
+         */
+        SetVtorcEmergencyReparentRequest.prototype.shard = "";
+
+        /**
+         * SetVtorcEmergencyReparentRequest disable.
+         * @member {boolean} disable
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @instance
+         */
+        SetVtorcEmergencyReparentRequest.prototype.disable = false;
+
+        /**
+         * Creates a new SetVtorcEmergencyReparentRequest instance using the specified properties.
+         * @function create
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {vtctldata.ISetVtorcEmergencyReparentRequest=} [properties] Properties to set
+         * @returns {vtctldata.SetVtorcEmergencyReparentRequest} SetVtorcEmergencyReparentRequest instance
+         */
+        SetVtorcEmergencyReparentRequest.create = function create(properties) {
+            return new SetVtorcEmergencyReparentRequest(properties);
+        };
+
+        /**
+         * Encodes the specified SetVtorcEmergencyReparentRequest message. Does not implicitly {@link vtctldata.SetVtorcEmergencyReparentRequest.verify|verify} messages.
+         * @function encode
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {vtctldata.ISetVtorcEmergencyReparentRequest} message SetVtorcEmergencyReparentRequest message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        SetVtorcEmergencyReparentRequest.encode = function encode(message, writer) {
+            if (!writer)
+                writer = $Writer.create();
+            if (message.keyspace != null && Object.hasOwnProperty.call(message, "keyspace"))
+                writer.uint32(/* id 1, wireType 2 =*/10).string(message.keyspace);
+            if (message.shard != null && Object.hasOwnProperty.call(message, "shard"))
+                writer.uint32(/* id 2, wireType 2 =*/18).string(message.shard);
+            if (message.disable != null && Object.hasOwnProperty.call(message, "disable"))
+                writer.uint32(/* id 3, wireType 0 =*/24).bool(message.disable);
+            return writer;
+        };
+
+        /**
+         * Encodes the specified SetVtorcEmergencyReparentRequest message, length delimited. Does not implicitly {@link vtctldata.SetVtorcEmergencyReparentRequest.verify|verify} messages.
+         * @function encodeDelimited
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {vtctldata.ISetVtorcEmergencyReparentRequest} message SetVtorcEmergencyReparentRequest message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        SetVtorcEmergencyReparentRequest.encodeDelimited = function encodeDelimited(message, writer) {
+            return this.encode(message, writer).ldelim();
+        };
+
+        /**
+         * Decodes a SetVtorcEmergencyReparentRequest message from the specified reader or buffer.
+         * @function decode
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @param {number} [length] Message length if known beforehand
+         * @returns {vtctldata.SetVtorcEmergencyReparentRequest} SetVtorcEmergencyReparentRequest
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        SetVtorcEmergencyReparentRequest.decode = function decode(reader, length) {
+            if (!(reader instanceof $Reader))
+                reader = $Reader.create(reader);
+            let end = length === undefined ? reader.len : reader.pos + length, message = new $root.vtctldata.SetVtorcEmergencyReparentRequest();
+            while (reader.pos < end) {
+                let tag = reader.uint32();
+                switch (tag >>> 3) {
+                case 1: {
+                        message.keyspace = reader.string();
+                        break;
+                    }
+                case 2: {
+                        message.shard = reader.string();
+                        break;
+                    }
+                case 3: {
+                        message.disable = reader.bool();
+                        break;
+                    }
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+                }
+            }
+            return message;
+        };
+
+        /**
+         * Decodes a SetVtorcEmergencyReparentRequest message from the specified reader or buffer, length delimited.
+         * @function decodeDelimited
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @returns {vtctldata.SetVtorcEmergencyReparentRequest} SetVtorcEmergencyReparentRequest
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        SetVtorcEmergencyReparentRequest.decodeDelimited = function decodeDelimited(reader) {
+            if (!(reader instanceof $Reader))
+                reader = new $Reader(reader);
+            return this.decode(reader, reader.uint32());
+        };
+
+        /**
+         * Verifies a SetVtorcEmergencyReparentRequest message.
+         * @function verify
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {Object.<string,*>} message Plain object to verify
+         * @returns {string|null} `null` if valid, otherwise the reason why it is not
+         */
+        SetVtorcEmergencyReparentRequest.verify = function verify(message) {
+            if (typeof message !== "object" || message === null)
+                return "object expected";
+            if (message.keyspace != null && message.hasOwnProperty("keyspace"))
+                if (!$util.isString(message.keyspace))
+                    return "keyspace: string expected";
+            if (message.shard != null && message.hasOwnProperty("shard"))
+                if (!$util.isString(message.shard))
+                    return "shard: string expected";
+            if (message.disable != null && message.hasOwnProperty("disable"))
+                if (typeof message.disable !== "boolean")
+                    return "disable: boolean expected";
+            return null;
+        };
+
+        /**
+         * Creates a SetVtorcEmergencyReparentRequest message from a plain object. Also converts values to their respective internal types.
+         * @function fromObject
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {Object.<string,*>} object Plain object
+         * @returns {vtctldata.SetVtorcEmergencyReparentRequest} SetVtorcEmergencyReparentRequest
+         */
+        SetVtorcEmergencyReparentRequest.fromObject = function fromObject(object) {
+            if (object instanceof $root.vtctldata.SetVtorcEmergencyReparentRequest)
+                return object;
+            let message = new $root.vtctldata.SetVtorcEmergencyReparentRequest();
+            if (object.keyspace != null)
+                message.keyspace = String(object.keyspace);
+            if (object.shard != null)
+                message.shard = String(object.shard);
+            if (object.disable != null)
+                message.disable = Boolean(object.disable);
+            return message;
+        };
+
+        /**
+         * Creates a plain object from a SetVtorcEmergencyReparentRequest message. Also converts values to other types if specified.
+         * @function toObject
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {vtctldata.SetVtorcEmergencyReparentRequest} message SetVtorcEmergencyReparentRequest
+         * @param {$protobuf.IConversionOptions} [options] Conversion options
+         * @returns {Object.<string,*>} Plain object
+         */
+        SetVtorcEmergencyReparentRequest.toObject = function toObject(message, options) {
+            if (!options)
+                options = {};
+            let object = {};
+            if (options.defaults) {
+                object.keyspace = "";
+                object.shard = "";
+                object.disable = false;
+            }
+            if (message.keyspace != null && message.hasOwnProperty("keyspace"))
+                object.keyspace = message.keyspace;
+            if (message.shard != null && message.hasOwnProperty("shard"))
+                object.shard = message.shard;
+            if (message.disable != null && message.hasOwnProperty("disable"))
+                object.disable = message.disable;
+            return object;
+        };
+
+        /**
+         * Converts this SetVtorcEmergencyReparentRequest to JSON.
+         * @function toJSON
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @instance
+         * @returns {Object.<string,*>} JSON object
+         */
+        SetVtorcEmergencyReparentRequest.prototype.toJSON = function toJSON() {
+            return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+        };
+
+        /**
+         * Gets the default type url for SetVtorcEmergencyReparentRequest
+         * @function getTypeUrl
+         * @memberof vtctldata.SetVtorcEmergencyReparentRequest
+         * @static
+         * @param {string} [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+         * @returns {string} The default type url
+         */
+        SetVtorcEmergencyReparentRequest.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+            if (typeUrlPrefix === undefined) {
+                typeUrlPrefix = "type.googleapis.com";
+            }
+            return typeUrlPrefix + "/vtctldata.SetVtorcEmergencyReparentRequest";
+        };
+
+        return SetVtorcEmergencyReparentRequest;
+    })();
+
+    vtctldata.SetVtorcEmergencyReparentResponse = (function() {
+
+        /**
+         * Properties of a SetVtorcEmergencyReparentResponse.
+         * @memberof vtctldata
+         * @interface ISetVtorcEmergencyReparentResponse
+         */
+
+        /**
+         * Constructs a new SetVtorcEmergencyReparentResponse.
+         * @memberof vtctldata
+         * @classdesc Represents a SetVtorcEmergencyReparentResponse.
+         * @implements ISetVtorcEmergencyReparentResponse
+         * @constructor
+         * @param {vtctldata.ISetVtorcEmergencyReparentResponse=} [properties] Properties to set
+         */
+        function SetVtorcEmergencyReparentResponse(properties) {
+            if (properties)
+                for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
+                    if (properties[keys[i]] != null)
+                        this[keys[i]] = properties[keys[i]];
+        }
+
+        /**
+         * Creates a new SetVtorcEmergencyReparentResponse instance using the specified properties.
+         * @function create
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {vtctldata.ISetVtorcEmergencyReparentResponse=} [properties] Properties to set
+         * @returns {vtctldata.SetVtorcEmergencyReparentResponse} SetVtorcEmergencyReparentResponse instance
+         */
+        SetVtorcEmergencyReparentResponse.create = function create(properties) {
+            return new SetVtorcEmergencyReparentResponse(properties);
+        };
+
+        /**
+         * Encodes the specified SetVtorcEmergencyReparentResponse message. Does not implicitly {@link vtctldata.SetVtorcEmergencyReparentResponse.verify|verify} messages.
+         * @function encode
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {vtctldata.ISetVtorcEmergencyReparentResponse} message SetVtorcEmergencyReparentResponse message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        SetVtorcEmergencyReparentResponse.encode = function encode(message, writer) {
+            if (!writer)
+                writer = $Writer.create();
+            return writer;
+        };
+
+        /**
+         * Encodes the specified SetVtorcEmergencyReparentResponse message, length delimited. Does not implicitly {@link vtctldata.SetVtorcEmergencyReparentResponse.verify|verify} messages.
+         * @function encodeDelimited
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {vtctldata.ISetVtorcEmergencyReparentResponse} message SetVtorcEmergencyReparentResponse message or plain object to encode
+         * @param {$protobuf.Writer} [writer] Writer to encode to
+         * @returns {$protobuf.Writer} Writer
+         */
+        SetVtorcEmergencyReparentResponse.encodeDelimited = function encodeDelimited(message, writer) {
+            return this.encode(message, writer).ldelim();
+        };
+
+        /**
+         * Decodes a SetVtorcEmergencyReparentResponse message from the specified reader or buffer.
+         * @function decode
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @param {number} [length] Message length if known beforehand
+         * @returns {vtctldata.SetVtorcEmergencyReparentResponse} SetVtorcEmergencyReparentResponse
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        SetVtorcEmergencyReparentResponse.decode = function decode(reader, length) {
+            if (!(reader instanceof $Reader))
+                reader = $Reader.create(reader);
+            let end = length === undefined ? reader.len : reader.pos + length, message = new $root.vtctldata.SetVtorcEmergencyReparentResponse();
+            while (reader.pos < end) {
+                let tag = reader.uint32();
+                switch (tag >>> 3) {
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+                }
+            }
+            return message;
+        };
+
+        /**
+         * Decodes a SetVtorcEmergencyReparentResponse message from the specified reader or buffer, length delimited.
+         * @function decodeDelimited
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {$protobuf.Reader|Uint8Array} reader Reader or buffer to decode from
+         * @returns {vtctldata.SetVtorcEmergencyReparentResponse} SetVtorcEmergencyReparentResponse
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        SetVtorcEmergencyReparentResponse.decodeDelimited = function decodeDelimited(reader) {
+            if (!(reader instanceof $Reader))
+                reader = new $Reader(reader);
+            return this.decode(reader, reader.uint32());
+        };
+
+        /**
+         * Verifies a SetVtorcEmergencyReparentResponse message.
+         * @function verify
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {Object.<string,*>} message Plain object to verify
+         * @returns {string|null} `null` if valid, otherwise the reason why it is not
+         */
+        SetVtorcEmergencyReparentResponse.verify = function verify(message) {
+            if (typeof message !== "object" || message === null)
+                return "object expected";
+            return null;
+        };
+
+        /**
+         * Creates a SetVtorcEmergencyReparentResponse message from a plain object. Also converts values to their respective internal types.
+         * @function fromObject
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {Object.<string,*>} object Plain object
+         * @returns {vtctldata.SetVtorcEmergencyReparentResponse} SetVtorcEmergencyReparentResponse
+         */
+        SetVtorcEmergencyReparentResponse.fromObject = function fromObject(object) {
+            if (object instanceof $root.vtctldata.SetVtorcEmergencyReparentResponse)
+                return object;
+            return new $root.vtctldata.SetVtorcEmergencyReparentResponse();
+        };
+
+        /**
+         * Creates a plain object from a SetVtorcEmergencyReparentResponse message. Also converts values to other types if specified.
+         * @function toObject
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {vtctldata.SetVtorcEmergencyReparentResponse} message SetVtorcEmergencyReparentResponse
+         * @param {$protobuf.IConversionOptions} [options] Conversion options
+         * @returns {Object.<string,*>} Plain object
+         */
+        SetVtorcEmergencyReparentResponse.toObject = function toObject() {
+            return {};
+        };
+
+        /**
+         * Converts this SetVtorcEmergencyReparentResponse to JSON.
+         * @function toJSON
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @instance
+         * @returns {Object.<string,*>} JSON object
+         */
+        SetVtorcEmergencyReparentResponse.prototype.toJSON = function toJSON() {
+            return this.constructor.toObject(this, $protobuf.util.toJSONOptions);
+        };
+
+        /**
+         * Gets the default type url for SetVtorcEmergencyReparentResponse
+         * @function getTypeUrl
+         * @memberof vtctldata.SetVtorcEmergencyReparentResponse
+         * @static
+         * @param {string} [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+         * @returns {string} The default type url
+         */
+        SetVtorcEmergencyReparentResponse.getTypeUrl = function getTypeUrl(typeUrlPrefix) {
+            if (typeUrlPrefix === undefined) {
+                typeUrlPrefix = "type.googleapis.com";
+            }
+            return typeUrlPrefix + "/vtctldata.SetVtorcEmergencyReparentResponse";
+        };
+
+        return SetVtorcEmergencyReparentResponse;
     })();
 
     return vtctldata;

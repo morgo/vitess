@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -105,7 +106,7 @@ type Config struct {
 	// PersistentMode can be set so that MySQL data directory is not cleaned up
 	// when LocalCluster.TearDown() is called. This is useful for running
 	// vttestserver as a database container in local developer environments. Note
-	// that db and vschema migration files (-schema_dir option) and seeding of
+	// that db and vschema migration files (-schema-dir option) and seeding of
 	// random data (-initialize-with-random-data option) will only run during
 	// cluster startup if the data directory does not already exist.
 	PersistentMode bool
@@ -506,7 +507,7 @@ func (db *LocalCluster) loadSchema(shouldRunDatabaseMigrations bool) error {
 	log.Info("Loading custom schema...")
 
 	if !isDir(db.SchemaDir) {
-		return fmt.Errorf("LoadSchema(): SchemaDir does not exist")
+		return errors.New("LoadSchema(): SchemaDir does not exist")
 	}
 
 	for _, kpb := range db.Topology.Keyspaces {
@@ -558,7 +559,7 @@ func (db *LocalCluster) loadSchema(shouldRunDatabaseMigrations bool) error {
 func (db *LocalCluster) createVTSchema() error {
 	var sidecardbExec sidecardb.Exec = func(ctx context.Context, query string, maxRows int, useDB bool) (*sqltypes.Result, error) {
 		if useDB {
-			if err := db.Execute([]string{fmt.Sprintf("use %s", sidecar.GetIdentifier())}, ""); err != nil {
+			if err := db.Execute([]string{"use " + sidecar.GetIdentifier()}, ""); err != nil {
 				return nil, err
 			}
 		}
