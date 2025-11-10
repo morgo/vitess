@@ -36,9 +36,13 @@ package mysqltopo
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
+	_ "embed"
 	"fmt"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,6 +72,16 @@ const (
 var (
 	lockTTL     = DefaultLockTTL
 	electionTTL = DefaultElectionTTL
+
+	// rdsAddr matches Amazon RDS hostnames
+	rdsAddr = regexp.MustCompile(`\.rds\.amazonaws\.com(:\d+)?$`)
+
+	// rdsTLSOnce ensures we only register the RDS TLS config once
+	rdsTLSOnce sync.Once
+
+	// https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+	//go:embed rdsGlobalBundle.pem
+	rdsGlobalBundle []byte
 )
 
 // Factory is the mysql topo.Factory implementation.
@@ -128,6 +142,28 @@ func registerMySQLTopoFlags(fs *pflag.FlagSet) {
 	utils.SetFlagIntVar(fs, &electionTTL, "topo-mysql-election-ttl", electionTTL, "election TTL in seconds for MySQL topo")
 }
 
+// isRDSHost returns true if the host is an Amazon RDS hostname
+func isRDSHost(host string) bool {
+	return rdsAddr.MatchString(host)
+}
+
+// initRDSTLS registers the RDS TLS configuration with the MySQL driver
+func initRDSTLS() error {
+	var err error
+	rdsTLSOnce.Do(func() {
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(rdsGlobalBundle) {
+			err = fmt.Errorf("failed to append RDS CA certificates")
+			return
+		}
+		tlsConfig := &tls.Config{
+			RootCAs: caCertPool,
+		}
+		err = mysql.RegisterTLSConfig("rds-topo", tlsConfig)
+	})
+	return err
+}
+
 // NewServer returns a new MySQL topo.Server.
 func NewServer(serverAddr, root string) (*Server, error) {
 	// Parse the server address to get MySQL DSN
@@ -137,6 +173,14 @@ func NewServer(serverAddr, root string) (*Server, error) {
 	}
 	if cfg.DBName == "" {
 		cfg.DBName = DefaultSchema // Use default schema if not specified
+	}
+
+	// If connecting to RDS, configure TLS
+	if isRDSHost(cfg.Addr) {
+		if err := initRDSTLS(); err != nil {
+			return nil, fmt.Errorf("failed to initialize RDS TLS: %v", err)
+		}
+		cfg.TLSConfig = "rds-topo"
 	}
 
 	// Connect to MySQL
