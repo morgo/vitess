@@ -436,7 +436,7 @@ func (ns *notificationSystem) processEventStream(eventChan <-chan mysql.BinlogEv
 			// Update position tracking with GTID from the event if it's a GTID event
 			// Only extract GTID from actual GTID events and only if we have a valid format
 			if !ns.format.IsZero() && ev.IsGTID() {
-				if gtidEvent, _, err := ev.GTID(ns.format); err == nil {
+				if gtidEvent, _, _, _, err := ev.GTID(ns.format); err == nil {
 					ns.lastPositionMu.Lock()
 					if ns.lastPosition.GTIDSet != nil {
 						ns.lastPosition.GTIDSet = ns.lastPosition.GTIDSet.AddGTID(gtidEvent)
