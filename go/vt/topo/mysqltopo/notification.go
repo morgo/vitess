@@ -152,6 +152,16 @@ func newNotificationSystem(schemaName, serverAddr string) (*notificationSystem, 
 	if cfg.DBName == "" {
 		cfg.DBName = schemaName
 	}
+
+	// If connecting to RDS/Aurora, configure TLS
+	if isRDSHost(cfg.Addr) {
+		log.Infof("newNotificationSystem: detected RDS/Aurora host, enabling TLS")
+		if err := initRDSTLS(); err != nil {
+			return nil, fmt.Errorf("failed to initialize RDS TLS: %v", err)
+		}
+		cfg.TLSConfig = "rds-topo"
+	}
+
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MySQL: %v", err)
@@ -198,6 +208,16 @@ func newNotificationSystem(schemaName, serverAddr string) (*notificationSystem, 
 		Pass:   cfg.Passwd,
 		DbName: schemaName,
 	}
+
+	// If connecting to RDS/Aurora, configure TLS for binlog connection
+	if isRDSHost(cfg.Addr) {
+		log.Infof("newNotificationSystem: configuring TLS for binlog connection to RDS/Aurora")
+		// For binlog connections, we need to use required mode
+		// The RDS CA bundle has already been registered via initRDSTLS()
+		// and the binlog library will use it automatically
+		connParams.SslMode = "required"
+	}
+
 	connector := dbconfigs.New(&connParams)
 
 	ctx, cancel := context.WithCancel(context.Background())

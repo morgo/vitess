@@ -178,6 +178,18 @@ func NewServer(serverAddr, root string) (*Server, error) {
 		cfg.DBName = DefaultSchema // Use default schema if not specified
 	}
 
+	// If this DSN has no credentials (empty user), it's likely a placeholder from CellInfo.
+	// Since HasGlobalReadOnlyCell returns true, this connection should never actually be used.
+	// Return a minimal server that will fail if actually used, but allows the topology to be set up.
+	if cfg.User == "" {
+		log.Infof("MySQL topo: skipping connection for DSN without credentials (will use global connection)")
+		return &Server{
+			root:       root,
+			serverAddr: serverAddr,
+			schemaName: cfg.DBName,
+		}, nil
+	}
+
 	// If connecting to RDS, configure TLS
 	if isRDSHost(cfg.Addr) {
 		if err := initRDSTLS(); err != nil {
