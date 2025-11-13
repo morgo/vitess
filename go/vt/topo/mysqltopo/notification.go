@@ -143,10 +143,12 @@ func releaseNotificationSystem(schemaName string) {
 // newNotificationSystem creates a new notification system.
 func newNotificationSystem(schemaName, serverAddr string) (*notificationSystem, error) {
 	// Create database connection for queries
+	log.Infof("newNotificationSystem: serverAddr=%s, schemaName=%s", serverAddr, schemaName)
 	cfg, err := mysqldriver.ParseDSN(serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse MySQL DSN: %v", err)
 	}
+	log.Infof("newNotificationSystem: parsed DSN - User=%s, Addr=%s, DBName=%s", cfg.User, cfg.Addr, cfg.DBName)
 	if cfg.DBName == "" {
 		cfg.DBName = schemaName
 	}

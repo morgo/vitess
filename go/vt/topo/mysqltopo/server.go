@@ -88,8 +88,11 @@ var (
 type Factory struct{}
 
 // HasGlobalReadOnlyCell is part of the topo.Factory interface.
+// For MySQL topo, all cells share the same database connection, so we return true.
+// This prevents Vitess from trying to create separate connections per cell using
+// the ServerAddress from CellInfo (which doesn't contain credentials).
 func (f Factory) HasGlobalReadOnlyCell(serverAddr, root string) bool {
-	return false
+	return true
 }
 
 // Create is part of the topo.Factory interface.
@@ -195,12 +198,6 @@ func NewServer(serverAddr, root string) (*Server, error) {
 		return nil, fmt.Errorf("failed to ping MySQL: %v", err)
 	}
 
-	// Check MySQL configuration requirements for binlog replication
-	if err := checkMySQLConfiguration(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("MySQL configuration check failed: %v", err)
-	}
-
 	// Create server context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -213,15 +210,36 @@ func NewServer(serverAddr, root string) (*Server, error) {
 		cancel:     cancel,
 	}
 
-	// Create the required tables
-	if err := server.createTablesIfNotExist(); err != nil {
+	// Check if tables already exist (read-only mode check)
+	var tableExists int
+	err = db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = 'topo_data'", cfg.DBName).Scan(&tableExists)
+	if err != nil {
 		cancel()
 		db.Close()
-		return nil, fmt.Errorf("failed to create tables: %v", err)
+		return nil, fmt.Errorf("failed to check for existing tables: %v", err)
 	}
 
-	// Clean up expired data on startup (after tables are created)
-	server.cleanupExpiredData()
+	// If tables don't exist, we need write permissions to create them
+	if tableExists == 0 {
+		// Check MySQL configuration requirements for binlog replication (only needed for write mode)
+		if err := checkMySQLConfiguration(db); err != nil {
+			cancel()
+			db.Close()
+			return nil, fmt.Errorf("MySQL configuration check failed: %v", err)
+		}
+
+		// Create the required tables
+		if err := server.createTablesIfNotExist(); err != nil {
+			cancel()
+			db.Close()
+			return nil, fmt.Errorf("failed to create tables: %v", err)
+		}
+
+		// Clean up expired data on startup (after tables are created)
+		server.cleanupExpiredData()
+	} else {
+		log.Infof("MySQL topo tables already exist, operating in read-only mode (skipping table creation and binlog checks)")
+	}
 
 	return server, nil
 }
