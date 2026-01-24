@@ -333,6 +333,8 @@ func TestRelativePathEdgeCases(t *testing.T) {
 	})
 }
 
+// TestMySQLTopo runs the topo.ServerTestSuite tests against a MySQL topo server
+// This is where most of our coverage comes from.
 func TestMySQLTopo(t *testing.T) {
 	testIndex := 0
 	newServer := func() *topo.Server {

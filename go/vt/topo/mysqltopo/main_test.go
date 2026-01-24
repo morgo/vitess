@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 
 	"vitess.io/vitess/go/vt/log"
 	vttestpb "vitess.io/vitess/go/vt/proto/vttest"
@@ -83,15 +84,26 @@ func TestMain(m *testing.M) {
 	}
 
 	// Run the tests
-	code := m.Run()
+	goleak.VerifyTestMain(m,
+		// Ignore global background goroutines from third-party libraries that are started
+		// during package initialization and run for the lifetime of the process.
+		// These are not leaks - they are expected singleton workers.
+
+		// glog: background flush daemon for file logging
+		goleak.IgnoreTopFunction("github.com/golang/glog.(*fileSink).flushDaemon"),
+
+		// vitess dbconfigs: signal handler for SIGHUP to reload credentials
+		goleak.IgnoreTopFunction("vitess.io/vitess/go/vt/dbconfigs.init.0.func1"),
+		// go-cache: janitor goroutine for cleaning expired cache entries
+		// This is created by vitess throttle/base package's global metricCache
+		goleak.IgnoreTopFunction("github.com/patrickmn/go-cache.(*janitor).Run"),
+	)
 
 	// Clean up the global MySQL server if it was created
 	if testMySQLServer != nil {
 		log.Infof("Tearing down test MySQL server")
 		testMySQLServer.TearDown()
 	}
-
-	os.Exit(code)
 }
 
 // generateRandomSchemaName generates a random schema name for testing
