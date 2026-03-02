@@ -278,11 +278,20 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		return ts.globalCell, nil
 	}
 
-	// Fetch cell cluster addresses from the global cluster.
-	// We can use the GlobalReadOnlyCell for this call.
+	// If the factory has a global read-only cell, it means all cells share
+	// the same connection (e.g., MySQL topo where all cells use the same database).
+	// In this case, we should use the global connection for all cells.
+	// We still need to fetch CellInfo to validate the cell exists, but we don't
+	// create a separate connection.
 	ci, err := ts.GetCellInfo(ctx, cell, false /*strongRead*/)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if we should use the global connection for this cell
+	if ts.factory.HasGlobalReadOnlyCell(ci.ServerAddress, ci.Root) {
+		// Use the global connection for all operations on this cell
+		return ts.globalCell, nil
 	}
 
 	// Return a cached client if present.
