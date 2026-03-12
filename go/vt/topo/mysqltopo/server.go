@@ -120,6 +120,10 @@ type Server struct {
 	// closed indicates if the server has been closed
 	closed bool
 
+	// hasNotificationSystem indicates if this server has acquired a reference
+	// to the shared notification system. This ensures we only release what we acquired.
+	hasNotificationSystem bool
+
 	// ctx is the server context for graceful shutdown
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -323,8 +327,10 @@ func (s *Server) Close() {
 		s.cancel()
 	}
 
-	// Release the notification system
-	releaseNotificationSystem(s.schemaName)
+	// Release the notification system only if we acquired a reference
+	if s.hasNotificationSystem {
+		releaseNotificationSystem(s.schemaName)
+	}
 
 	// Close the database connection
 	if s.db != nil {
@@ -333,7 +339,29 @@ func (s *Server) Close() {
 }
 
 // getNotificationSystemForServer gets the notification system for this server.
+// It acquires a reference to the shared notification system on the first call,
+// and returns the cached reference on subsequent calls. The reference is released
+// when the server is closed.
 func (s *Server) getNotificationSystemForServer() (*notificationSystem, error) {
+	s.mu.Lock()
+	alreadyAcquired := s.hasNotificationSystem
+	if !alreadyAcquired {
+		s.hasNotificationSystem = true
+	}
+	s.mu.Unlock()
+
+	if alreadyAcquired {
+		// We already hold a reference, just look up the existing notification system
+		// without incrementing the refcount again.
+		notificationSystemsMu.Lock()
+		defer notificationSystemsMu.Unlock()
+		ns, exists := notificationSystems[s.schemaName]
+		if !exists {
+			return nil, fmt.Errorf("notification system for schema %s not found", s.schemaName)
+		}
+		return ns, nil
+	}
+
 	return getNotificationSystem(s.schemaName, s.serverAddr)
 }
 

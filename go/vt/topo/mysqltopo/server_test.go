@@ -357,6 +357,10 @@ func TestMySQLTopo(t *testing.T) {
 		})
 		require.NoError(t, err, "CreateCellInfo failed")
 
+		t.Cleanup(func() {
+			ts.Close()
+		})
+
 		t.Logf("Created test server with schema: %s", schemaName)
 		return ts
 	}
